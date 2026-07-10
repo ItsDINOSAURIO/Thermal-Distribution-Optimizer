@@ -1,0 +1,36 @@
+# Data and generated outputs
+DATASETS/
+CHECKS/
+extras/
+modulos/originales/
+modulos/Interfaz_Ablacion_AlphaShape/
+
+# Heavy/generated artifacts
+*.mat
+*.mph
+*.mphbin
+*.stl
+*.done
+*.zip
+*.jpg
+*.jpeg
+*.JPG
+*.JPEG
+*.png
+*.PNG
+*.tif
+*.tiff
+
+# Logs and temporary files
+*.log
+*.tmp
+*.asv
+*.bak
+*.swp
+*~
+
+# Local tool/runtime state
+.agents/
+.codex/
+.DS_Store
+Thumbs.db
