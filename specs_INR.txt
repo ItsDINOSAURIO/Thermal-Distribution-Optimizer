@@ -1,0 +1,107 @@
+CPU
+
+	Intel(R) Core(TM) i9-14900K
+
+	Velocidad de base:	3.20 GHz
+	Sockets:	1
+	Núcleos:	24
+	Procesadores lógicos:	32
+	Virtualización:	Habilitado
+	Caché L1:	2.1 MB
+	Caché L2:	32.0 MB
+	Caché L3:	36.0 MB
+
+	Uso	18%
+	Velocidad	4.26 GHz
+	Tiempo activo	3:05:36:07
+	Procesos	266
+	Subprocesos	6642
+	Identificadores	150918
+
+Memoria
+
+	64.0 GB
+
+	Velocidad:	4800 MT/s
+	Ranuras usadas:	2 de 4
+	Factor de forma:	DIMM
+	Reservada para hardware:	282 MB
+
+	Disponible	43.4 GB
+	En caché	24.8 GB
+	Confirmada	23.7/67.7 GB
+	Bloque paginado	808 MB
+	Bloque no paginado	853 MB
+	En uso (comprimido)	19.6 GB (352 MB)
+
+Disco 0 (G: C: D:)
+
+	ADATA SU800
+
+	Capacidad:	954 GB
+	Con formato:	954 GB
+	Disco del sistema:	Sí
+	Archivo de paginación:	Sí
+	Tipo:	SSD
+
+	Velocidad de lectura	331 KB/s
+	Velocidad de escritura	0 KB/s
+	Tiempo de actividad	0%
+	Tiempo promedio de respuesta	0.6 ms
+
+Disco 1 (E:)
+
+	Kingston DataTraveler 3.0 USB Device
+
+	Capacidad:	28.9 GB
+	Con formato:	28.9 GB
+	Disco del sistema:	No
+	Archivo de paginación:	No
+	Tipo:	Extraíble
+
+	Velocidad de lectura	0 KB/s
+	Velocidad de escritura	0 KB/s
+	Tiempo de actividad	0%
+	Tiempo promedio de respuesta	0 ms
+
+Wi-Fi
+
+	Intel(R) Wi-Fi 6E AX211 160MHz
+
+	Nombre del adaptador:	Wi-Fi
+	SSID:	INRVIP
+	Nombre DNS:	inr.vip.ad
+	Tipo de conexión:	802.11n
+	Dirección IPv4:	192.168.222.197
+	Dirección IPv6:	fe80::9f7e:10a8:a441:d259%18
+	Recepción	0 Kbps
+	Envío	0 Kbps
+
+GPU 0
+
+	Intel(R) UHD Graphics 770
+
+	Versión del controlador:	32.0.101.7082
+	Fecha del controlador:	01/12/2025
+	Versión de DirectX:	12 (FL 12.1)
+	Ubicación física:	Bus PCI 0, dispositivo 2, función 0
+
+	Uso	0%
+	Memoria de la GPU dedicada	
+	Memoria de la GPU compartida	0.0/31.9 GB
+	Memoria de la GPU	0.0/31.9 GB
+
+GPU 1
+
+	NVIDIA GeForce RTX 5070 Ti
+
+	Versión del controlador:	32.0.15.9186
+	Fecha del controlador:	20/01/2026
+	Versión de DirectX:	12 (FL 12.2)
+	Ubicación física:	Bus PCI 1, dispositivo 0, función 0
+
+	Uso	1%
+	Memoria de la GPU dedicada	1.2/16.0 GB
+	Memoria de la GPU compartida	0.1/31.9 GB
+	Memoria de la GPU	1.2/47.9 GB
+
