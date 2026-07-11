@@ -10,6 +10,7 @@ modulos/Interfaz_Ablacion_AlphaShape/
 *.mph
 *.mphbin
 *.stl
+blender view/
 *.done
 *.zip
 *.jpg

@@ -231,8 +231,8 @@ gComp.ColumnSpacing = 8;
 ax3D_1 = crearPanelEje(gComp, 'Comparación STL', 1, 1, 'ax_comparacion_alphashape');
 
 pnlComparacion = crearPanel(gComp, 'Alineación y STL', 1, 2, 'panel_comparacion_alphashape');
-gc = uigridlayout(pnlComparacion, [15 2]);
-gc.RowHeight = repmat({32}, 1, 15);
+gc = uigridlayout(pnlComparacion, [16 2]);
+gc.RowHeight = repmat({32}, 1, 16);
 gc.ColumnWidth = {'1x', '1x'};
 gc.Padding = [10 10 10 10];
 gc.RowSpacing = 8;
@@ -242,31 +242,33 @@ btnSTLNormZ = crearBotonComparacion(gc, 'Rotar a Z', 1, [1 2], 'btn_rotar_z_alph
 btnSTLfijo = crearBotonComparacion(gc, 'STL fijo', 2, 1, 'btn_stl_fijo_alphashape', @(~, ~) SelecionarSTL_fij());
 btnSTLRot = crearBotonComparacion(gc, 'STL libre', 2, 2, 'btn_stl_libre_alphashape', @(~, ~) SelecionarSTL_rot());
 btnSTlHueso = crearBotonComparacion(gc, 'Generar STL de hueso', 3, [1 2], 'btn_stl_hueso_alphashape', @(~, ~) CalculSTLhues());
+btnCalibrarSTL = crearBotonComparacion(gc, 'Calibrar por puntos', 4, [1 2], 'btn_calibrar_stl_alphashape', @(~, ~) CalibrarSTLPorPuntos());
 
-crearLabelAncho(gc, 'Rotación X', 4, 'lbl_rot_x_alphashape');
-btnMasX = crearBotonComparacion(gc, '+', 5, 1, 'btn_rot_x_mas_alphashape', @(~, ~) RotarMaX());
-btnMenX = crearBotonComparacion(gc, '-', 5, 2, 'btn_rot_x_menos_alphashape', @(~, ~) RotarMeX());
-crearLabelAncho(gc, 'Rotación Y', 6, 'lbl_rot_y_alphashape');
-btnMasY = crearBotonComparacion(gc, '+', 7, 1, 'btn_rot_y_mas_alphashape', @(~, ~) RotarMaY());
-btnMenY = crearBotonComparacion(gc, '-', 7, 2, 'btn_rot_y_menos_alphashape', @(~, ~) RotarMeY());
-crearLabelAncho(gc, 'Rotación Z', 8, 'lbl_rot_z_alphashape');
-btnMasZ = crearBotonComparacion(gc, '+', 9, 1, 'btn_rot_z_mas_alphashape', @(~, ~) RotarMaZ());
-btnMenZ = crearBotonComparacion(gc, '-', 9, 2, 'btn_rot_z_menos_alphashape', @(~, ~) RotarMeZ());
+crearLabelAncho(gc, 'Rotación X', 5, 'lbl_rot_x_alphashape');
+btnMasX = crearBotonComparacion(gc, '+', 6, 1, 'btn_rot_x_mas_alphashape', @(~, ~) RotarMaX());
+btnMenX = crearBotonComparacion(gc, '-', 6, 2, 'btn_rot_x_menos_alphashape', @(~, ~) RotarMeX());
+crearLabelAncho(gc, 'Rotación Y', 7, 'lbl_rot_y_alphashape');
+btnMasY = crearBotonComparacion(gc, '+', 8, 1, 'btn_rot_y_mas_alphashape', @(~, ~) RotarMaY());
+btnMenY = crearBotonComparacion(gc, '-', 8, 2, 'btn_rot_y_menos_alphashape', @(~, ~) RotarMeY());
+crearLabelAncho(gc, 'Rotación Z', 9, 'lbl_rot_z_alphashape');
+btnMasZ = crearBotonComparacion(gc, '+', 10, 1, 'btn_rot_z_mas_alphashape', @(~, ~) RotarMaZ());
+btnMenZ = crearBotonComparacion(gc, '-', 10, 2, 'btn_rot_z_menos_alphashape', @(~, ~) RotarMeZ());
 
-crearLabelAncho(gc, 'Traslación X', 10, 'lbl_trans_x_alphashape');
-btnMasXTr = crearBotonComparacion(gc, '+', 11, 1, 'btn_trans_x_mas_alphashape', @(~, ~) TranslMaX());
-btnMenXTr = crearBotonComparacion(gc, '-', 11, 2, 'btn_trans_x_menos_alphashape', @(~, ~) TranslMeX());
-crearLabelAncho(gc, 'Traslación Y', 12, 'lbl_trans_y_alphashape');
-btnMasYTr = crearBotonComparacion(gc, '+', 13, 1, 'btn_trans_y_mas_alphashape', @(~, ~) TranslMaY());
-btnMenYTr = crearBotonComparacion(gc, '-', 13, 2, 'btn_trans_y_menos_alphashape', @(~, ~) TranslMeY());
-crearLabelAncho(gc, 'Traslación Z', 14, 'lbl_trans_z_alphashape');
-btnMasZTr = crearBotonComparacion(gc, '+', 15, 1, 'btn_trans_z_mas_alphashape', @(~, ~) TranslMaZ());
-btnMenZTr = crearBotonComparacion(gc, '-', 15, 2, 'btn_trans_z_menos_alphashape', @(~, ~) TranslMeZ());
+crearLabelAncho(gc, 'Traslación X', 11, 'lbl_trans_x_alphashape');
+btnMasXTr = crearBotonComparacion(gc, '+', 12, 1, 'btn_trans_x_mas_alphashape', @(~, ~) TranslMaX());
+btnMenXTr = crearBotonComparacion(gc, '-', 12, 2, 'btn_trans_x_menos_alphashape', @(~, ~) TranslMeX());
+crearLabelAncho(gc, 'Traslación Y', 13, 'lbl_trans_y_alphashape');
+btnMasYTr = crearBotonComparacion(gc, '+', 14, 1, 'btn_trans_y_mas_alphashape', @(~, ~) TranslMaY());
+btnMenYTr = crearBotonComparacion(gc, '-', 14, 2, 'btn_trans_y_menos_alphashape', @(~, ~) TranslMeY());
+crearLabelAncho(gc, 'Traslación Z', 15, 'lbl_trans_z_alphashape');
+btnMasZTr = crearBotonComparacion(gc, '+', 16, 1, 'btn_trans_z_mas_alphashape', @(~, ~) TranslMaZ());
+btnMenZTr = crearBotonComparacion(gc, '-', 16, 2, 'btn_trans_z_menos_alphashape', @(~, ~) TranslMeZ());
 activarScroll(pnlComparacion);
 activarScroll(gc);
 
 btnSTlHueso.Enable = 'off';
 btnSTLNormZ.Enable = 'off';
+btnCalibrarSTL.Enable = 'off';
 btnMasX.Enable = 'off';
 btnMenX.Enable = 'off';
 btnMasY.Enable = 'off';
@@ -362,7 +364,7 @@ limpiarAxes();
         tesis_auxiliares('tema_ui', 'label', lblBase, 'muted');
         tesis_auxiliares('tema_ui', 'textarea', txtEstado);
         botones = [btnProcesar btnCalibrar btnAblacion btnGrosores btnReconstruir ...
-            btnCalcular btnComparar btnSTLfijo btnSTLRot btnSTLNormZ btnSTlHueso ...
+            btnCalcular btnComparar btnSTLfijo btnSTLRot btnSTLNormZ btnSTlHueso btnCalibrarSTL ...
             btnMasX btnMenX btnMasY btnMenY btnMasZ btnMenZ ...
             btnMasXTr btnMenXTr btnMasYTr btnMenYTr btnMasZTr btnMenZTr];
         for idx_boton = 1:numel(botones)
@@ -865,6 +867,7 @@ limpiarAxes();
         camlight(ax3D_1); lighting(ax3D_1, 'gouraud');
         legend(ax3D_1,{'STL fijo','Reconstruido'});
         hold(ax3D_1,'on');
+        actualizarBotonCalibrarSTL();
         
     end
 
@@ -912,9 +915,145 @@ limpiarAxes();
         btnMasZTr.Enable = 'on';
         btnMenZTr.Enable = 'on';
         btnSTLNormZ.Enable = 'on';
+        actualizarBotonCalibrarSTL();
         
     end
-    
+
+    function actualizarBotonCalibrarSTL()
+        if isfield(app,'V_Fija') && ~isempty(app.V_Fija) && ...
+                isfield(app,'V_lib') && ~isempty(app.V_lib)
+            btnCalibrarSTL.Enable = 'on';
+        else
+            btnCalibrarSTL.Enable = 'off';
+        end
+    end
+
+    function CalibrarSTLPorPuntos()
+        if ~isfield(app,'V_Fija') || isempty(app.V_Fija) || ...
+                ~isfield(app,'V_lib') || isempty(app.V_lib)
+            uialert(fig, 'Carga primero el STL fijo y el STL libre.', 'STL incompletos');
+            return;
+        end
+
+        app.punto_cal_fijo = [];
+        app.normal_cal_fijo = [];
+        dibujarSeleccionCalibracion('Seleccione punto equivalente en STL fijo', true, false);
+        fig.Pointer = 'crosshair';
+        logEstado('Calibración STL: seleccione el punto equivalente en el STL fijo.');
+    end
+
+    function dibujarSeleccionCalibracion(titulo, seleccionarFijo, seleccionarLibre)
+        cla(ax3D_1);
+        hold(ax3D_1,"on"); axis(ax3D_1, 'equal'); view(ax3D_1,3)
+        xlabel(ax3D_1,'X'); ylabel(ax3D_1, 'Y'); zlabel(ax3D_1, 'Z');
+        title(ax3D_1,titulo);
+
+        patch_fijo = patch(ax3D_1,'Faces',app.F_Fija,'Vertices',app.V_Fija, ...
+            'FaceColor',[1 0 0],'EdgeColor','none','FaceAlpha',0.3, ...
+            'PickableParts','visible','HitTest','off');
+        patch_libre = patch(ax3D_1,'Faces',app.F_lib,'Vertices',app.V_lib, ...
+            'FaceColor',[0 0 1],'EdgeColor','none','FaceAlpha',0.6, ...
+            'PickableParts','visible','HitTest','off');
+        if seleccionarFijo
+            patch_fijo.HitTest = 'on';
+            patch_fijo.ButtonDownFcn = @capturarPuntoCalibracionFijo;
+        end
+        if seleccionarLibre
+            patch_libre.HitTest = 'on';
+            patch_libre.ButtonDownFcn = @capturarPuntoCalibracionLibre;
+        end
+
+        if isfield(app,'punto_cal_fijo') && ~isempty(app.punto_cal_fijo)
+            plot3(ax3D_1, app.punto_cal_fijo(1), app.punto_cal_fijo(2), app.punto_cal_fijo(3), ...
+                'yo', 'MarkerSize', 9, 'LineWidth', 2);
+        end
+
+        camlight(ax3D_1); lighting(ax3D_1, 'gouraud');
+        legend(ax3D_1,{'STL fijo','Reconstruido'}, 'Location','best');
+        hold(ax3D_1,'on');
+    end
+
+    function capturarPuntoCalibracionFijo(~, evento)
+        [app.punto_cal_fijo, app.normal_cal_fijo] = puntoNormalMasCercano( ...
+            app.V_Fija, app.F_Fija, evento.IntersectionPoint);
+        dibujarSeleccionCalibracion('Seleccione el punto equivalente en STL libre', false, true);
+        logEstado('Punto fijo capturado. Seleccione el punto equivalente en el STL libre.');
+    end
+
+    function capturarPuntoCalibracionLibre(~, evento)
+        [punto_libre, normal_libre] = puntoNormalMasCercano( ...
+            app.V_lib, app.F_lib, evento.IntersectionPoint);
+        normal_fija = app.normal_cal_fijo;
+        if dot(normal_libre, normal_fija) < 0
+            normal_libre = -normal_libre;
+        end
+
+        Rcal = rotacionEntreVectores(normal_libre, normal_fija);
+        app.V_lib = (Rcal * (app.V_lib - punto_libre)')' + app.punto_cal_fijo;
+        app.V_lib_ori = app.V_lib;
+        app.R = eye(3);
+        app.RotX = 0;
+        app.RotY = 0;
+        app.RotZ = 0;
+        app.T = [0 0 0];
+        fig.Pointer = 'arrow';
+
+        redibujarComparacionSTL('Comparación de volumen');
+        logEstado('Calibración STL aplicada: punto equivalente y normal de cara alineados.');
+    end
+
+    function redibujarComparacionSTL(titulo)
+        cla(ax3D_1);
+        hold(ax3D_1,"on"); axis(ax3D_1, 'equal'); view(ax3D_1,3)
+        xlabel(ax3D_1,'X'); ylabel(ax3D_1, 'Y'); zlabel(ax3D_1, 'Z');
+        title(ax3D_1,titulo);
+        patch(ax3D_1,'Faces',app.F_Fija,'Vertices',app.V_Fija,'FaceColor',[1 0 0],'EdgeColor','none','FaceAlpha',0.3);
+        patch(ax3D_1,'Faces',app.F_lib,'Vertices',app.V_lib,'FaceColor',[0 0 1],'EdgeColor','none','FaceAlpha',0.6);
+        camlight(ax3D_1); lighting(ax3D_1, 'gouraud');
+        legend(ax3D_1,{'STL fijo','Reconstruido'});
+        hold(ax3D_1,'on');
+    end
+
+    function [punto, normal] = puntoNormalMasCercano(vertices, caras, punto_click)
+        punto = punto_click(:)';
+        centroides = (vertices(caras(:,1),:) + vertices(caras(:,2),:) + vertices(caras(:,3),:)) / 3;
+        [~, idx_cara] = min(vecnorm(centroides - punto, 2, 2));
+        v1 = vertices(caras(idx_cara,1),:);
+        v2 = vertices(caras(idx_cara,2),:);
+        v3 = vertices(caras(idx_cara,3),:);
+        normal = cross(v2 - v1, v3 - v1);
+        if norm(normal) < eps
+            normal = [0 0 1];
+        else
+            normal = normal / norm(normal);
+        end
+    end
+
+    function Rcal = rotacionEntreVectores(origen, destino)
+        origen = origen(:) / norm(origen);
+        destino = destino(:) / norm(destino);
+        eje = cross(origen, destino);
+        seno = norm(eje);
+        coseno = dot(origen, destino);
+        if seno < 1e-8
+            if coseno > 0
+                Rcal = eye(3);
+                return;
+            end
+            [~, idx] = min(abs(origen));
+            aux = zeros(3,1);
+            aux(idx) = 1;
+            eje = cross(origen, aux);
+            eje = eje / norm(eje);
+            angulo = pi;
+        else
+            eje = eje / seno;
+            angulo = atan2(seno, coseno);
+        end
+        K = [0 -eje(3) eje(2); eje(3) 0 -eje(1); -eje(2) eje(1) 0];
+        Rcal = eye(3) + sin(angulo) * K + (1 - cos(angulo)) * (K * K);
+    end
+
     function actualiza3Drot()
 
         if app.RotX ~= 0 || app.RotY ~= 0 || app.RotZ ~= 0
