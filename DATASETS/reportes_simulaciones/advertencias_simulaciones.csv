@@ -1,0 +1,2 @@
+TipoAntena,NAntenas,Caso,PotenciaAntena_W,PotenciaTotal_W,NArchivosSTL,NArchivosDone,TieneRegistroSondas,TMinSTL_min,TMaxSTL_min,TiemposSTL,TMaxSondas_C,UmbralSTL_C,Estado,TieneAdvertencia,MotivosAdvertencia,RutaRelativa,RutaCompleta
+Monopolo,1,1,30,30,20,21,1,1,20,"1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20",122.1311,55,REGISTRO_Y_STL,1,T maxima de sondas >= 120.0 C,Monopolo\1ant\Caso_1\Potencia_30W,C:\Users\emili\Downloads\modulos_tesis_refactor_limpio\modulos_tesis_refactor_limpio\DATASETS\distribuciones_stl\Monopolo\1ant\Caso_1\Potencia_30W

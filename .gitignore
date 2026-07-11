@@ -1,17 +1,24 @@
 # Data and generated outputs
-DATASETS/
 CHECKS/
 extras/
 modulos/originales/
 modulos/Interfaz_Ablacion_AlphaShape/
+blender view/
 
 # Heavy/generated artifacts
-*.mat
-*.mph
-*.mphbin
-*.stl
-blender view/
+DATASETS/logs/
+DATASETS/Reconstrucciones/
+DATASETS/datasets_masivos/
+DATASETS/datasets_masivos_por_metadata/
+DATASETS/distribuciones_mat/
+DATASETS/distribuciones_mat_corregidas/
+DATASETS/distribuciones_stl/
+DATASETS/distribuciones_stl_corregidas/
+DATASETS/simulaciones_comsol/
+DATASETS/**/*.done
+DATASETS/**/*.corrupto_*
 *.done
+*.corrupto_*
 *.zip
 *.jpg
 *.jpeg
