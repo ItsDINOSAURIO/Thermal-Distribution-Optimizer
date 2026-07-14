@@ -1,15 +1,11 @@
 # Data and generated outputs
 CHECKS/
 extras/
-modulos/originales/
 modulos/Interfaz_Ablacion_AlphaShape/
-blender view/
 
 # Heavy/generated artifacts
 DATASETS/logs/
-DATASETS/Reconstrucciones/
 DATASETS/datasets_masivos/
-DATASETS/datasets_masivos_por_metadata/
 DATASETS/distribuciones_mat/
 DATASETS/distribuciones_mat_corregidas/
 DATASETS/distribuciones_stl/
@@ -28,6 +24,16 @@ DATASETS/**/*.corrupto_*
 *.PNG
 *.tif
 *.tiff
+
+# Canonical experimental inputs used by Interfaz_Ablacion_AlphaShape
+!DATASETS/Reconstrucciones/**/*.jpg
+!DATASETS/Reconstrucciones/**/*.jpeg
+!DATASETS/Reconstrucciones/**/*.JPG
+!DATASETS/Reconstrucciones/**/*.JPEG
+!DATASETS/Reconstrucciones/**/*.png
+!DATASETS/Reconstrucciones/**/*.PNG
+!DATASETS/Reconstrucciones/**/*.tif
+!DATASETS/Reconstrucciones/**/*.tiff
 
 # Logs and temporary files
 *.log
