@@ -2,17 +2,10 @@
 CHECKS/
 extras/
 modulos/Interfaz_Ablacion_AlphaShape/
+/DATASETS/
+/datasets/
 
 # Heavy/generated artifacts
-DATASETS/logs/
-DATASETS/datasets_masivos/
-DATASETS/distribuciones_mat/
-DATASETS/distribuciones_mat_corregidas/
-DATASETS/distribuciones_stl/
-DATASETS/distribuciones_stl_corregidas/
-DATASETS/simulaciones_comsol/
-DATASETS/**/*.done
-DATASETS/**/*.corrupto_*
 *.done
 *.corrupto_*
 *.zip
@@ -24,16 +17,6 @@ DATASETS/**/*.corrupto_*
 *.PNG
 *.tif
 *.tiff
-
-# Canonical experimental inputs used by Interfaz_Ablacion_AlphaShape
-!DATASETS/Reconstrucciones/**/*.jpg
-!DATASETS/Reconstrucciones/**/*.jpeg
-!DATASETS/Reconstrucciones/**/*.JPG
-!DATASETS/Reconstrucciones/**/*.JPEG
-!DATASETS/Reconstrucciones/**/*.png
-!DATASETS/Reconstrucciones/**/*.PNG
-!DATASETS/Reconstrucciones/**/*.tif
-!DATASETS/Reconstrucciones/**/*.tiff
 
 # Logs and temporary files
 *.log
