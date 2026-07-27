@@ -169,8 +169,7 @@ app.dd_filtro_categoria = uidropdown(gl_filtros, ...
         'Fecha', 'Tiempo', 'Prueba', 'Zonas'}, ...
     'Value', 'Tipo', ...
     'ValueChangedFcn', @(~,~) actualizar_listas_filtros());
-uibutton(gl_filtros, 'Text','Detectar', ...
-    'ButtonPushedFcn', @(~,~) actualizar_catalogo_filtros(true));
+app.dd_filtro_categoria.Layout.Column = [1 2];
 app.lst_filtros_disponibles = uilistbox(gl_filtros, ...
     'Items', {'(sin dataset)'});
 app.lst_filtros_activos = uilistbox(gl_filtros, ...
@@ -293,29 +292,22 @@ uibutton(gl_hist, 'Text','Importar historial (.mat)', ...
 uibutton(gl_hist, 'Text','Exportar historial (.mat)', ...
     'ButtonPushedFcn', @exportar_historial);
 
-actualizar_listas_filtros();
-registrar_mensaje('Aplicación inicializada. Pulse Detectar para cargar los filtros del dataset.');
+actualizar_catalogo_filtros();
 
 %% ================================================================== %%
 %%  CALLBACKS
 %% ================================================================== %%
 
-    function actualizar_catalogo_filtros(mostrar_log)
-        if nargin < 1
-            mostrar_log = false;
-        end
-
+    function actualizar_catalogo_filtros()
         catalogo = crear_filtros_vacios();
-        [carpetas_dataset, metadatos_dataset] = obtener_catalogo_distribuciones(mostrar_log);
+        [carpetas_dataset, metadatos_dataset] = obtener_catalogo_distribuciones();
 
         if isempty(carpetas_dataset)
             app.filtros_catalogo = catalogo;
             app.filtros_activos = crear_filtros_vacios();
             actualizar_listas_filtros();
-            if mostrar_log
-                registrar_mensaje(sprintf('Dataset no encontrado o sin carpetas de metadata en: %s', ...
-                    resumen_raices_catalogo()));
-            end
+            registrar_mensaje(sprintf('Dataset no encontrado o sin carpetas de metadata en: %s', ...
+                resumen_raices_catalogo()));
             return;
         end
 
@@ -345,25 +337,19 @@ registrar_mensaje('Aplicación inicializada. Pulse Detectar para cargar los filt
         app.filtros_catalogo = catalogo;
         actualizar_listas_filtros();
 
-        if mostrar_log
-            registrar_mensaje(sprintf(['Filtros actualizados desde metadata: %d carpetas | ' ...
-                'origenes=%d, tipos=%d, antenas=%d, casos=%d, potencias=%d, ' ...
-                'fechas=%d, tiempos=%d, pruebas=%d, zonas=%d.'], ...
-                numel(carpetas_dataset), numel(app.filtros_catalogo.origenes), ...
-                numel(app.filtros_catalogo.tipos), ...
-                numel(app.filtros_catalogo.antenas), numel(app.filtros_catalogo.casos), ...
-                numel(app.filtros_catalogo.potencias), numel(app.filtros_catalogo.fechas), ...
-                numel(app.filtros_catalogo.tiempos), numel(app.filtros_catalogo.pruebas), ...
-                numel(app.filtros_catalogo.zonas)));
-        end
+        registrar_mensaje(sprintf(['Filtros cargados desde metadata: %d carpetas | ' ...
+            'origenes=%d, tipos=%d, antenas=%d, casos=%d, potencias=%d, ' ...
+            'fechas=%d, tiempos=%d, pruebas=%d, zonas=%d.'], ...
+            numel(carpetas_dataset), numel(app.filtros_catalogo.origenes), ...
+            numel(app.filtros_catalogo.tipos), ...
+            numel(app.filtros_catalogo.antenas), numel(app.filtros_catalogo.casos), ...
+            numel(app.filtros_catalogo.potencias), numel(app.filtros_catalogo.fechas), ...
+            numel(app.filtros_catalogo.tiempos), numel(app.filtros_catalogo.pruebas), ...
+            numel(app.filtros_catalogo.zonas)));
     end
 
-    function [carpetas_dataset, metadatos_dataset] = obtener_catalogo_distribuciones(forzar_recarga)
-        if nargin < 1
-            forzar_recarga = false;
-        end
-        if ~forzar_recarga && isfield(app, 'catalogo_dataset_cache') && ...
-                ~isempty(app.catalogo_dataset_cache.carpetas)
+    function [carpetas_dataset, metadatos_dataset] = obtener_catalogo_distribuciones()
+        if ~isempty(app.catalogo_dataset_cache.carpetas)
             carpetas_dataset = app.catalogo_dataset_cache.carpetas;
             metadatos_dataset = app.catalogo_dataset_cache.metadatos;
             return;
@@ -742,14 +728,13 @@ registrar_mensaje('Aplicación inicializada. Pulse Detectar para cargar los filt
             return;
         end
 
-        [carpetas_dataset, metadatos_carpetas] = obtener_catalogo_distribuciones(false);
+        [carpetas_dataset, metadatos_carpetas] = obtener_catalogo_distribuciones();
         if isempty(carpetas_dataset)
             registrar_mensaje(sprintf('ERROR: No se encontraron carpetas de metadata en %s.', ...
                 resumen_raices_catalogo()));
             return;
         end
 
-        actualizar_catalogo_filtros(false);
         filtros_activos = app.filtros_activos;
 
         carpetas_validas = false(length(carpetas_dataset), 1);
