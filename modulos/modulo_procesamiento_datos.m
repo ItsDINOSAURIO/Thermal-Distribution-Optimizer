@@ -8547,40 +8547,32 @@ function catalogo = catalogar_correcciones_metadata_ext(carpeta)
         'datenum', NaN, 'nombre', '');
     catalogo = plantilla([]);
     if ~isfolder(carpeta), return; end
-    archivos = dir(fullfile(carpeta, '**', '*.mat'));
+    archivos = dir(fullfile(carpeta, '*', '*', 'Caso_*', 'Potencia_*', ...
+        'Fecha_*', 'Tiempo_*', 'Prueba_*', 'Zonas_*', 'Correccion_*.mat'));
     archivos = archivos(~[archivos.isdir]);
     for k = 1:numel(archivos)
         ruta = fullfile(archivos(k).folder, archivos(k).name);
         if ruta_esta_en_repetidos_global(ruta), continue; end
-        try
-            raw = load(ruta, 'metadata_correlacion', 'nombre_sim', ...
-                'nombre_exp', 'correccion_termica');
-            if ~isfield(raw, 'correccion_termica'), continue; end
-            raw.ruta_correccion_mat = ruta;
-            meta = metadata_correccion_ext_unificada(raw);
-            if ~metadata_corr_ext_completa(meta), continue; end
-            entrada = plantilla;
-            entrada.ruta = ruta;
-            entrada.tipo = meta.tipo_antena;
-            entrada.num_antenas = meta.num_antenas;
-            entrada.antena = sprintf('%dant', round(meta.num_antenas));
-            entrada.caso = meta.caso;
-            entrada.potencia_W = meta.potencia_W;
-            entrada.fecha_adquisicion = meta.fecha_adquisicion;
-            entrada.tiempo_ejecucion_min = meta.tiempo_ejecucion_min;
-            entrada.numero_prueba = meta.numero_prueba;
-            entrada.num_zonas = meta.num_zonas;
-            entrada.fecha = meta.fecha_adquisicion;
-            entrada.tiempo = sprintf('%gmin', meta.tiempo_ejecucion_min);
-            entrada.prueba = sprintf('Prueba_%d', round(meta.numero_prueba));
-            entrada.zona = meta.zona_experimental;
-            entrada.datenum = archivos(k).datenum;
-            entrada.nombre = archivos(k).name;
-            catalogo(end + 1) = entrada; %#ok<AGROW>
-        catch ME
-            warning('CatalogoCorrecciones:ArchivoOmitido', ...
-                'Correccion omitida %s: %s', ruta, ME.message);
-        end
+        meta = tesis_auxiliares('metadata_ruta', ruta);
+        if ~meta.completa_simulacion || ~meta.completa_adquisicion, continue; end
+        entrada = plantilla;
+        entrada.ruta = ruta;
+        entrada.tipo = meta.tipo;
+        entrada.num_antenas = meta.num_antenas;
+        entrada.antena = meta.antena;
+        entrada.caso = meta.caso;
+        entrada.potencia_W = meta.potencia_W;
+        entrada.fecha_adquisicion = meta.fecha_adquisicion;
+        entrada.tiempo_ejecucion_min = meta.tiempo_ejecucion_min;
+        entrada.numero_prueba = meta.numero_prueba;
+        entrada.num_zonas = meta.num_zonas;
+        entrada.fecha = meta.fecha_adquisicion;
+        entrada.tiempo = sprintf('%gmin', meta.tiempo_ejecucion_min);
+        entrada.prueba = sprintf('Prueba_%d', round(meta.numero_prueba));
+        entrada.zona = meta.zona_experimental;
+        entrada.datenum = archivos(k).datenum;
+        entrada.nombre = archivos(k).name;
+        catalogo(end + 1) = entrada; %#ok<AGROW>
     end
 end
 

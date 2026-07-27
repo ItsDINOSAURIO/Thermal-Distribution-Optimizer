@@ -87,8 +87,7 @@ app.ejes_a_rotar                = [1 2];
 app.volumen_distribucion_optima = [];
 app.caras_distribucion_optima   = [];
 app.catalogo_dataset_cache      = struct( ...
-    'metodo_voxel', '', ...
-    'archivos', [], ...
+    'carpetas', [], ...
     'metadatos', [], ...
     'timestamp', []);
 app.profundidad_base_antena_mm  = 26.4;
@@ -167,7 +166,7 @@ gl_filtros.RowHeight = {26, '1x'};
 gl_filtros.ColumnWidth = {'1x', '1x'};
 app.dd_filtro_categoria = uidropdown(gl_filtros, ...
     'Items', {'Origen', 'Tipo', 'Antenas', 'Caso', 'Potencia', ...
-        'Fecha', 'Tiempo', 'Prueba', 'Zonas', 'Resolucion'}, ...
+        'Fecha', 'Tiempo', 'Prueba', 'Zonas'}, ...
     'Value', 'Tipo', ...
     'ValueChangedFcn', @(~,~) actualizar_listas_filtros());
 uibutton(gl_filtros, 'Text','Detectar', ...
@@ -206,8 +205,6 @@ uibutton(gl_sidebar, 'Text','4. Exportar Reporte PDF', ...
     'ButtonPushedFcn', @exportar_pdf);
 
 uilabel(gl_sidebar, 'Text','');
-app.dd_metodo_voxel.ValueChangedFcn = @(~,~) actualizar_catalogo_filtros(true);
-
 %% ------------------------------------------------------------------ %%
 %%  PANEL DERECHO — 3 columnas
 %% ------------------------------------------------------------------ %%
@@ -309,22 +306,21 @@ registrar_mensaje('Aplicación inicializada. Pulse Detectar para cargar los filt
         end
 
         catalogo = crear_filtros_vacios();
-        metodo_voxel = app.dd_metodo_voxel.Value;
-        [archivos_dataset, metadatos_dataset] = obtener_catalogo_distribuciones(metodo_voxel, mostrar_log);
+        [carpetas_dataset, metadatos_dataset] = obtener_catalogo_distribuciones(mostrar_log);
 
-        if isempty(archivos_dataset)
+        if isempty(carpetas_dataset)
             app.filtros_catalogo = catalogo;
             app.filtros_activos = crear_filtros_vacios();
             actualizar_listas_filtros();
             if mostrar_log
-                registrar_mensaje(sprintf('Dataset no encontrado o sin archivos %s en: %s', ...
-                    metodo_voxel, resumen_raices_catalogo()));
+                registrar_mensaje(sprintf('Dataset no encontrado o sin carpetas de metadata en: %s', ...
+                    resumen_raices_catalogo()));
             end
             return;
         end
 
-        for idx_archivo = 1:numel(archivos_dataset)
-            meta = metadatos_dataset(idx_archivo);
+        for idx_carpeta = 1:numel(carpetas_dataset)
+            meta = metadatos_dataset(idx_carpeta);
             if ~meta.es_valido
                 continue;
             end
@@ -336,7 +332,6 @@ registrar_mensaje('Aplicación inicializada. Pulse Detectar para cargar los filt
             catalogo.tiempos = agregar_valor_filtro(catalogo.tiempos, meta.tiempo);
             catalogo.pruebas = agregar_valor_filtro(catalogo.pruebas, meta.prueba);
             catalogo.zonas = agregar_valor_filtro(catalogo.zonas, meta.zonas);
-            catalogo.resoluciones = agregar_valor_filtro(catalogo.resoluciones, meta.resolucion_texto);
             catalogo.origenes = agregar_valor_filtro(catalogo.origenes, meta.origen);
         end
 
@@ -351,40 +346,47 @@ registrar_mensaje('Aplicación inicializada. Pulse Detectar para cargar los filt
         actualizar_listas_filtros();
 
         if mostrar_log
-            registrar_mensaje(sprintf(['Filtros actualizados desde metadata: %d archivos | ' ...
+            registrar_mensaje(sprintf(['Filtros actualizados desde metadata: %d carpetas | ' ...
                 'origenes=%d, tipos=%d, antenas=%d, casos=%d, potencias=%d, ' ...
-                'fechas=%d, tiempos=%d, pruebas=%d, zonas=%d, resoluciones=%d.'], ...
-                numel(archivos_dataset), numel(app.filtros_catalogo.origenes), ...
+                'fechas=%d, tiempos=%d, pruebas=%d, zonas=%d.'], ...
+                numel(carpetas_dataset), numel(app.filtros_catalogo.origenes), ...
                 numel(app.filtros_catalogo.tipos), ...
                 numel(app.filtros_catalogo.antenas), numel(app.filtros_catalogo.casos), ...
                 numel(app.filtros_catalogo.potencias), numel(app.filtros_catalogo.fechas), ...
                 numel(app.filtros_catalogo.tiempos), numel(app.filtros_catalogo.pruebas), ...
-                numel(app.filtros_catalogo.zonas), numel(app.filtros_catalogo.resoluciones)));
+                numel(app.filtros_catalogo.zonas)));
         end
     end
 
-    function [archivos_dataset, metadatos_dataset] = obtener_catalogo_distribuciones(metodo_voxel, forzar_recarga)
-        if nargin < 2
+    function [carpetas_dataset, metadatos_dataset] = obtener_catalogo_distribuciones(forzar_recarga)
+        if nargin < 1
             forzar_recarga = false;
         end
         if ~forzar_recarga && isfield(app, 'catalogo_dataset_cache') && ...
-                strcmp(app.catalogo_dataset_cache.metodo_voxel, metodo_voxel) && ...
-                ~isempty(app.catalogo_dataset_cache.archivos)
-            archivos_dataset = app.catalogo_dataset_cache.archivos;
+                ~isempty(app.catalogo_dataset_cache.carpetas)
+            carpetas_dataset = app.catalogo_dataset_cache.carpetas;
             metadatos_dataset = app.catalogo_dataset_cache.metadatos;
             return;
         end
 
-        archivos_dataset = [];
+        carpetas_dataset = struct([]);
         metadatos_dataset = crear_metadatos_archivo(0);
         for idx_raiz = 1:numel(raices_catalogo_distribuciones)
             raiz = raices_catalogo_distribuciones(idx_raiz);
             if ~isfolder(raiz.mat)
                 continue;
             end
-            archivos_raiz = dir(fullfile(raiz.mat, '**', sprintf('*_%s_res*.mat', metodo_voxel)));
-            for idx_archivo = 1:numel(archivos_raiz)
-                ruta_absoluta = fullfile(archivos_raiz(idx_archivo).folder, archivos_raiz(idx_archivo).name);
+            if strcmpi(raiz.origen, 'corregido')
+                patron = fullfile(raiz.mat, '*', '*', 'Caso_*', 'Potencia_*', ...
+                    'Fecha_*', 'Tiempo_*', 'Prueba_*', 'Zonas_*');
+            else
+                patron = fullfile(raiz.mat, '*', '*', 'Caso_*', 'Potencia_*');
+            end
+            carpetas_raiz = dir(patron);
+            carpetas_raiz = carpetas_raiz([carpetas_raiz.isdir]);
+            for idx_carpeta = 1:numel(carpetas_raiz)
+                ruta_absoluta = fullfile( ...
+                    carpetas_raiz(idx_carpeta).folder, carpetas_raiz(idx_carpeta).name);
                 prefijo = [char(raiz.mat) filesep];
                 if startsWith(ruta_absoluta, prefijo, 'IgnoreCase', ispc)
                     ruta_relativa = ruta_absoluta(numel(prefijo) + 1:end);
@@ -423,27 +425,18 @@ registrar_mensaje('Aplicación inicializada. Pulse Detectar para cargar los filt
                 if isfinite(metadata_ruta.num_zonas)
                     meta_actual.zonas = sprintf('Zonas_%d', round(metadata_ruta.num_zonas));
                 end
-                [~, nombre_mat_sin_ext, ~] = fileparts(archivos_raiz(idx_archivo).name);
-                meta_actual.resolucion = extraer_resolucion_nombre_mat( ...
-                    nombre_mat_sin_ext, metodo_voxel);
-                if isfinite(meta_actual.resolucion)
-                    meta_actual.resolucion_texto = sprintf('%.2f mm', meta_actual.resolucion);
-                else
-                    meta_actual.resolucion_texto = 'sin_resolucion';
-                end
                 meta_actual.origen = raiz.origen;
                 meta_actual.ruta_relativa = ruta_relativa;
                 meta_actual.raiz_mat = raiz.mat;
                 meta_actual.raiz_stl = raiz.stl;
 
-                archivos_dataset = [archivos_dataset; archivos_raiz(idx_archivo)]; %#ok<AGROW>
+                carpetas_dataset = [carpetas_dataset; carpetas_raiz(idx_carpeta)]; %#ok<AGROW>
                 metadatos_dataset(end+1) = meta_actual; %#ok<AGROW>
             end
         end
 
         app.catalogo_dataset_cache = struct( ...
-            'metodo_voxel', metodo_voxel, ...
-            'archivos', archivos_dataset, ...
+            'carpetas', carpetas_dataset, ...
             'metadatos', metadatos_dataset, ...
             'timestamp', datetime('now'));
     end
@@ -534,7 +527,7 @@ registrar_mensaje('Aplicación inicializada. Pulse Detectar para cargar los filt
             case 'Zonas'
                 campo = 'zonas';
             otherwise
-                campo = 'resoluciones';
+                error('Categoria de filtro no soportada: %s', app.dd_filtro_categoria.Value);
         end
     end
 
@@ -749,20 +742,19 @@ registrar_mensaje('Aplicación inicializada. Pulse Detectar para cargar los filt
             return;
         end
 
-        [rutas_distribuciones_termicas, metadatos_distribuciones] = ...
-            obtener_catalogo_distribuciones(metodo_voxel, false);
-        if isempty(rutas_distribuciones_termicas)
-            registrar_mensaje(sprintf('ERROR: No se encontraron archivos *_%s_res*.mat en %s.', ...
-                metodo_voxel, resumen_raices_catalogo()));
+        [carpetas_dataset, metadatos_carpetas] = obtener_catalogo_distribuciones(false);
+        if isempty(carpetas_dataset)
+            registrar_mensaje(sprintf('ERROR: No se encontraron carpetas de metadata en %s.', ...
+                resumen_raices_catalogo()));
             return;
         end
 
         actualizar_catalogo_filtros(false);
         filtros_activos = app.filtros_activos;
 
-        archivos_validos = false(length(rutas_distribuciones_termicas), 1);
-        for i = 1:length(rutas_distribuciones_termicas)
-            meta_i = metadatos_distribuciones(i);
+        carpetas_validas = false(length(carpetas_dataset), 1);
+        for i = 1:length(carpetas_dataset)
+            meta_i = metadatos_carpetas(i);
             if ~meta_i.es_valido, continue; end
             if ~(coincide_filtro_metadata(meta_i.tipo, filtros_activos.tipos) && ...
                     coincide_filtro_metadata(meta_i.arreglo, filtros_activos.antenas) && ...
@@ -772,69 +764,95 @@ registrar_mensaje('Aplicación inicializada. Pulse Detectar para cargar los filt
                     coincide_filtro_metadata(meta_i.tiempo, filtros_activos.tiempos) && ...
                     coincide_filtro_metadata(meta_i.prueba, filtros_activos.pruebas) && ...
                     coincide_filtro_metadata(meta_i.zonas, filtros_activos.zonas) && ...
-                    coincide_filtro_metadata(meta_i.resolucion_texto, filtros_activos.resoluciones) && ...
                     coincide_filtro_metadata(meta_i.origen, filtros_activos.origenes))
                 continue;
             end
-            archivos_validos(i) = true;
+            carpetas_validas(i) = true;
         end
-        archivos_filtrados = rutas_distribuciones_termicas(archivos_validos);
-        metadatos_filtrados = metadatos_distribuciones(archivos_validos);
+        carpetas_filtradas = carpetas_dataset(carpetas_validas);
+        metadatos_carpetas = metadatos_carpetas(carpetas_validas);
 
-        if isempty(archivos_filtrados)
-            registrar_mensaje('ERROR: Ningun archivo del dataset pasa los filtros.');
+        if isempty(carpetas_filtradas)
+            registrar_mensaje('ERROR: Ninguna carpeta de metadata pasa los filtros.');
             return;
         end
-        if isempty(filtros_activos.resoluciones)
-            n_res_omitidas = 0;
-            if numel(archivos_filtrados) > 1
-                claves = cell(numel(archivos_filtrados), 1);
-                resoluciones = nan(numel(archivos_filtrados), 1);
-                for idx_archivo = 1:numel(archivos_filtrados)
-                    [~, nombre, ~] = fileparts(archivos_filtrados(idx_archivo).name);
-                    nombre_base = regexprep(nombre, ...
-                        ['_' regexptranslate('escape', metodo_voxel) '_res[\d\.]+$'], '');
-                    resoluciones(idx_archivo) = extraer_resolucion_nombre_mat(nombre, metodo_voxel);
-                    meta = metadatos_filtrados(idx_archivo);
-                    claves{idx_archivo} = strjoin({meta.origen, meta.tipo, meta.arreglo, ...
-                        meta.caso, meta.potencia, meta.fecha, meta.tiempo, ...
-                        meta.prueba, meta.zonas, nombre_base}, '|');
+
+        archivos_filtrados = struct([]);
+        metadatos_filtrados = crear_metadatos_archivo(0);
+        for idx_carpeta = 1:numel(carpetas_filtradas)
+            ruta_carpeta = fullfile( ...
+                carpetas_filtradas(idx_carpeta).folder, carpetas_filtradas(idx_carpeta).name);
+            archivos_carpeta = dir(fullfile( ...
+                ruta_carpeta, sprintf('*_%s_res*.mat', metodo_voxel)));
+            for idx_archivo = 1:numel(archivos_carpeta)
+                meta_archivo = metadatos_carpetas(idx_carpeta);
+                [~, nombre, ~] = fileparts(archivos_carpeta(idx_archivo).name);
+                meta_archivo.resolucion = extraer_resolucion_nombre_mat(nombre, metodo_voxel);
+                if isfinite(meta_archivo.resolucion)
+                    meta_archivo.resolucion_texto = sprintf('%.2f mm', meta_archivo.resolucion);
+                else
+                    meta_archivo.resolucion_texto = 'sin_resolucion';
                 end
-                claves_unicas = {};
-                grupos = zeros(numel(claves), 1);
-                for idx_clave = 1:numel(claves)
-                    posicion = find(strcmp(claves_unicas, claves{idx_clave}), 1);
-                    if isempty(posicion)
-                        claves_unicas{end + 1} = claves{idx_clave}; %#ok<AGROW>
-                        posicion = numel(claves_unicas);
-                    end
-                    grupos(idx_clave) = posicion;
-                end
-                indices_sel = zeros(numel(claves_unicas), 1);
-                for idx_grupo = 1:numel(claves_unicas)
-                    candidatos = find(grupos == idx_grupo);
-                    res_candidatas = resoluciones(candidatos);
-                    distancia = abs(res_candidatas - resolucion_fina);
-                    distancia(~isfinite(distancia)) = inf;
-                    [~, orden] = sortrows([distancia(:), res_candidatas(:)], [1 2]);
-                    indices_sel(idx_grupo) = candidatos(orden(1));
-                end
-                indices_sel = sort(indices_sel);
-                n_res_omitidas = numel(archivos_filtrados) - numel(indices_sel);
-                archivos_filtrados = archivos_filtrados(indices_sel);
-                metadatos_filtrados = metadatos_filtrados(indices_sel);
+                meta_archivo.ruta_relativa = fullfile( ...
+                    meta_archivo.ruta_relativa, archivos_carpeta(idx_archivo).name);
+                archivos_filtrados(end + 1) = archivos_carpeta(idx_archivo); %#ok<AGROW>
+                metadatos_filtrados(end + 1) = meta_archivo; %#ok<AGROW>
             end
-            if n_res_omitidas > 0
-                registrar_mensaje(sprintf(['Resoluciones MAT duplicadas omitidas: %d. ', ...
-                    'Preferencia automatica: res %.2f mm por distribucion.'], ...
-                    n_res_omitidas, resolucion_fina));
-            end
-        else
-            registrar_mensaje(sprintf('Filtro de resolucion activo: %s', ...
-                strjoin(filtros_activos.resoluciones, ', ')));
         end
-        registrar_mensaje(sprintf('Distribuciones MAT: %d detectadas, %d tras filtros.', ...
-            numel(rutas_distribuciones_termicas), numel(archivos_filtrados)));
+        if isempty(archivos_filtrados)
+            registrar_mensaje(sprintf( ...
+                'ERROR: Las carpetas filtradas no contienen archivos *_%s_res*.mat.', ...
+                metodo_voxel));
+            return;
+        end
+
+        n_res_omitidas = 0;
+        if numel(archivos_filtrados) > 1
+            claves = cell(numel(archivos_filtrados), 1);
+            resoluciones = nan(numel(archivos_filtrados), 1);
+            for idx_archivo = 1:numel(archivos_filtrados)
+                [~, nombre, ~] = fileparts(archivos_filtrados(idx_archivo).name);
+                nombre_base = regexprep(nombre, ...
+                    ['_' regexptranslate('escape', metodo_voxel) '_res[\d\.]+$'], '');
+                resoluciones(idx_archivo) = extraer_resolucion_nombre_mat(nombre, metodo_voxel);
+                meta = metadatos_filtrados(idx_archivo);
+                claves{idx_archivo} = strjoin({meta.origen, meta.tipo, meta.arreglo, ...
+                    meta.caso, meta.potencia, meta.fecha, meta.tiempo, ...
+                    meta.prueba, meta.zonas, nombre_base}, '|');
+            end
+            claves_unicas = {};
+            grupos = zeros(numel(claves), 1);
+            for idx_clave = 1:numel(claves)
+                posicion = find(strcmp(claves_unicas, claves{idx_clave}), 1);
+                if isempty(posicion)
+                    claves_unicas{end + 1} = claves{idx_clave}; %#ok<AGROW>
+                    posicion = numel(claves_unicas);
+                end
+                grupos(idx_clave) = posicion;
+            end
+            indices_sel = zeros(numel(claves_unicas), 1);
+            for idx_grupo = 1:numel(claves_unicas)
+                candidatos = find(grupos == idx_grupo);
+                res_candidatas = resoluciones(candidatos);
+                distancia = abs(res_candidatas - resolucion_fina);
+                distancia(~isfinite(distancia)) = inf;
+                [~, orden] = sortrows([distancia(:), res_candidatas(:)], [1 2]);
+                indices_sel(idx_grupo) = candidatos(orden(1));
+            end
+            indices_sel = sort(indices_sel);
+            n_res_omitidas = numel(archivos_filtrados) - numel(indices_sel);
+            archivos_filtrados = archivos_filtrados(indices_sel);
+            metadatos_filtrados = metadatos_filtrados(indices_sel);
+        end
+        if n_res_omitidas > 0
+            registrar_mensaje(sprintf(['Resoluciones MAT duplicadas omitidas: %d. ', ...
+                'Preferencia automatica: res %.2f mm por distribucion.'], ...
+                n_res_omitidas, resolucion_fina));
+        end
+        registrar_mensaje(sprintf( ...
+            'Metadata: %d carpetas, %d compatibles | archivos %s: %d.', ...
+            numel(carpetas_dataset), numel(carpetas_filtradas), ...
+            metodo_voxel, numel(archivos_filtrados)));
 
         progDlg = uiprogressdlg(app.fig, 'Title','Calculando...', ...
             'Message','Iniciando...', 'Cancelable','on');
@@ -1802,15 +1820,14 @@ filtros = struct( ...
     'tiempos', {{}}, ...
     'pruebas', {{}}, ...
     'zonas', {{}}, ...
-    'resoluciones', {{}}, ...
     'origenes', {{}});
 end
 
 function valores = valores_filtro_compatibles(metadatos, filtros_activos, campo_excluido)
 campos_filtro = {'tipos', 'antenas', 'casos', 'potencias', 'fechas', ...
-    'tiempos', 'pruebas', 'zonas', 'resoluciones', 'origenes'};
+    'tiempos', 'pruebas', 'zonas', 'origenes'};
 campos_metadata = {'tipo', 'arreglo', 'caso', 'potencia', 'fecha', ...
-    'tiempo', 'prueba', 'zonas', 'resolucion_texto', 'origen'};
+    'tiempo', 'prueba', 'zonas', 'origen'};
 idx_excluido = find(strcmp(campos_filtro, campo_excluido), 1);
 if isempty(metadatos) || isempty(idx_excluido)
     valores = {};
