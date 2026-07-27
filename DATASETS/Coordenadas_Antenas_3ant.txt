@@ -1,5 +1,0 @@
-Sistema de Coordenadas (3 antenas)
-Antena	X (mm)	Y (mm)	Z (mm)
-1		0.00		11.55		25.00
-2		10.00		-5.77		25.00
-3		-10.00		-5.77		25.00
