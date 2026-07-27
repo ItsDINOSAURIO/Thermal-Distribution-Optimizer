@@ -17,7 +17,7 @@ function modulo_procesamiento_datos(varargin)
         end
     end
     theme = tesis_auxiliares('tema_ui');
-    paths = tesis_auxiliares('asegurar_dataset_paths');
+    paths = tesis_auxiliares('dataset_paths');
     dataset_default = tesis_auxiliares('dataset_masivo_reciente', paths);
     if hay_mats_particionados(paths.datasets_masivos_por_metadata)
         dataset_default = paths.datasets_masivos_por_metadata;
@@ -588,7 +588,10 @@ function modulo_procesamiento_datos(varargin)
             end
             items = cell(1, numel(idx));
             for ii = 1:numel(idx)
-                items{ii} = etiqueta_catalogo_ext(catalogo(idx(ii)));
+                entrada = catalogo(idx(ii));
+                partes = {entrada.modelo, entrada.dataset, entrada.tipo, ...
+                    entrada.antena, entrada.caso, entrada.potencia};
+                items{ii} = strjoin(partes(~cellfun(@isempty, partes)), ' | ');
             end
             c_ext.ds.Items = items;
             c_ext.ds.Value = items{1};
@@ -671,8 +674,11 @@ function modulo_procesamiento_datos(varargin)
             if strcmp(controles(k).campo, campo_excluido)
                 continue;
             end
-            mask = mask & pasa_filtro_ext( ...
-                valores_catalogo_ext(catalogo, controles(k).campo), controles(k).control.Value);
+            valores = valores_catalogo_ext(catalogo, controles(k).campo);
+            filtro = controles(k).control.Value;
+            if ~isempty(filtro) && ~strcmp(filtro, 'Todos')
+                mask = mask & strcmp(valores, filtro);
+            end
         end
         catalogo = catalogo(mask);
     end
@@ -683,14 +689,6 @@ function modulo_procesamiento_datos(varargin)
         else
             valores = {catalogo.(campo)};
         end
-    end
-
-    function mask = pasa_filtro_ext(valores, filtro)
-        if isempty(filtro) || strcmp(filtro, 'Todos')
-            mask = true(size(valores));
-            return;
-        end
-        mask = strcmp(valores, filtro);
     end
 
     function set_actualizando_filtros_ext(valor)
@@ -807,7 +805,7 @@ function modulo_procesamiento_datos(varargin)
             if isempty(entrada.modelo) || isempty(entrada.dataset)
                 continue;
             end
-            entrada.clave = clave_catalogo_ext(entrada);
+            entrada.clave = lower([entrada.modelo '__' entrada.dataset]);
             key = entrada.clave;
             if any(strcmp(keys, key))
                 continue;
@@ -849,18 +847,6 @@ function modulo_procesamiento_datos(varargin)
         else
             catalogo = repmat(plantilla, n, 1);
         end
-    end
-
-    function clave = clave_catalogo_ext(entrada)
-        partes = {entrada.modelo, entrada.dataset};
-        partes = partes(~cellfun(@isempty, partes));
-        clave = lower(strjoin(partes, '__'));
-    end
-
-    function etiqueta = etiqueta_catalogo_ext(entrada)
-        partes = {entrada.modelo, entrada.dataset, entrada.tipo, entrada.antena, entrada.caso, entrada.potencia};
-        partes = partes(~cellfun(@isempty, partes));
-        etiqueta = strjoin(partes, ' | ');
     end
 
     function valor = valor_catalogo_ext(s, campo, predeterminado)
@@ -1078,7 +1064,12 @@ function modulo_procesamiento_datos(varargin)
     end
 
     function sincronizar_correccion_ext_filtrada()
-        [completo, tipo, antena, caso, potencia] = filtro_correccion_ext_actual();
+        tipo = char(c_ext.tipo.Value);
+        antena = char(c_ext.antena.Value);
+        caso = numero_filtro_correccion_ext(c_ext.caso.Value, 'Caso_');
+        potencia = numero_filtro_correccion_ext(c_ext.potencia.Value, 'Potencia_', 'W');
+        completo = ~strcmp(tipo, 'Todos') && ~strcmp(antena, 'Todos') && ...
+            isfinite(caso) && isfinite(potencia);
         filtros_corr = controles_filtros_correccion_ext();
         completo = completo && all(arrayfun(@(x) ...
             ~strcmp(x.control.Value, 'Todos'), filtros_corr));
@@ -1125,15 +1116,6 @@ function modulo_procesamiento_datos(varargin)
             logmsg('Correccion filtrada invalida: %s', ME.message);
             estado.Text = 'Error en correccion filtrada.';
         end
-    end
-
-    function [completo, tipo, antena, caso, potencia] = filtro_correccion_ext_actual()
-        tipo = char(c_ext.tipo.Value);
-        antena = char(c_ext.antena.Value);
-        caso = numero_filtro_correccion_ext(c_ext.caso.Value, 'Caso_');
-        potencia = numero_filtro_correccion_ext(c_ext.potencia.Value, 'Potencia_', 'W');
-        completo = ~strcmp(tipo, 'Todos') && ~strcmp(antena, 'Todos') && ...
-            isfinite(caso) && isfinite(potencia);
     end
 
     function valor = numero_filtro_correccion_ext(texto, prefijo, sufijo)
@@ -1921,8 +1903,7 @@ end
 
 function bootstrap_modulo()
     carpeta_modulo = fileparts(mfilename('fullpath'));
-    candidatos_aux = {fullfile(carpeta_modulo, '..', 'Aux_Codes'), ...
-        fullfile(carpeta_modulo, '..', '..', 'Aux_Codes')};
+    candidatos_aux = {fullfile(carpeta_modulo, '..', 'aux_codes')};
     for k_aux = 1:numel(candidatos_aux)
         if isfolder(candidatos_aux{k_aux}), addpath(candidatos_aux{k_aux}); end
     end
@@ -2006,17 +1987,6 @@ function comsol_mat_exportador_masivo(varargin)
 %  - stlwrite
 %
 % =========================================================================
-    % Permite ejecutar el modulo desde el launcher o directamente.
-    carpeta_modulo = fileparts(mfilename('fullpath'));
-    candidatos_aux = {fullfile(carpeta_modulo, '..', 'Aux_Codes'), ...
-        fullfile(carpeta_modulo, '..', '..', 'Aux_Codes')};
-    for k_aux = 1:numel(candidatos_aux)
-        if isfolder(candidatos_aux{k_aux}), addpath(candidatos_aux{k_aux}); end
-    end
-    if exist('tesis_auxiliares', 'file') == 2
-        tesis_auxiliares('configurar_paths', carpeta_modulo);
-    end
-
     if nargin == 0
         lanzar_ui_comsol_mat_exportador_masivo();
         return;
@@ -2087,7 +2057,7 @@ function comsol_mat_exportador_masivo(varargin)
 end
 
 function lanzar_ui_comsol_mat_exportador_masivo()
-    data_paths = tesis_auxiliares('asegurar_dataset_paths');
+    data_paths = tesis_auxiliares('dataset_paths');
     dataset_default = tesis_auxiliares('dataset_masivo_reciente', data_paths);
     if hay_mats_particionados(data_paths.datasets_masivos_por_metadata)
         dataset_default = data_paths.datasets_masivos_por_metadata;
@@ -2114,7 +2084,7 @@ function ejecutar_desde_ui_comsol_mat_exportador(valores, logfn)
         error('Selecciona un archivo .mat o una carpeta de particiones valida antes de ejecutar.');
     end
     valores.logfn = logfn;
-    data_paths = tesis_auxiliares('asegurar_dataset_paths');
+    data_paths = tesis_auxiliares('dataset_paths');
     valores.carpeta_exportacion = data_paths.distribuciones_stl;
     logfn('MAT de entrada: %s', valores.ruta_mat_entrada);
     logfn('Salida optimizador STL: %s', valores.carpeta_exportacion);
@@ -2196,7 +2166,7 @@ function ruta_mat_entrada = seleccionar_archivo_mat(ruta_mat_entrada)
         return;
     end
 
-    data_paths = tesis_auxiliares('asegurar_dataset_paths');
+    data_paths = tesis_auxiliares('dataset_paths');
     dataset_default = tesis_auxiliares('dataset_masivo_reciente', data_paths);
     if hay_mats_particionados(data_paths.datasets_masivos_por_metadata)
         dataset_default = data_paths.datasets_masivos_por_metadata;
@@ -2271,7 +2241,7 @@ function carpeta_exportacion = crear_carpeta_exportacion(~, config_ui)
 
     carpeta_exportacion = obtener_campo_config(config_ui, 'carpeta_exportacion', '');
     if isempty(carpeta_exportacion)
-        data_paths = tesis_auxiliares('asegurar_dataset_paths');
+        data_paths = tesis_auxiliares('dataset_paths');
         carpeta_exportacion = data_paths.distribuciones_stl;
     end
     crear_carpeta_si_no_existe(carpeta_exportacion);
@@ -3306,17 +3276,6 @@ function preprocesar_stl_a_mat(varargin)
 %    no útiles para optimización.
 %  - Requiere inpolyhedron para la prueba punto-en-poliedro.
 % =========================================================================
-    % Permite ejecutar el modulo desde el launcher o directamente.
-    carpeta_modulo = fileparts(mfilename('fullpath'));
-    candidatos_aux = {fullfile(carpeta_modulo, '..', 'Aux_Codes'), ...
-        fullfile(carpeta_modulo, '..', '..', 'Aux_Codes')};
-    for k_aux = 1:numel(candidatos_aux)
-        if isfolder(candidatos_aux{k_aux}), addpath(candidatos_aux{k_aux}); end
-    end
-    if exist('tesis_auxiliares', 'file') == 2
-        tesis_auxiliares('configurar_paths', carpeta_modulo);
-    end
-
     if nargin == 0
         lanzar_ui_preprocesar_stl_a_mat();
         return;
@@ -3333,7 +3292,7 @@ function preprocesar_stl_a_mat(varargin)
     if isfield(config, 'carpeta_stl') && ~isempty(config.carpeta_stl)
         carpeta_stl = config.carpeta_stl;
     else
-        data_paths = tesis_auxiliares('asegurar_dataset_paths');
+        data_paths = tesis_auxiliares('dataset_paths');
         carpeta_stl = uigetdir(data_paths.distribuciones_stl, ...
             'Selecciona la carpeta raiz con archivos STL');
         if isequal(carpeta_stl, 0)
@@ -3932,7 +3891,7 @@ function carpeta_salida = obtener_carpeta_salida_mat(carpeta_stl, config)
     if ~isempty(carpeta_salida)
         return;
     end
-    data_paths = tesis_auxiliares('asegurar_dataset_paths');
+    data_paths = tesis_auxiliares('dataset_paths');
     [carpeta_padre, nombre_carpeta] = fileparts(carpeta_stl);
     if strcmpi(nombre_carpeta, 'distribuciones_stl')
         carpeta_salida = fullfile(carpeta_padre, 'distribuciones_mat');
@@ -4099,17 +4058,6 @@ function correlador_volumen_interpolado_ui(varargin)
 % Los modulos originales se conservan intactos. Este archivo concentra el
 % flujo en una interfaz por pasos y reutiliza la misma convencion de salida:
 % correccion_termica, p_arreglo, T4D_*.mat y T_funcion_*.m.
-    % Permite ejecutar el modulo desde el launcher o directamente.
-    carpeta_modulo = fileparts(mfilename('fullpath'));
-    candidatos_aux = {fullfile(carpeta_modulo, '..', 'Aux_Codes'), ...
-        fullfile(carpeta_modulo, '..', '..', 'Aux_Codes')};
-    for k_aux = 1:numel(candidatos_aux)
-        if isfolder(candidatos_aux{k_aux}), addpath(candidatos_aux{k_aux}); end
-    end
-    if exist('tesis_auxiliares', 'file') == 2
-        tesis_auxiliares('configurar_paths', carpeta_modulo);
-    end
-
     if nargin > 0 && ischar(varargin{1}) && strcmpi(varargin{1}, 'selftest')
         ejecutar_selftest(varargin{2:end});
         return;
@@ -4120,7 +4068,7 @@ function correlador_volumen_interpolado_ui(varargin)
     state.ruta_exp = '';
     state.ruta_sim = '';
     state.ruta_dataset = '';
-    data_paths = tesis_auxiliares('asegurar_dataset_paths');
+    data_paths = tesis_auxiliares('dataset_paths');
     state.carpeta_exportacion = data_paths.volumen_4d;
     state.exp = [];
     state.sim = [];
@@ -5677,7 +5625,7 @@ function carpeta = carpeta_contenedora_exp(ruta_exp)
     end
     [folder, ~, ~] = fileparts(ruta_exp);
     try
-        paths = tesis_auxiliares('asegurar_dataset_paths');
+        paths = tesis_auxiliares('dataset_paths');
         root_exp = char(paths.experimentales);
         if strcmp(folder, root_exp)
             return;
@@ -5690,29 +5638,6 @@ function carpeta = carpeta_contenedora_exp(ruta_exp)
         carpeta = partes{end};
     catch
         [~, carpeta] = fileparts(folder);
-    end
-end
-
-function tag = simplificar_tag_correlacion(txt)
-    raw = lower(regexprep(txt, '[^\w]+', '_'));
-    ant = regexp(raw, '(\d+)_?ant(?:enas)?', 'tokens', 'once');
-    watt = regexp(raw, '(\d+)_?w(?:att)?', 'tokens', 'once');
-    mins = regexp(raw, '(\d+)_?min', 'tokens', 'once');
-    partes = {};
-    if ~isempty(ant), partes{end+1} = sprintf('%sant', ant{1}); end
-    if ~isempty(watt), partes{end+1} = sprintf('%sw', watt{1}); end
-    if ~isempty(mins), partes{end+1} = sprintf('%smin', mins{1}); end
-    if isempty(partes)
-        tag = simplificar_tag_archivo(txt, 24);
-    else
-        extra = regexp(raw, '\d+_?min_?(.+)$', 'tokens', 'once');
-        if ~isempty(extra)
-            extra_tag = simplificar_tag_archivo(extra{1}, 12);
-            if ~strcmp(extra_tag, 'datos')
-                partes{end+1} = extra_tag;
-            end
-        end
-        tag = strjoin(partes, '_');
     end
 end
 
@@ -6911,17 +6836,6 @@ function varargout = exportador_masivo_correcciones(varargin)
 %   2. Recorre uno o varios .mat de correccion termica.
 %   3. Exporta datasets corregidos completos.
 %   4. Opcionalmente exporta STL/TXT corregidos y MAT voxelizados.
-    % Permite ejecutar el modulo desde el launcher o directamente.
-    carpeta_modulo = fileparts(mfilename('fullpath'));
-    candidatos_aux = {fullfile(carpeta_modulo, '..', 'Aux_Codes'), ...
-        fullfile(carpeta_modulo, '..', '..', 'Aux_Codes')};
-    for k_aux = 1:numel(candidatos_aux)
-        if isfolder(candidatos_aux{k_aux}), addpath(candidatos_aux{k_aux}); end
-    end
-    if exist('tesis_auxiliares', 'file') == 2
-        tesis_auxiliares('configurar_paths', carpeta_modulo);
-    end
-
     if nargin >= 1 && ischar(varargin{1}) && strcmpi(varargin{1}, 'run')
         if nargin >= 2
             config = varargin{2};
@@ -6956,7 +6870,7 @@ end
 
 function lanzar_ui_exportador_masivo_correcciones()
     theme = tesis_auxiliares('tema_ui');
-    paths = tesis_auxiliares('asegurar_dataset_paths');
+    paths = tesis_auxiliares('dataset_paths');
     dataset_default = tesis_auxiliares('dataset_masivo_reciente', paths);
     if hay_mats_particionados(paths.datasets_masivos_por_metadata)
         dataset_default = paths.datasets_masivos_por_metadata;
@@ -7130,7 +7044,7 @@ function resumen = exportar_dataset_seleccionado_corregido(config)
         error('La correccion no contiene factor_enfriamiento.');
     end
 
-    paths = tesis_auxiliares('asegurar_dataset_paths');
+    paths = tesis_auxiliares('dataset_paths');
     root_salida = obtener_campo_config_exportador(config, ...
         'carpeta_salida_dataset', paths.datasets_corregidos_por_metadata);
     if ~isfolder(root_salida)
@@ -7210,7 +7124,24 @@ end
 function partition_meta = crear_partition_meta_corregido(config, ds_corr, corr, tag_corr, root_salida)
     modelo = char(config.modelo);
     dsName = char(config.dsName);
-    meta = metadata_basica_dataset_corregido(modelo, dsName, ds_corr);
+    fuente_meta = struct();
+    if isfield(ds_corr, 'metadata') && isstruct(ds_corr.metadata)
+        fuente_meta = ds_corr.metadata;
+    end
+    meta_compartida = tesis_auxiliares('metadata_ruta', ...
+        [modelo '/' dsName], fuente_meta);
+    if isfield(fuente_meta, 'metadata_dataset') && ...
+            isstruct(fuente_meta.metadata_dataset)
+        meta_compartida = tesis_auxiliares('metadata_ruta', ...
+            [modelo '/' dsName], fuente_meta.metadata_dataset);
+    end
+    meta = struct('tipo', meta_compartida.tipo, ...
+        'antena', meta_compartida.antena, ...
+        'num_antenas', meta_compartida.num_antenas, ...
+        'caso', meta_compartida.caso, ...
+        'potencia_W', meta_compartida.potencia_W);
+    if isempty(meta.tipo), meta.tipo = 'Tipo_desconocido'; end
+    if isempty(meta.antena), meta.antena = 'antenas_desconocidas'; end
     ruta_fuente = obtener_campo_config_exportador(config, 'ruta_dataset', '');
     partition_meta = meta;
     partition_meta.ruta_entrada = char(ruta_fuente);
@@ -7232,48 +7163,6 @@ function partition_meta = crear_partition_meta_corregido(config, ds_corr, corr, 
     partition_meta.correccion_termica = crear_metadata_correccion_exportador(corr, config);
 end
 
-function meta = metadata_basica_dataset_corregido(modelo, dsName, ds)
-    meta = struct();
-    meta.tipo = primer_match_corregido(modelo, {'Doble_slot', 'Monopolo', 'Un_slot'}, 'Tipo_desconocido');
-    ant = regexp(modelo, '(\d+)ant', 'tokens', 'once');
-    if isempty(ant)
-        meta.num_antenas = NaN;
-        meta.antena = 'antenas_desconocidas';
-    else
-        meta.num_antenas = str2double(ant{1});
-        meta.antena = sprintf('%dant', meta.num_antenas);
-    end
-    caso = regexp(dsName, '(?:^|_)c(\d+)(?:_|$)', 'tokens', 'once');
-    potencia = regexp(dsName, '(?:^|_)p(\d+)(?:_|$)', 'tokens', 'once');
-    meta.caso = valor_token_o_nan(caso);
-    meta.potencia_W = valor_token_o_nan(potencia);
-    if isfield(ds, 'metadata') && isstruct(ds.metadata)
-        if isfield(ds.metadata, 'idx_caso') && isfinite_num_exportador(ds.metadata.idx_caso)
-            meta.caso = double(ds.metadata.idx_caso);
-        end
-        if isfield(ds.metadata, 'potencia_W') && isfinite_num_exportador(ds.metadata.potencia_W)
-            meta.potencia_W = double(ds.metadata.potencia_W);
-        end
-        if isfield(ds.metadata, 'metadata_dataset') && isstruct(ds.metadata.metadata_dataset)
-            md = ds.metadata.metadata_dataset;
-            if isfield(md, 'caso') && isfinite_num_exportador(md.caso)
-                meta.caso = double(md.caso);
-            end
-            if isfield(md, 'potencia_W') && isfinite_num_exportador(md.potencia_W)
-                meta.potencia_W = double(md.potencia_W);
-            end
-        end
-    end
-end
-
-function valor = valor_token_o_nan(token)
-    if isempty(token)
-        valor = NaN;
-    else
-        valor = str2double(token{1});
-    end
-end
-
 function tf = isfinite_num_exportador(valor)
     tf = isnumeric(valor) && isscalar(valor) && isfinite(double(valor));
 end
@@ -7286,16 +7175,6 @@ function [carpeta, archivo] = destino_particion_corregida(root_salida, partition
         texto_potencia_corregida(partition_meta.potencia_W), ...
         sanitizar_nombre_correccion_exportador(partition_meta.tag_correccion));
     archivo = 'Dataset_corregido.mat';
-end
-
-function valor = primer_match_corregido(texto, candidatos, predeterminado)
-    valor = predeterminado;
-    for k = 1:numel(candidatos)
-        if contains(char(texto), candidatos{k})
-            valor = candidatos{k};
-            return;
-        end
-    end
 end
 
 function texto = texto_caso_corregido(caso)
@@ -7399,7 +7278,7 @@ function texto = csv_exportador(valor)
 end
 
 function resumen = ejecutar_exportador_masivo_correcciones(config)
-    paths = tesis_auxiliares('asegurar_dataset_paths');
+    paths = tesis_auxiliares('dataset_paths');
     logfn = obtener_campo_config_exportador(config, 'logfn', []);
     if isempty(logfn)
         logfn = @(varargin) fprintf([varargin{1} '\n'], varargin{2:end});
@@ -7438,7 +7317,7 @@ function resumen = ejecutar_exportador_masivo_correcciones(config)
     exportar_stl = obtener_campo_config_exportador(config, 'exportar_stl', true);
     exportar_mat = obtener_campo_config_exportador(config, 'exportar_mat', true);
     carpeta_salida_datasets = obtener_campo_config_exportador(config, ...
-        'carpeta_salida_datasets', paths.datasets_corregidos);
+        'carpeta_salida_datasets', paths.datasets_corregidos_por_metadata);
     carpeta_salida_stl = obtener_campo_config_exportador(config, ...
         'carpeta_salida_stl', paths.distribuciones_stl_corregidas);
     carpeta_salida_mat = obtener_campo_config_exportador(config, ...
@@ -8467,7 +8346,7 @@ function abrir_carpeta_exportador(folder)
 end
 
 function ejecutar_selftest_filtros_metadata()
-    paths = tesis_auxiliares('asegurar_dataset_paths');
+    paths = tesis_auxiliares('dataset_paths');
     catalogo_corr = catalogar_correcciones_metadata_ext(paths.correlaciones);
     candidatas = catalogo_corr(strcmpi({catalogo_corr.tipo}, 'Monopolo') & ...
         strcmpi({catalogo_corr.antena}, '1ant') & ...
@@ -8856,7 +8735,7 @@ function valor = numero_metadata_corr_ext(s, campo)
 end
 
 function ejecutar_selftest_carga_correcciones_filtrada()
-    paths = tesis_auxiliares('asegurar_dataset_paths');
+    paths = tesis_auxiliares('dataset_paths');
     catalogo = catalogar_correcciones_metadata_ext(paths.correlaciones);
     assert(~isempty(catalogo), ...
         'No hay correcciones con metadata completa para probar el filtro.');

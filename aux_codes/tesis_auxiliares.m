@@ -8,6 +8,7 @@
 %   tesis_auxiliares('dataset_paths', root)
 %   tesis_auxiliares('asegurar_dataset_paths', root)
 %   tesis_auxiliares('dataset_masivo_reciente', root_o_paths)
+%   tesis_auxiliares('metadata_ruta', ruta, struct_opcional)
 %   tesis_auxiliares('modulos_catalogo')
 %   tesis_auxiliares('tema_ui', ...)
 %   tesis_auxiliares('crear_dashboard_modulo', ...)
@@ -36,6 +37,9 @@
         case {"dataset_masivo_reciente", "ultimo_dataset_masivo", "latest_dataset_mat"}
             [varargout{1:nargout}] = dataset_masivo_reciente_impl(varargin{:});
 
+        case {"metadata_ruta", "metadata_dataset"}
+            [varargout{1:nargout}] = metadata_ruta_impl(varargin{:});
+
         case {"modulos_catalogo", "tesis_modulos_catalogo"}
             [varargout{1:nargout}] = tesis_modulos_catalogo_impl();
 
@@ -59,6 +63,138 @@
     end
 end
 
+function meta = metadata_ruta_impl(ruta, fuente)
+    if nargin < 1 || isempty(ruta), ruta = ''; end
+    if nargin < 2 || ~isstruct(fuente), fuente = struct(); end
+    texto = strrep(char(ruta), '\', '/');
+    for campo = {'tag_correccion', 'ruta_relativa', 'ruta_stl', 'ruta_correccion'}
+        if isfield(fuente, campo{1}) && ~isempty(fuente.(campo{1}))
+            texto = [texto '/' char(string(fuente.(campo{1})))]; %#ok<AGROW>
+        end
+    end
+
+    meta = struct('tipo', '', 'antena', '', 'num_antenas', NaN, ...
+        'caso', NaN, 'potencia_W', NaN, 'fecha_adquisicion', '', ...
+        'tiempo_ejecucion_min', NaN, 'numero_prueba', NaN, ...
+        'num_zonas', NaN, 'zona_experimental', '', ...
+        'completa_simulacion', false, 'completa_adquisicion', false);
+
+    tipos = {'Doble_slot', 'Monopolo', 'Un_slot'};
+    for k = 1:numel(tipos)
+        if contains(texto, tipos{k}, 'IgnoreCase', true)
+            meta.tipo = tipos{k};
+            break;
+        end
+    end
+    token = regexp(texto, '(?:^|/|_)(\d+)\s*_?ant(?:enas)?(?:/|_|$)', ...
+        'tokens', 'once', 'ignorecase');
+    if isempty(token)
+        palabras = {'una', 'dos', 'tres', 'cuatro'};
+        for k = 1:numel(palabras)
+            if ~isempty(regexp(texto, ['(?:^|/)' palabras{k} '\s+antenas?'], ...
+                    'once', 'ignorecase'))
+                token = {num2str(k)};
+                break;
+            end
+        end
+    end
+    if ~isempty(token), meta.num_antenas = str2double(token{1}); end
+
+    token = regexp(texto, '(?:^|/|_)(?:Caso_|c)(\d+)(?:/|_|$)', ...
+        'tokens', 'once', 'ignorecase');
+    if ~isempty(token), meta.caso = str2double(token{1}); end
+    token = regexp(texto, '(?:Potencia_)?([\d]+(?:[p.][\d]+)?)\s*W', ...
+        'tokens', 'once', 'ignorecase');
+    if isempty(token)
+        token = regexp(texto, '(?:^|/|_)(?:p|potencia_)([\d]+(?:[p.][\d]+)?)(?:/|_|$)', ...
+            'tokens', 'once', 'ignorecase');
+    end
+    if ~isempty(token)
+        meta.potencia_W = str2double(strrep(lower(token{1}), 'p', '.'));
+    end
+
+    token = regexp(texto, '(?:^|/)Fecha_([^/]+)(?:/|$)', ...
+        'tokens', 'once', 'ignorecase');
+    if ~isempty(token), meta.fecha_adquisicion = token{1}; end
+    token = regexp(texto, '(?:^|/)Tiempo_([\d]+(?:[p.][\d]+)?)min(?:/|$)', ...
+        'tokens', 'once', 'ignorecase');
+    if isempty(token)
+        token = regexp(texto, '(?:^|_)([\d]+(?:[p.][\d]+)?)min(?:/|_|$)', ...
+            'tokens', 'once', 'ignorecase');
+    end
+    if ~isempty(token)
+        meta.tiempo_ejecucion_min = str2double(strrep(lower(token{1}), 'p', '.'));
+    end
+    token = regexp(texto, '(?:^|/)Prueba_(\d+)(?:/|$)', ...
+        'tokens', 'once', 'ignorecase');
+    if ~isempty(token), meta.numero_prueba = str2double(token{1}); end
+    if ~isfinite(meta.numero_prueba)
+        ordinales = {'primer', 'segundo', 'tercer', 'cuarto', 'quinto', ...
+            'sexto', 'septimo', 'octavo', 'noveno', 'decimo'};
+        for k = 1:numel(ordinales)
+            if ~isempty(regexp(texto, [ordinales{k} '\s+experimento'], ...
+                    'once', 'ignorecase'))
+                meta.numero_prueba = k;
+                break;
+            end
+        end
+    end
+    token = regexp(texto, '(?:^|/)Zonas_(\d+)(?:/|$)', ...
+        'tokens', 'once', 'ignorecase');
+    if ~isempty(token), meta.num_zonas = str2double(token{1}); end
+
+    token = regexp(texto, ...
+        'correccion_(.+?)_([\d]+(?:p[\d]+)?)min_prueba_(\d+)_zonas_(\d+)', ...
+        'tokens', 'once', 'ignorecase');
+    if ~isempty(token)
+        if isempty(meta.fecha_adquisicion), meta.fecha_adquisicion = token{1}; end
+        if ~isfinite(meta.tiempo_ejecucion_min)
+            meta.tiempo_ejecucion_min = str2double(strrep(lower(token{2}), 'p', '.'));
+        end
+        if ~isfinite(meta.numero_prueba), meta.numero_prueba = str2double(token{3}); end
+        if ~isfinite(meta.num_zonas), meta.num_zonas = str2double(token{4}); end
+    end
+
+    textos = {'tipo', 'antena', 'fecha_adquisicion', 'zona_experimental'};
+    numeros = {'num_antenas', 'caso', 'potencia_W', ...
+        'tiempo_ejecucion_min', 'numero_prueba', 'num_zonas'};
+    for k = 1:numel(textos)
+        campo = textos{k};
+        if isfield(fuente, campo) && ~isempty(fuente.(campo))
+            meta.(campo) = char(string(fuente.(campo)));
+        end
+    end
+    if isempty(meta.tipo) && isfield(fuente, 'tipo_antena') && ~isempty(fuente.tipo_antena)
+        meta.tipo = char(string(fuente.tipo_antena));
+    end
+    for k = 1:numel(numeros)
+        campo = numeros{k};
+        if isfield(fuente, campo) && isnumeric(fuente.(campo)) && ...
+                isscalar(fuente.(campo)) && isfinite(double(fuente.(campo)))
+            meta.(campo) = double(fuente.(campo));
+        end
+    end
+    if ~isfinite(meta.caso) && isfield(fuente, 'idx_caso') && ...
+            isnumeric(fuente.idx_caso) && isscalar(fuente.idx_caso)
+        meta.caso = double(fuente.idx_caso);
+    end
+    if ~isfinite(meta.num_antenas) && ~isempty(meta.antena)
+        token = regexp(meta.antena, '(\d+)', 'tokens', 'once');
+        if ~isempty(token), meta.num_antenas = str2double(token{1}); end
+    end
+    if isempty(meta.antena) && isfinite(meta.num_antenas)
+        meta.antena = sprintf('%dant', round(meta.num_antenas));
+    end
+    if isempty(meta.zona_experimental) && isfinite(meta.num_zonas)
+        meta.zona_experimental = sprintf('Zonas_%d', round(meta.num_zonas));
+    end
+    meta.completa_simulacion = ~isempty(meta.tipo) && ...
+        isfinite(meta.num_antenas) && isfinite(meta.caso) && isfinite(meta.potencia_W);
+    meta.completa_adquisicion = ~isempty(meta.fecha_adquisicion) && ...
+        isfinite(meta.tiempo_ejecucion_min) && isfinite(meta.numero_prueba) && ...
+        isfinite(meta.num_zonas);
+end
+
 function root_proyecto = configurar_paths_proyecto_impl(ruta_inicio)
     if nargin < 1 || isempty(ruta_inicio)
         ruta_inicio = pwd;
@@ -69,7 +205,7 @@ function root_proyecto = configurar_paths_proyecto_impl(ruta_inicio)
     rutas = {
         root_proyecto
         fullfile(root_proyecto, 'modulos')
-        fullfile(root_proyecto, 'Aux_Codes')
+        fullfile(root_proyecto, 'aux_codes')
     };
 
     for k = 1:numel(rutas)
@@ -91,7 +227,7 @@ function root_proyecto = tesis_project_root_impl(ruta_inicio)
     while true
         es_root_codigo = isfile(fullfile(ruta_actual, 'iniciar_tesis.m')) && ...
             isfolder(fullfile(ruta_actual, 'modulos')) && ...
-            isfolder(fullfile(ruta_actual, 'Aux_Codes'));
+            isfolder(fullfile(ruta_actual, 'aux_codes'));
         if es_root_codigo || isfolder(fullfile(ruta_actual, 'datasets'))
             root_proyecto = ruta_actual;
             return;

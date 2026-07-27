@@ -1,4 +1,4 @@
-function optimizador_3d_final()
+function optimizador_3d_final(varargin)
 % =========================================================================
 %  OPTIMIZADOR 3D DE DISTRIBUCIONES TÉRMICAS
 % =========================================================================
@@ -20,8 +20,7 @@ clc;
 
     % Permite ejecutar el modulo desde el launcher o directamente.
     carpeta_modulo = fileparts(mfilename('fullpath'));
-    candidatos_aux = {fullfile(carpeta_modulo, '..', 'Aux_Codes'), ...
-        fullfile(carpeta_modulo, '..', '..', 'Aux_Codes')};
+    candidatos_aux = {fullfile(carpeta_modulo, '..', 'aux_codes')};
     for k_aux = 1:numel(candidatos_aux)
         if isfolder(candidatos_aux{k_aux}), addpath(candidatos_aux{k_aux}); end
     end
@@ -33,7 +32,28 @@ rng(1234);
 
 % Parámetros Generales de distribuciones térmicas
 root_proyecto = tesis_auxiliares('project_root', carpeta_modulo);
-data_paths = tesis_auxiliares('asegurar_dataset_paths', root_proyecto);
+data_paths = tesis_auxiliares('dataset_paths', root_proyecto);
+if nargin >= 1 && strcmpi(char(varargin{1}), 'selftest_metadata')
+    ruta_1 = fullfile('Monopolo', '1ant', 'Caso_1', 'Potencia_30W', ...
+        'Fecha_junio_19', 'Tiempo_20min', 'Prueba_1', 'Zonas_4');
+    ruta_2 = strrep(ruta_1, 'Prueba_1', 'Prueba_2');
+    meta_1 = tesis_auxiliares('metadata_ruta', ruta_1);
+    meta_2 = tesis_auxiliares('metadata_ruta', ruta_2);
+    assert(meta_1.completa_simulacion && meta_1.completa_adquisicion);
+    assert(meta_1.numero_prueba == 1 && meta_2.numero_prueba == 2);
+    clave_1 = sprintf('%s|%s|c%d|p%g|%s|t%g|r%d|z%d', ...
+        meta_1.tipo, meta_1.antena, meta_1.caso, meta_1.potencia_W, ...
+        meta_1.fecha_adquisicion, meta_1.tiempo_ejecucion_min, ...
+        meta_1.numero_prueba, meta_1.num_zonas);
+    clave_2 = sprintf('%s|%s|c%d|p%g|%s|t%g|r%d|z%d', ...
+        meta_2.tipo, meta_2.antena, meta_2.caso, meta_2.potencia_W, ...
+        meta_2.fecha_adquisicion, meta_2.tiempo_ejecucion_min, ...
+        meta_2.numero_prueba, meta_2.num_zonas);
+    assert(~strcmp(clave_1, clave_2), 'Dos pruebas distintas colisionan.');
+    fprintf('SELFTEST_OPTIMIZER_METADATA_OK %s | %s\n', clave_1, clave_2);
+    return;
+end
+if ~isfolder(data_paths.root), mkdir(data_paths.root); end
 ruta_dataset = data_paths.distribuciones_mat;
 ruta_dataset_corregidas = data_paths.distribuciones_mat_corregidas;
 ruta_distribuciones_stl = data_paths.distribuciones_stl;
@@ -134,7 +154,8 @@ gl_filtros = uigridlayout(gl_sidebar, [2,2], 'Padding',[0 0 0 0], ...
 gl_filtros.RowHeight = {26, '1x'};
 gl_filtros.ColumnWidth = {'1x', '1x'};
 app.dd_filtro_categoria = uidropdown(gl_filtros, ...
-    'Items', {'Origen', 'Tipo', 'Antenas', 'Caso', 'Potencia', 'Resolucion'}, ...
+    'Items', {'Origen', 'Tipo', 'Antenas', 'Caso', 'Potencia', ...
+        'Fecha', 'Tiempo', 'Prueba', 'Zonas', 'Resolucion'}, ...
     'Value', 'Tipo', ...
     'ValueChangedFcn', @(~,~) actualizar_listas_filtros());
 uibutton(gl_filtros, 'Text','Detectar', ...
@@ -299,21 +320,34 @@ registrar_mensaje('Aplicación inicializada.');
             catalogo.antenas   = agregar_valor_filtro(catalogo.antenas, meta.arreglo);
             catalogo.casos     = agregar_valor_filtro(catalogo.casos, meta.caso);
             catalogo.potencias = agregar_valor_filtro(catalogo.potencias, meta.potencia);
+            catalogo.fechas = agregar_valor_filtro(catalogo.fechas, meta.fecha);
+            catalogo.tiempos = agregar_valor_filtro(catalogo.tiempos, meta.tiempo);
+            catalogo.pruebas = agregar_valor_filtro(catalogo.pruebas, meta.prueba);
+            catalogo.zonas = agregar_valor_filtro(catalogo.zonas, meta.zonas);
             catalogo.resoluciones = agregar_valor_filtro(catalogo.resoluciones, meta.resolucion_texto);
             catalogo.origenes = agregar_valor_filtro(catalogo.origenes, meta.origen);
         end
 
-        app.filtros_catalogo = ordenar_catalogo_filtros(catalogo);
-        app.filtros_activos = intersectar_filtros_con_catalogo(app.filtros_activos, app.filtros_catalogo);
+        campos_catalogo = fieldnames(catalogo);
+        for idx_campo = 1:numel(campos_catalogo)
+            campo = campos_catalogo{idx_campo};
+            catalogo.(campo) = ordenar_valores_filtro(catalogo.(campo));
+            app.filtros_activos.(campo) = intersect( ...
+                app.filtros_activos.(campo), catalogo.(campo), 'stable');
+        end
+        app.filtros_catalogo = catalogo;
         actualizar_listas_filtros();
 
         if mostrar_log
             registrar_mensaje(sprintf(['Filtros actualizados desde metadata: %d archivos | ' ...
-                'origenes=%d, tipos=%d, antenas=%d, casos=%d, potencias=%d, resoluciones=%d.'], ...
+                'origenes=%d, tipos=%d, antenas=%d, casos=%d, potencias=%d, ' ...
+                'fechas=%d, tiempos=%d, pruebas=%d, zonas=%d, resoluciones=%d.'], ...
                 numel(archivos_dataset), numel(app.filtros_catalogo.origenes), ...
                 numel(app.filtros_catalogo.tipos), ...
                 numel(app.filtros_catalogo.antenas), numel(app.filtros_catalogo.casos), ...
-                numel(app.filtros_catalogo.potencias), numel(app.filtros_catalogo.resoluciones)));
+                numel(app.filtros_catalogo.potencias), numel(app.filtros_catalogo.fechas), ...
+                numel(app.filtros_catalogo.tiempos), numel(app.filtros_catalogo.pruebas), ...
+                numel(app.filtros_catalogo.zonas), numel(app.filtros_catalogo.resoluciones)));
         end
     end
 
@@ -339,28 +373,56 @@ registrar_mensaje('Aplicación inicializada.');
             archivos_raiz = dir(fullfile(raiz.mat, '**', sprintf('*_%s_res*.mat', metodo_voxel)));
             for idx_archivo = 1:numel(archivos_raiz)
                 ruta_absoluta = fullfile(archivos_raiz(idx_archivo).folder, archivos_raiz(idx_archivo).name);
-                ruta_relativa = extraer_ruta_relativa_catalogo(ruta_absoluta, raiz.mat);
-                if raiz.omitir_legacy_corregidas && ruta_relativa_empieza_con(ruta_relativa, 'corregidas')
+                prefijo = [char(raiz.mat) filesep];
+                if startsWith(ruta_absoluta, prefijo, 'IgnoreCase', ispc)
+                    ruta_relativa = ruta_absoluta(numel(prefijo) + 1:end);
+                else
+                    ruta_relativa = erase(ruta_absoluta, prefijo);
+                end
+                partes_relativas = split(char(ruta_relativa), filesep);
+                if raiz.omitir_legacy_corregidas && ~isempty(partes_relativas) && ...
+                        strcmpi(partes_relativas{1}, 'corregidas')
+                    continue;
+                end
+                if any(strcmpi(split(strrep(ruta_relativa, '\', '/'), '/'), 'repetidos'))
                     continue;
                 end
 
-                [es_valido, parte_tipo, parte_arreglo, parte_caso, parte_potencia] = metadatos_ruta(ruta_relativa);
+                metadata_ruta = tesis_auxiliares('metadata_ruta', ruta_relativa);
                 meta_actual = crear_metadatos_archivo(1);
-                meta_actual.es_valido = es_valido;
-                meta_actual.tipo = parte_tipo;
-                meta_actual.arreglo = parte_arreglo;
-                meta_actual.caso = parte_caso;
-                meta_actual.potencia = parte_potencia;
+                meta_actual.es_valido = metadata_ruta.completa_simulacion && ...
+                    (~strcmpi(raiz.origen, 'corregido') || metadata_ruta.completa_adquisicion);
+                meta_actual.tipo = metadata_ruta.tipo;
+                meta_actual.arreglo = metadata_ruta.antena;
+                if isfinite(metadata_ruta.caso)
+                    meta_actual.caso = sprintf('Caso_%d', round(metadata_ruta.caso));
+                end
+                if isfinite(metadata_ruta.potencia_W)
+                    meta_actual.potencia = sprintf('Potencia_%gW', metadata_ruta.potencia_W);
+                    meta_actual.potencia = strrep(meta_actual.potencia, '.', 'p');
+                end
+                meta_actual.fecha = char(metadata_ruta.fecha_adquisicion);
+                if isfinite(metadata_ruta.tiempo_ejecucion_min)
+                    meta_actual.tiempo = sprintf('Tiempo_%gmin', metadata_ruta.tiempo_ejecucion_min);
+                end
+                if isfinite(metadata_ruta.numero_prueba)
+                    meta_actual.prueba = sprintf('Prueba_%d', round(metadata_ruta.numero_prueba));
+                end
+                if isfinite(metadata_ruta.num_zonas)
+                    meta_actual.zonas = sprintf('Zonas_%d', round(metadata_ruta.num_zonas));
+                end
                 [~, nombre_mat_sin_ext, ~] = fileparts(archivos_raiz(idx_archivo).name);
                 meta_actual.resolucion = extraer_resolucion_nombre_mat( ...
                     nombre_mat_sin_ext, metodo_voxel);
-                meta_actual.resolucion_texto = formatear_resolucion_filtro( ...
-                    meta_actual.resolucion);
+                if isfinite(meta_actual.resolucion)
+                    meta_actual.resolucion_texto = sprintf('%.2f mm', meta_actual.resolucion);
+                else
+                    meta_actual.resolucion_texto = 'sin_resolucion';
+                end
                 meta_actual.origen = raiz.origen;
                 meta_actual.ruta_relativa = ruta_relativa;
                 meta_actual.raiz_mat = raiz.mat;
                 meta_actual.raiz_stl = raiz.stl;
-                meta_actual = completar_metadatos_desde_mat(ruta_absoluta, meta_actual);
 
                 archivos_dataset = [archivos_dataset; archivos_raiz(idx_archivo)]; %#ok<AGROW>
                 metadatos_dataset(end+1) = meta_actual; %#ok<AGROW>
@@ -372,22 +434,6 @@ registrar_mensaje('Aplicación inicializada.');
             'archivos', archivos_dataset, ...
             'metadatos', metadatos_dataset, ...
             'timestamp', datetime('now'));
-    end
-
-    function ruta_relativa = extraer_ruta_relativa_catalogo(ruta_absoluta, raiz_catalogo)
-        ruta_absoluta = char(ruta_absoluta);
-        raiz_catalogo = char(raiz_catalogo);
-        prefijo = [raiz_catalogo filesep];
-        if startsWith(ruta_absoluta, prefijo, 'IgnoreCase', true)
-            ruta_relativa = ruta_absoluta(numel(prefijo) + 1:end);
-        else
-            ruta_relativa = erase(ruta_absoluta, prefijo);
-        end
-    end
-
-    function tf = ruta_relativa_empieza_con(ruta_relativa, carpeta)
-        partes = split(char(ruta_relativa), filesep);
-        tf = ~isempty(partes) && strcmpi(partes{1}, carpeta);
     end
 
     function txt = resumen_raices_catalogo()
@@ -461,22 +507,17 @@ registrar_mensaje('Aplicación inicializada.');
                 campo = 'casos';
             case 'Potencia'
                 campo = 'potencias';
+            case 'Fecha'
+                campo = 'fechas';
+            case 'Tiempo'
+                campo = 'tiempos';
+            case 'Prueba'
+                campo = 'pruebas';
+            case 'Zonas'
+                campo = 'zonas';
             otherwise
                 campo = 'resoluciones';
         end
-    end
-
-    function filtros = obtener_filtros_activos()
-        filtros = app.filtros_activos;
-    end
-
-    function pasa = pasa_filtros_metadata(tipo, arreglo, caso, potencia, resolucion, origen, filtros)
-        pasa = coincide_filtro_metadata(tipo, filtros.tipos) && ...
-            coincide_filtro_metadata(arreglo, filtros.antenas) && ...
-            coincide_filtro_metadata(caso, filtros.casos) && ...
-            coincide_filtro_metadata(potencia, filtros.potencias) && ...
-            coincide_filtro_metadata(resolucion, filtros.resoluciones) && ...
-            coincide_filtro_metadata(origen, filtros.origenes);
     end
 
     function limpiar_eje_3d(titulo)
@@ -699,15 +740,22 @@ registrar_mensaje('Aplicación inicializada.');
         end
 
         actualizar_catalogo_filtros(false);
-        filtros_activos = obtener_filtros_activos();
+        filtros_activos = app.filtros_activos;
 
         archivos_validos = false(length(rutas_distribuciones_termicas), 1);
         for i = 1:length(rutas_distribuciones_termicas)
             meta_i = metadatos_distribuciones(i);
             if ~meta_i.es_valido, continue; end
-            if ~pasa_filtros_metadata(meta_i.tipo, meta_i.arreglo, ...
-                    meta_i.caso, meta_i.potencia, meta_i.resolucion_texto, ...
-                    meta_i.origen, filtros_activos)
+            if ~(coincide_filtro_metadata(meta_i.tipo, filtros_activos.tipos) && ...
+                    coincide_filtro_metadata(meta_i.arreglo, filtros_activos.antenas) && ...
+                    coincide_filtro_metadata(meta_i.caso, filtros_activos.casos) && ...
+                    coincide_filtro_metadata(meta_i.potencia, filtros_activos.potencias) && ...
+                    coincide_filtro_metadata(meta_i.fecha, filtros_activos.fechas) && ...
+                    coincide_filtro_metadata(meta_i.tiempo, filtros_activos.tiempos) && ...
+                    coincide_filtro_metadata(meta_i.prueba, filtros_activos.pruebas) && ...
+                    coincide_filtro_metadata(meta_i.zonas, filtros_activos.zonas) && ...
+                    coincide_filtro_metadata(meta_i.resolucion_texto, filtros_activos.resoluciones) && ...
+                    coincide_filtro_metadata(meta_i.origen, filtros_activos.origenes))
                 continue;
             end
             archivos_validos(i) = true;
@@ -720,9 +768,44 @@ registrar_mensaje('Aplicación inicializada.');
             return;
         end
         if isempty(filtros_activos.resoluciones)
-            [archivos_filtrados, metadatos_filtrados, n_res_omitidas] = ...
-                seleccionar_archivos_por_resolucion(archivos_filtrados, ...
-                metadatos_filtrados, metodo_voxel, resolucion_fina);
+            n_res_omitidas = 0;
+            if numel(archivos_filtrados) > 1
+                claves = cell(numel(archivos_filtrados), 1);
+                resoluciones = nan(numel(archivos_filtrados), 1);
+                for idx_archivo = 1:numel(archivos_filtrados)
+                    [~, nombre, ~] = fileparts(archivos_filtrados(idx_archivo).name);
+                    nombre_base = regexprep(nombre, ...
+                        ['_' regexptranslate('escape', metodo_voxel) '_res[\d\.]+$'], '');
+                    resoluciones(idx_archivo) = extraer_resolucion_nombre_mat(nombre, metodo_voxel);
+                    meta = metadatos_filtrados(idx_archivo);
+                    claves{idx_archivo} = strjoin({meta.origen, meta.tipo, meta.arreglo, ...
+                        meta.caso, meta.potencia, meta.fecha, meta.tiempo, ...
+                        meta.prueba, meta.zonas, nombre_base}, '|');
+                end
+                claves_unicas = {};
+                grupos = zeros(numel(claves), 1);
+                for idx_clave = 1:numel(claves)
+                    posicion = find(strcmp(claves_unicas, claves{idx_clave}), 1);
+                    if isempty(posicion)
+                        claves_unicas{end + 1} = claves{idx_clave}; %#ok<AGROW>
+                        posicion = numel(claves_unicas);
+                    end
+                    grupos(idx_clave) = posicion;
+                end
+                indices_sel = zeros(numel(claves_unicas), 1);
+                for idx_grupo = 1:numel(claves_unicas)
+                    candidatos = find(grupos == idx_grupo);
+                    res_candidatas = resoluciones(candidatos);
+                    distancia = abs(res_candidatas - resolucion_fina);
+                    distancia(~isfinite(distancia)) = inf;
+                    [~, orden] = sortrows([distancia(:), res_candidatas(:)], [1 2]);
+                    indices_sel(idx_grupo) = candidatos(orden(1));
+                end
+                indices_sel = sort(indices_sel);
+                n_res_omitidas = numel(archivos_filtrados) - numel(indices_sel);
+                archivos_filtrados = archivos_filtrados(indices_sel);
+                metadatos_filtrados = metadatos_filtrados(indices_sel);
+            end
             if n_res_omitidas > 0
                 registrar_mensaje(sprintf(['Resoluciones MAT duplicadas omitidas: %d. ', ...
                     'Preferencia automatica: res %.2f mm por distribucion.'], ...
@@ -863,8 +946,6 @@ registrar_mensaje('Aplicación inicializada.');
         historia_mejor_f1 = [];
         historia_mejor_f2 = [];
         historia_fitness  = [];
-        historia_fase_1   = []; %#ok<NASGU>
-        historia_fase_2   = []; %#ok<NASGU>
 
         function stop = guardar_historial_pso(valores_optimos, estado_pso)
             stop = false;
@@ -1000,6 +1081,10 @@ registrar_mensaje('Aplicación inicializada.');
                     'numero_antenas',               numero_antenas, ...
                     'caso',                         parte_caso, ...
                     'potencia',                     parte_potencia, ...
+                    'fecha_adquisicion',             meta_actual.fecha, ...
+                    'tiempo_ejecucion',              meta_actual.tiempo, ...
+                    'numero_prueba',                 meta_actual.prueba, ...
+                    'zonas',                         meta_actual.zonas, ...
                     'posicion',                     mejor_pos_f2, ...
                     'volumen_interior',             vol_interior, ...
                     'volumen_distribucion_termica', vol_dist, ...
@@ -1625,125 +1710,6 @@ registrar_mensaje('Aplicación inicializada.');
         F = reshape(ic, 3, numFaces)';
     end
 
-    function [es_valido, parte_tipo, parte_arreglo, parte_caso, parte_potencia] = metadatos_ruta(distribucion_actual)
-        partes_ruta = split(distribucion_actual, filesep);
-        es_valido = false;
-        parte_tipo = ''; parte_arreglo = ''; parte_caso = ''; parte_potencia = '';
-        if numel(partes_ruta) < 5
-            return;
-        end
-        filtro_corregido = filtro_corregido_desde_ruta(partes_ruta);
-        for idx_parte = 1:(numel(partes_ruta) - 3)
-            candidato_tipo = partes_ruta{idx_parte};
-            candidato_antena = partes_ruta{idx_parte + 1};
-            candidato_caso = partes_ruta{idx_parte + 2};
-            candidato_potencia = partes_ruta{idx_parte + 3};
-            if es_tipo_antena_valido(candidato_tipo) && ...
-                    ~isempty(regexp(candidato_antena, '^\d+ant$', 'once')) && ...
-                    startsWith(candidato_caso, 'Caso_', 'IgnoreCase', true) && ...
-                    startsWith(candidato_potencia, 'Potencia_', 'IgnoreCase', true)
-                if ~ruta_pasa_filtro_corregido(candidato_antena, ...
-                        candidato_caso, candidato_potencia, filtro_corregido)
-                    return;
-                end
-                parte_tipo = candidato_tipo;
-                parte_arreglo = candidato_antena;
-                parte_caso = candidato_caso;
-                parte_potencia = candidato_potencia;
-                es_valido = true;
-                return;
-            end
-        end
-    end
-
-    function tf = es_tipo_antena_valido(valor)
-        valor = char(valor);
-        tipos_validos = {'Monopolo', 'Doble_slot', 'Un_slot'};
-        tf = any(strcmpi(valor, tipos_validos));
-    end
-
-    function meta = completar_metadatos_desde_mat(ruta_mat, meta)
-        try
-            raw = load(ruta_mat, 'metadata');
-        catch
-            return;
-        end
-        if ~isfield(raw, 'metadata') || ~isstruct(raw.metadata)
-            return;
-        end
-        md = raw.metadata;
-        if isfield(md, 'tipo') && ~isempty(md.tipo)
-            meta.tipo = char(md.tipo);
-        end
-        if isfield(md, 'antena') && ~isempty(md.antena)
-            meta.arreglo = char(md.antena);
-        end
-        if isfield(md, 'caso') && ~isempty(md.caso)
-            meta.caso = normalizar_caso_metadata_optimizer(md.caso);
-        end
-        if isfield(md, 'potencia') && ~isempty(md.potencia)
-            meta.potencia = normalizar_potencia_metadata_optimizer(md.potencia);
-        end
-        meta.es_valido = es_tipo_antena_valido(meta.tipo) && ...
-            ~isempty(regexp(meta.arreglo, '^\d+ant$', 'once')) && ...
-            startsWith(meta.caso, 'Caso_', 'IgnoreCase', true) && ...
-            startsWith(meta.potencia, 'Potencia_', 'IgnoreCase', true);
-    end
-
-    function caso = normalizar_caso_metadata_optimizer(valor)
-        if isnumeric(valor) && isscalar(valor) && isfinite(valor)
-            caso = sprintf('Caso_%d', round(double(valor)));
-        else
-            txt = char(valor);
-            if startsWith(txt, 'Caso_', 'IgnoreCase', true)
-                caso = txt;
-            else
-                caso = ['Caso_' txt];
-            end
-        end
-    end
-
-    function potencia = normalizar_potencia_metadata_optimizer(valor)
-        if isnumeric(valor) && isscalar(valor) && isfinite(valor)
-            potencia = sprintf('Potencia_%gW', double(valor));
-        else
-            txt = char(valor);
-            if startsWith(txt, 'Potencia_', 'IgnoreCase', true)
-                potencia = txt;
-            else
-                potencia = ['Potencia_' txt 'W'];
-            end
-        end
-    end
-
-    function filtro = filtro_corregido_desde_ruta(partes_ruta)
-        filtro = struct('antena', '', 'potencia', '', 'caso', '');
-        idx_corr = find(strcmpi(partes_ruta, 'corregidas'), 1, 'first');
-        if isempty(idx_corr) || idx_corr >= numel(partes_ruta)
-            return;
-        end
-        tag = lower(char(partes_ruta{idx_corr + 1}));
-        ant = regexp(tag, '(\d+)_?ant(?:enas)?', 'tokens', 'once');
-        pot = regexp(tag, '(\d+)_?w(?:att)?', 'tokens', 'once');
-        caso = regexp(tag, '(?:^|_)c(\d+)(?=_|$)', 'tokens', 'once');
-        if ~isempty(ant), filtro.antena = sprintf('%sant', ant{1}); end
-        if ~isempty(pot), filtro.potencia = sprintf('Potencia_%sW', pot{1}); end
-        if ~isempty(caso), filtro.caso = sprintf('Caso_%s', caso{1}); end
-    end
-
-    function tf = ruta_pasa_filtro_corregido(antena, caso, potencia, filtro)
-        tf = true;
-        if ~isempty(filtro.antena)
-            tf = tf && strcmpi(antena, filtro.antena);
-        end
-        if ~isempty(filtro.caso)
-            tf = tf && strcmpi(caso, filtro.caso);
-        end
-        if ~isempty(filtro.potencia)
-            tf = tf && strcmpi(potencia, filtro.potencia);
-        end
-    end
-
     function [rx, ry, rz] = mapear_ejes(ejes_a_rotar, r1, r2)
         rx = 0; ry = 0; rz = 0;
         angulos = [r1, r2];
@@ -1785,6 +1751,10 @@ plantilla = struct( ...
     'arreglo', '', ...
     'caso', '', ...
     'potencia', '', ...
+    'fecha', '', ...
+    'tiempo', '', ...
+    'prueba', '', ...
+    'zonas', '', ...
     'resolucion', NaN, ...
     'resolucion_texto', '', ...
     'origen', 'original', ...
@@ -1792,55 +1762,6 @@ plantilla = struct( ...
     'raiz_mat', '', ...
     'raiz_stl', '');
 metadatos = repmat(plantilla, n, 1);
-end
-
-function [archivos_sel, metadatos_sel, n_omitidos] = ...
-        seleccionar_archivos_por_resolucion(archivos, metadatos, metodo_voxel, resolucion_preferida)
-if numel(archivos) <= 1
-    archivos_sel = archivos;
-    metadatos_sel = metadatos;
-    n_omitidos = 0;
-    return;
-end
-
-claves = cell(numel(archivos), 1);
-resoluciones = nan(numel(archivos), 1);
-for idx = 1:numel(archivos)
-    [~, nombre, ~] = fileparts(archivos(idx).name);
-    nombre_base = regexprep(nombre, ['_' regexptranslate('escape', metodo_voxel) '_res[\d\.]+$'], '');
-    resoluciones(idx) = extraer_resolucion_nombre_mat(nombre, metodo_voxel);
-    claves{idx} = strjoin({metadatos(idx).origen, metadatos(idx).tipo, metadatos(idx).arreglo, ...
-        metadatos(idx).caso, metadatos(idx).potencia, nombre_base}, '|');
-end
-
-[claves_unicas, grupo] = agrupar_claves_estable(claves);
-indices_sel = zeros(numel(claves_unicas), 1);
-for idx_grupo = 1:numel(claves_unicas)
-    candidatos = find(grupo == idx_grupo);
-    res_candidatas = resoluciones(candidatos);
-    distancia = abs(res_candidatas - resolucion_preferida);
-    distancia(~isfinite(distancia)) = inf;
-    [~, orden] = sortrows([distancia(:), res_candidatas(:)], [1 2]);
-    indices_sel(idx_grupo) = candidatos(orden(1));
-end
-
-indices_sel = sort(indices_sel);
-archivos_sel = archivos(indices_sel);
-metadatos_sel = metadatos(indices_sel);
-n_omitidos = numel(archivos) - numel(archivos_sel);
-end
-
-function [claves_unicas, grupo] = agrupar_claves_estable(claves)
-claves_unicas = {};
-grupo = zeros(numel(claves), 1);
-for idx = 1:numel(claves)
-    pos = find(strcmp(claves_unicas, claves{idx}), 1);
-    if isempty(pos)
-        claves_unicas{end+1} = claves{idx}; %#ok<AGROW>
-        pos = numel(claves_unicas);
-    end
-    grupo(idx) = pos;
-end
 end
 
 function resolucion = extraer_resolucion_nombre_mat(nombre_archivo, metodo_voxel)
@@ -1853,29 +1774,18 @@ else
 end
 end
 
-function texto = formatear_resolucion_filtro(resolucion)
-if isfinite(resolucion)
-    texto = sprintf('%.2f mm', resolucion);
-else
-    texto = 'sin_resolucion';
-end
-end
-
 function filtros = crear_filtros_vacios()
 filtros = struct( ...
     'tipos', {{}}, ...
     'antenas', {{}}, ...
     'casos', {{}}, ...
     'potencias', {{}}, ...
+    'fechas', {{}}, ...
+    'tiempos', {{}}, ...
+    'pruebas', {{}}, ...
+    'zonas', {{}}, ...
     'resoluciones', {{}}, ...
     'origenes', {{}});
-end
-
-function catalogo = ordenar_catalogo_filtros(catalogo)
-campos = fieldnames(catalogo);
-for idx_campo = 1:numel(campos)
-    catalogo.(campos{idx_campo}) = ordenar_valores_filtro(catalogo.(campos{idx_campo}));
-end
 end
 
 function valores = agregar_valor_filtro(valores, valor)
@@ -1908,14 +1818,6 @@ else
     [~, orden] = sort(lower(string(valores)));
 end
 valores = valores(orden);
-end
-
-function activos = intersectar_filtros_con_catalogo(activos, catalogo)
-campos = fieldnames(catalogo);
-for idx_campo = 1:numel(campos)
-    campo = campos{idx_campo};
-    activos.(campo) = intersect(activos.(campo), catalogo.(campo), 'stable');
-end
 end
 
 function pasa = coincide_filtro_metadata(valor, filtros_activos)

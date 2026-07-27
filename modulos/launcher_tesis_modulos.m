@@ -7,7 +7,7 @@
 
     carpeta_launcher = fileparts(mfilename('fullpath'));
     addpath(carpeta_launcher);
-    addpath(fullfile(carpeta_launcher, '..', 'Aux_Codes'));
+    addpath(fullfile(carpeta_launcher, '..', 'aux_codes'));
     root_proyecto = tesis_auxiliares('configurar_paths', carpeta_launcher);
 
     theme = tesis_auxiliares('tema_ui');
@@ -30,62 +30,59 @@
     gl.ColumnSpacing = 10;
     activar_scroll(gl);
 
-    crear_header(gl);
-    crear_panel_modulos(gl);
-    crear_log(gl);
+    header_panel = uipanel(gl, 'BorderType', 'none');
+    header_panel.Layout.Row = 1;
+    header_panel.Layout.Column = 1;
+    tesis_auxiliares('tema_ui', 'card', header_panel);
+    header_grid = uigridlayout(header_panel, [1, 3]);
+    header_grid.ColumnWidth = {'1x', 200, 180};
+    header_grid.Padding = [14 8 14 8];
+    header_grid.ColumnSpacing = 10;
+    titulo = uilabel(header_grid, ...
+        'Text', 'Flujo integrado de simulacion, procesamiento y verificacion', ...
+        'HorizontalAlignment', 'left');
+    tesis_auxiliares('tema_ui', 'label', titulo, 'title');
+    btn_root = uibutton(header_grid, 'Text', 'Abrir carpeta del proyecto', ...
+        'ButtonPushedFcn', @(~, ~) abrir_root());
+    tesis_auxiliares('tema_ui', 'button', btn_root, 'secondary');
+    btn_refresh = uibutton(header_grid, 'Text', 'Verificar modulos', ...
+        'ButtonPushedFcn', @(~, ~) verificar_modulos());
+    tesis_auxiliares('tema_ui', 'button', btn_refresh, 'primary');
+
+    modules_panel = uipanel(gl, 'Title', 'Modulos disponibles');
+    modules_panel.Layout.Row = 2;
+    modules_panel.Layout.Column = 1;
+    tesis_auxiliares('tema_ui', 'panel', modules_panel);
+    activar_scroll(modules_panel);
+    n_modulos = numel(modulos);
+    ncols = min(3, max(1, n_modulos));
+    nrows = max(1, ceil(n_modulos / ncols));
+    modules_grid = uigridlayout(modules_panel, [nrows, ncols]);
+    modules_grid.Padding = [10 10 10 10];
+    modules_grid.RowSpacing = 10;
+    modules_grid.ColumnSpacing = 10;
+    modules_grid.RowHeight = repmat({'1x'}, 1, nrows);
+    modules_grid.ColumnWidth = repmat({'1x'}, 1, ncols);
+    activar_scroll(modules_grid);
+    for i = 1:n_modulos
+        crear_tarjeta_modulo(modules_grid, i);
+    end
+
+    log_panel = uipanel(gl, 'Title', 'Consola de eventos');
+    log_panel.Layout.Row = 3;
+    log_panel.Layout.Column = 1;
+    tesis_auxiliares('tema_ui', 'panel', log_panel);
+    activar_scroll(log_panel);
+    log_grid = uigridlayout(log_panel, [1, 1]);
+    log_grid.Padding = [6 6 6 6];
+    activar_scroll(log_grid);
+    estado.txt_log = uitextarea(log_grid, 'Editable', 'off', 'Value', {'Listo.'});
+    tesis_auxiliares('tema_ui', 'textarea', estado.txt_log);
     tesis_auxiliares('tema_ui', 'apply', fig);
     tesis_auxiliares('tema_ui', 'textarea', estado.txt_log);
 
     verificar_modulos();
     registrar_evento('Launcher iniciado desde: %s', root_proyecto);
-
-    function crear_header(parent)
-        pnl = uipanel(parent, 'BorderType', 'none');
-        pnl.Layout.Row = 1;
-        pnl.Layout.Column = 1;
-        tesis_auxiliares('tema_ui', 'card', pnl);
-
-        grid = uigridlayout(pnl, [1, 3]);
-        grid.ColumnWidth = {'1x', 200, 180};
-        grid.Padding = [14 8 14 8];
-        grid.ColumnSpacing = 10;
-
-        titulo = uilabel(grid, ...
-            'Text', 'Flujo integrado de simulacion, procesamiento y verificacion', ...
-            'HorizontalAlignment', 'left');
-        tesis_auxiliares('tema_ui', 'label', titulo, 'title');
-
-        btn_root = uibutton(grid, 'Text', 'Abrir carpeta del proyecto', ...
-            'ButtonPushedFcn', @(~, ~) abrir_root());
-        tesis_auxiliares('tema_ui', 'button', btn_root, 'secondary');
-
-        btn_refresh = uibutton(grid, 'Text', 'Verificar modulos', ...
-            'ButtonPushedFcn', @(~, ~) verificar_modulos());
-        tesis_auxiliares('tema_ui', 'button', btn_refresh, 'primary');
-    end
-
-    function crear_panel_modulos(parent)
-        pnl = uipanel(parent, 'Title', 'Modulos disponibles');
-        pnl.Layout.Row = 2;
-        pnl.Layout.Column = 1;
-        tesis_auxiliares('tema_ui', 'panel', pnl);
-        activar_scroll(pnl);
-
-        n_modulos = numel(modulos);
-        ncols = min(3, max(1, n_modulos));
-        nrows = max(1, ceil(n_modulos / ncols));
-        grid = uigridlayout(pnl, [nrows, ncols]);
-        grid.Padding = [10 10 10 10];
-        grid.RowSpacing = 10;
-        grid.ColumnSpacing = 10;
-        grid.RowHeight = repmat({'1x'}, 1, nrows);
-        grid.ColumnWidth = repmat({'1x'}, 1, ncols);
-        activar_scroll(grid);
-
-        for i = 1:n_modulos
-            crear_tarjeta_modulo(grid, i);
-        end
-    end
 
     function crear_tarjeta_modulo(parent, idx)
         modulo = modulos(idx);
@@ -121,21 +118,6 @@
         estado.detalle_modulo(idx) = detalle;
     end
 
-    function crear_log(parent)
-        pnl = uipanel(parent, 'Title', 'Consola de eventos');
-        pnl.Layout.Row = 3;
-        pnl.Layout.Column = 1;
-        tesis_auxiliares('tema_ui', 'panel', pnl);
-        activar_scroll(pnl);
-
-        grid = uigridlayout(pnl, [1, 1]);
-        grid.Padding = [6 6 6 6];
-        activar_scroll(grid);
-        txt_log = uitextarea(grid, 'Editable', 'off', 'Value', {'Listo.'});
-        tesis_auxiliares('tema_ui', 'textarea', txt_log);
-        estado.txt_log = txt_log;
-    end
-
     function ejecutar_modulo(idx)
         modulo = modulos(idx);
         estado.modulo_activo = idx;
@@ -149,7 +131,8 @@
             return;
         end
 
-        insertar_separacion_log();
+        estado.txt_log.Value = [repmat({''}, 5, 1); estado.txt_log.Value(:)];
+        drawnow limitrate;
         registrar_evento('Abriendo %s...', modulo.funcion);
         figuras_antes = obtener_figuras_abiertas();
 
@@ -272,11 +255,6 @@
             warning('launcher_tesis_modulos:errorModulo', '%s', ME.message);
         end
     end
-    function insertar_separacion_log()
-        estado.txt_log.Value = [repmat({''}, 5, 1); estado.txt_log.Value(:)];
-        drawnow limitrate;
-    end
-
     function verificar_modulos()
         tesis_auxiliares('configurar_paths', root_proyecto);
         for k = 1:numel(modulos)

@@ -15,7 +15,7 @@ function resumen = dividir_datasets_masivos_por_metadata(varargin)
 %   dataset.(modelo).(tag_dataset)
 
     bootstrap_modulo();
-    paths = tesis_auxiliares('asegurar_dataset_paths');
+    paths = tesis_auxiliares('dataset_paths');
     config = normalizar_configuracion(varargin{:});
 
     logfn = obtener_campo_config(config, 'logfn', []);
@@ -127,8 +127,7 @@ end
 
 function bootstrap_modulo()
     carpeta_modulo = fileparts(mfilename('fullpath'));
-    candidatos_aux = {fullfile(carpeta_modulo, '..', 'Aux_Codes'), ...
-        fullfile(carpeta_modulo, '..', '..', 'Aux_Codes')};
+    candidatos_aux = {fullfile(carpeta_modulo, '..', 'aux_codes')};
     for k = 1:numel(candidatos_aux)
         if isfolder(candidatos_aux{k})
             addpath(candidatos_aux{k});
