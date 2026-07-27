@@ -22,7 +22,7 @@ if isfield(paths, 'verificacion_alpha_shape')
 elseif isfield(paths, 'root')
     app.data_root = char(paths.root);
 else
-    app.data_root = fullfile(carpeta_modulo, '..', 'DATASETS');
+    app.data_root = fullfile(carpeta_modulo, '..', 'datasets');
 end
 crearCarpeta(app.data_root);
 app.carpeta = string(app.data_root);

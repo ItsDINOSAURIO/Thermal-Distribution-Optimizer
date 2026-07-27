@@ -5,11 +5,11 @@ function resumen = dividir_datasets_masivos_por_metadata(varargin)
 %   dividir_datasets_masivos_por_metadata()  % procesa todos los MAT masivos
 %
 % Uso con configuracion:
-%   cfg = struct('ruta_entrada', 'DATASETS/datasets_masivos/Dataset.mat');
+%   cfg = struct('ruta_entrada', 'datasets/datasets_masivos/Dataset.mat');
 %   resumen = dividir_datasets_masivos_por_metadata('run', cfg);
 %
 % Salida por defecto:
-%   DATASETS/datasets_masivos_por_metadata/<Tipo>/<Nant>/Caso_X/Potencia_YW/*.mat
+%   datasets/datasets_masivos_por_metadata/<Tipo>/<Nant>/Caso_X/Potencia_YW/*.mat
 %
 % Cada archivo generado conserva el contrato esperado por los modulos:
 %   dataset.(modelo).(tag_dataset)
@@ -32,6 +32,17 @@ function resumen = dividir_datasets_masivos_por_metadata(varargin)
     incluir_sin_metadata = logical(obtener_campo_config(config, ...
         'incluir_sin_metadata', true));
     fusionar_indice = logical(obtener_campo_config(config, 'fusionar_indice', true));
+    registrar_aliases = logical(obtener_campo_config(config, 'registrar_aliases', false));
+    checkpoint_por_archivo = logical(obtener_campo_config(config, ...
+        'checkpoint_por_archivo', true));
+    continuar_tras_error = logical(obtener_campo_config(config, ...
+        'continuar_tras_error', true));
+    organizar_repetidos = logical(obtener_campo_config(config, ...
+        'organizar_repetidos', true));
+    comparar_contenido_repetidos = logical(obtener_campo_config(config, ...
+        'comparar_contenido_repetidos', true));
+    max_carga_completa_gb = double(obtener_campo_config(config, ...
+        'max_carga_completa_gb', 4));
 
     crear_carpeta_si_no_existe(carpeta_salida);
 
@@ -51,20 +62,65 @@ function resumen = dividir_datasets_masivos_por_metadata(varargin)
         ruta_entrada = rutas_entrada{idx_archivo};
         logfn('---');
         logfn('[%d/%d] Explorando: %s', idx_archivo, numel(rutas_entrada), ruta_entrada);
-        if es_mat_v73_con_dataset(ruta_entrada)
-            resumen = dividir_archivo_por_hdf5( ...
-                ruta_entrada, resumen, carpeta_salida, agrupar_por, ...
-                sobrescribir, incluir_sin_metadata, logfn);
-        else
-            logfn('[WARN] MAT no v7.3 o sin /dataset HDF5. Usando carga completa de respaldo.');
-            resumen = dividir_archivo_por_load( ...
-                ruta_entrada, resumen, carpeta_salida, agrupar_por, ...
-                sobrescribir, incluir_sin_metadata, logfn);
+        try
+            info_entrada = dir(ruta_entrada);
+            if isempty(info_entrada) || info_entrada(1).bytes == 0
+                error('divisor:archivoVacio', 'Archivo MAT vacio (0 bytes).');
+            end
+            if es_mat_v73_con_dataset(ruta_entrada)
+                resumen = dividir_archivo_por_hdf5( ...
+                    ruta_entrada, resumen, carpeta_salida, agrupar_por, ...
+                    sobrescribir, incluir_sin_metadata, registrar_aliases, logfn);
+            else
+                tamano_gb = double(info_entrada(1).bytes) / 1024^3;
+                if isfinite(max_carga_completa_gb) && max_carga_completa_gb > 0 && ...
+                        tamano_gb > max_carga_completa_gb
+                    error('divisor:cargaCompletaDemasiadoGrande', ...
+                        ['MAT no v7.3 o sin /dataset HDF5 de %.2f GB. Se omite para evitar ', ...
+                         'agotar RAM; aumenta max_carga_completa_gb solo si confirmas que cabe.'], ...
+                        tamano_gb);
+                end
+                logfn('[WARN] MAT no v7.3 o sin /dataset HDF5. Usando carga completa de respaldo.');
+                resumen = dividir_archivo_por_load( ...
+                    ruta_entrada, resumen, carpeta_salida, agrupar_por, ...
+                    sobrescribir, incluir_sin_metadata, registrar_aliases, logfn);
+            end
+        catch ME
+            detalle = sprintf('%s: %s', ruta_entrada, ME.message);
+            resumen.omitidos{end + 1, 1} = detalle;
+            logfn('[ERROR] Archivo omitido: %s', detalle);
+            if ~continuar_tras_error
+                rethrow(ME);
+            end
+        end
+
+        if checkpoint_por_archivo
+            resumen = escribir_indice_particiones( ...
+                carpeta_salida, resumen, logfn, fusionar_indice);
+            logfn('Checkpoint del indice: %d/%d archivos.', ...
+                idx_archivo, numel(rutas_entrada));
         end
     end
 
     resumen = escribir_indice_particiones( ...
         carpeta_salida, resumen, logfn, fusionar_indice);
+    if organizar_repetidos
+        logfn('Iniciando seleccion de archivos canonicos y cuarentena de repetidos.');
+        cfg_repetidos = struct( ...
+            'carpeta_catalogo', carpeta_salida, ...
+            'carpeta_repetidos', fullfile(carpeta_salida, 'repetidos'), ...
+            'ejecutar_movimientos', true, ...
+            'comparar_contenido', comparar_contenido_repetidos, ...
+            'logfn', logfn);
+        resumen.organizacion_repetidos = organizar_datasets_repetidos('run', cfg_repetidos);
+        try
+            indice_limpio = load(fullfile(carpeta_salida, ...
+                'Indice_Datasets_Metadata.mat'), 'particiones');
+            resumen.particiones = indice_limpio.particiones;
+        catch ME
+            logfn('[WARN] No se pudo recargar el indice limpio: %s', ME.message);
+        end
+    end
     logfn('Particiones registradas: %d', numel(resumen.particiones));
     logfn('Omitidos: %d', numel(resumen.omitidos));
 end
@@ -167,11 +223,15 @@ function tf = es_mat_v73_con_dataset(ruta)
 end
 
 function resumen = dividir_archivo_por_hdf5(ruta_entrada, resumen, carpeta_salida, ...
-        agrupar_por, sobrescribir, incluir_sin_metadata, logfn)
+        agrupar_por, sobrescribir, incluir_sin_metadata, registrar_aliases, logfn)
     fid = H5F.open(ruta_entrada, 'H5F_ACC_RDONLY', 'H5P_DEFAULT');
     cleanup = onCleanup(@() H5F.close(fid));
     modelos = listar_hijos_grupo_hdf5(fid, '/dataset', 'group');
     logfn('Modelos detectados via HDF5: %d', numel(modelos));
+    n_visitados = 0;
+    n_vigentes = 0;
+    n_generados = 0;
+    reloj_archivo = tic;
 
     for idx_modelo = 1:numel(modelos)
         modelo = modelos{idx_modelo};
@@ -212,8 +272,14 @@ function resumen = dividir_archivo_por_hdf5(ruta_entrada, resumen, carpeta_salid
             adoptar_particion_legacy( ...
                 carpeta_particion, ruta_salida, ruta_entrada, modelo, tag_dataset, logfn);
             if ~sobrescribir && particion_vigente(ruta_salida, partition_key)
-                registrar_alias_particion(ruta_salida, ruta_entrada, partition_key);
-                logfn('Omitido vigente: %s', ruta_salida);
+                if registrar_aliases
+                    registrar_alias_particion(ruta_salida, ruta_entrada, partition_key);
+                end
+                n_vigentes = n_vigentes + 1;
+                if n_vigentes == 1 || mod(n_vigentes, 100) == 0
+                    logfn('Particiones vigentes omitidas: %d (ultima: %s/%s)', ...
+                        n_vigentes, modelo, tag_dataset);
+                end
                 resumen = agregar_particion_resumen(resumen, crear_item_resumen( ...
                     ruta_salida, ruta_entrada, modelo, tag_dataset, meta));
                 continue;
@@ -221,21 +287,40 @@ function resumen = dividir_archivo_por_hdf5(ruta_entrada, resumen, carpeta_salid
 
             partition_meta = crear_partition_meta( ...
                 ruta_entrada, modelo, tag_dataset, meta, agrupar_por);
-            inicializar_mat_particion(ruta_salida, modelo, tag_dataset, partition_meta);
+            ruta_parcial = [ruta_salida '.partial'];
+            borrar_si_existe(ruta_parcial);
+            cleanup_parcial = onCleanup(@() borrar_si_existe(ruta_parcial));
+            n_visitados = n_visitados + 1;
+            logfn('Copiando [%d/%d, dataset %d/%d]: %s/%s', ...
+                idx_modelo, numel(modelos), idx_dataset, numel(tags_dataset), ...
+                modelo, tag_dataset);
+            drawnow limitrate;
+            reloj_copia = tic;
+            inicializar_mat_particion(ruta_parcial, modelo, tag_dataset, partition_meta);
             copiar_dataset_hdf5( ...
-                ruta_entrada, ruta_tag, ruta_salida, ...
+                fid, ruta_tag, ruta_parcial, ...
                 sprintf('/dataset/%s/%s', modelo, tag_dataset));
+            partition_meta.completa = true;
+            save(ruta_parcial, 'partition_meta', '-append');
+            mover_archivo_particion(ruta_parcial, ruta_salida);
+            clear cleanup_parcial;
 
             item = crear_item_resumen(ruta_salida, ruta_entrada, modelo, tag_dataset, meta);
             resumen = agregar_particion_resumen(resumen, item);
-            logfn('Generado: %s', ruta_salida);
+            n_generados = n_generados + 1;
+            info_salida = dir(ruta_salida);
+            logfn('Generado en %.1f s (%.1f MB): %s', toc(reloj_copia), ...
+                double(info_salida.bytes) / 1024^2, ruta_salida);
         end
     end
+    logfn(['Resumen archivo: generados=%d | vigentes=%d | visitados_para_copia=%d ', ...
+        '| tiempo=%.1f min'], n_generados, n_vigentes, n_visitados, ...
+        toc(reloj_archivo) / 60);
     clear cleanup;
 end
 
 function resumen = dividir_archivo_por_load(ruta_entrada, resumen, carpeta_salida, ...
-        agrupar_por, sobrescribir, incluir_sin_metadata, logfn)
+        agrupar_por, sobrescribir, incluir_sin_metadata, registrar_aliases, logfn)
     logfn('Cargando MAT completo de respaldo: %s', ruta_entrada);
     raw = load(ruta_entrada);
     dataset_origen = extraer_dataset_desde_struct(raw);
@@ -281,7 +366,9 @@ function resumen = dividir_archivo_por_load(ruta_entrada, resumen, carpeta_salid
             adoptar_particion_legacy( ...
                 carpeta_particion, ruta_salida, ruta_entrada, modelo, tag_dataset, logfn);
             if ~sobrescribir && particion_vigente(ruta_salida, partition_key)
-                registrar_alias_particion(ruta_salida, ruta_entrada, partition_key);
+                if registrar_aliases
+                    registrar_alias_particion(ruta_salida, ruta_entrada, partition_key);
+                end
                 logfn('Omitido vigente: %s', ruta_salida);
                 resumen = agregar_particion_resumen(resumen, crear_item_resumen( ...
                     ruta_salida, ruta_entrada, modelo, tag_dataset, meta));
@@ -292,7 +379,13 @@ function resumen = dividir_archivo_por_load(ruta_entrada, resumen, carpeta_salid
                 dataset_origen, modelo, tag_dataset, datos_solucion);
             partition_meta = crear_partition_meta( ...
                 ruta_entrada, modelo, tag_dataset, meta, agrupar_por);
-            save(ruta_salida, 'dataset', 'partition_meta', '-v7.3');
+            partition_meta.completa = true;
+            ruta_parcial = [ruta_salida '.partial'];
+            borrar_si_existe(ruta_parcial);
+            cleanup_parcial = onCleanup(@() borrar_si_existe(ruta_parcial));
+            save(ruta_parcial, 'dataset', 'partition_meta', '-v7.3');
+            mover_archivo_particion(ruta_parcial, ruta_salida);
+            clear cleanup_parcial;
             item = crear_item_resumen(ruta_salida, ruta_entrada, modelo, tag_dataset, meta);
             resumen = agregar_particion_resumen(resumen, item);
             logfn('Generado: %s', ruta_salida);
@@ -350,21 +443,27 @@ function meta = extraer_metadata_particion_hdf5(modelo, tag_dataset, ruta_entrad
         meta.potencia_W = potencia_tag;
     end
 
-    caso_md = leer_escalar_hdf5(ruta_entrada, [ruta_tag_hdf5 '/metadata/idx_caso']);
-    if isfinite_num(caso_md)
-        meta.caso = double(caso_md);
+    % Los tags normalizados (dset_cX_pY) ya contienen la metadata. Evitar
+    % cuatro h5read por dataset reduce miles de aperturas del mismo archivo.
+    if ~isfinite(meta.caso)
+        caso_md = leer_escalar_hdf5(ruta_entrada, [ruta_tag_hdf5 '/metadata/idx_caso']);
+        if ~isfinite_num(caso_md)
+            caso_md = leer_escalar_hdf5( ...
+                ruta_entrada, [ruta_tag_hdf5 '/metadata/metadata_dataset/caso']);
+        end
+        if isfinite_num(caso_md)
+            meta.caso = double(caso_md);
+        end
     end
-    potencia_md = leer_escalar_hdf5(ruta_entrada, [ruta_tag_hdf5 '/metadata/potencia_W']);
-    if isfinite_num(potencia_md)
-        meta.potencia_W = double(potencia_md);
-    end
-    caso_mds = leer_escalar_hdf5(ruta_entrada, [ruta_tag_hdf5 '/metadata/metadata_dataset/caso']);
-    if isfinite_num(caso_mds)
-        meta.caso = double(caso_mds);
-    end
-    potencia_mds = leer_escalar_hdf5(ruta_entrada, [ruta_tag_hdf5 '/metadata/metadata_dataset/potencia_W']);
-    if isfinite_num(potencia_mds)
-        meta.potencia_W = double(potencia_mds);
+    if ~isfinite(meta.potencia_W)
+        potencia_md = leer_escalar_hdf5(ruta_entrada, [ruta_tag_hdf5 '/metadata/potencia_W']);
+        if ~isfinite_num(potencia_md)
+            potencia_md = leer_escalar_hdf5( ...
+                ruta_entrada, [ruta_tag_hdf5 '/metadata/metadata_dataset/potencia_W']);
+        end
+        if isfinite_num(potencia_md)
+            meta.potencia_W = double(potencia_md);
+        end
     end
 
     meta = finalizar_metadata_util(meta);
@@ -414,12 +513,11 @@ function tf = particion_vigente(ruta_salida, partition_key)
     end
 end
 
-function copiar_dataset_hdf5(ruta_entrada, ruta_tag_entrada, ruta_salida, ruta_tag_salida)
-    src_f = H5F.open(ruta_entrada, 'H5F_ACC_RDONLY', 'H5P_DEFAULT');
+function copiar_dataset_hdf5(src_f, ruta_tag_entrada, ruta_salida, ruta_tag_salida)
     dst_f = H5F.open(ruta_salida, 'H5F_ACC_RDWR', 'H5P_DEFAULT');
     ocpl = H5P.create('H5P_OBJECT_COPY');
     lcpl = H5P.create('H5P_LINK_CREATE');
-    cleanup = onCleanup(@() cerrar_recursos_hdf5(src_f, dst_f, ocpl, lcpl));
+    cleanup = onCleanup(@() cerrar_destino_hdf5(dst_f, ocpl, lcpl));
 
     expand_ref = H5ML.get_constant_value('H5O_COPY_EXPAND_REFERENCE_FLAG');
     H5P.set_copy_object(ocpl, expand_ref);
@@ -430,12 +528,12 @@ function copiar_dataset_hdf5(ruta_entrada, ruta_tag_entrada, ruta_salida, ruta_t
     catch
     end
     H5O.copy(src_f, ruta_tag_entrada, dst_f, ruta_tag_salida, ocpl, lcpl);
+    mover_referencias_copiadas_a_refs(dst_f);
+    H5F.flush(dst_f, 'H5F_SCOPE_GLOBAL');
     clear cleanup;
-
-    mover_referencias_copiadas_a_refs(ruta_salida);
 end
 
-function cerrar_recursos_hdf5(src_f, dst_f, ocpl, lcpl)
+function cerrar_destino_hdf5(dst_f, ocpl, lcpl)
     try
         H5P.close(lcpl);
     catch
@@ -448,19 +546,12 @@ function cerrar_recursos_hdf5(src_f, dst_f, ocpl, lcpl)
         H5F.close(dst_f);
     catch
     end
-    try
-        H5F.close(src_f);
-    catch
-    end
 end
 
-function mover_referencias_copiadas_a_refs(ruta_salida)
-    fid = H5F.open(ruta_salida, 'H5F_ACC_RDWR', 'H5P_DEFAULT');
-    cleanup = onCleanup(@() H5F.close(fid));
+function mover_referencias_copiadas_a_refs(fid)
     nombres = listar_hijos_grupo_hdf5(fid, '/', 'any');
     nombres = nombres(startsWith(nombres, '~obj_pointed_by_'));
     if isempty(nombres)
-        clear cleanup;
         return;
     end
 
@@ -477,7 +568,6 @@ function mover_referencias_copiadas_a_refs(ruta_salida)
         refs_existentes{end + 1} = destino; %#ok<AGROW>
         siguiente = siguiente + 1;
     end
-    clear cleanup;
 end
 
 function nombres = nombres_refs_existentes(fid)
@@ -670,8 +760,12 @@ function registrar_alias_particion(ruta_salida, ruta_entrada, partition_key)
         if ~isfield(partition_meta, 'ruta_entrada') || isempty(partition_meta.ruta_entrada)
             partition_meta.ruta_entrada = char(ruta_entrada);
         end
+        aliases_previos = obtener_aliases(partition_meta);
+        if any(strcmpi(aliases_previos, char(ruta_entrada)))
+            return;
+        end
         partition_meta.fuentes_equivalentes = fusionar_aliases( ...
-            obtener_aliases(partition_meta), {char(ruta_entrada)});
+            aliases_previos, {char(ruta_entrada)});
         save(ruta_salida, 'partition_meta', '-append');
     catch
     end
@@ -937,6 +1031,14 @@ function mover_archivo_indice(origen, destino)
     [ok, msg] = movefile(origen, destino, 'f');
     if ~ok
         error('No se pudo mover indice temporal a destino: %s', msg);
+    end
+end
+
+function mover_archivo_particion(origen, destino)
+    [ok, msg] = movefile(origen, destino, 'f');
+    if ~ok
+        error('divisor:noSePudoFinalizarParticion', ...
+            'No se pudo finalizar la particion %s: %s', destino, msg);
     end
 end
 
