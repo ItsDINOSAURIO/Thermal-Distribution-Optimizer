@@ -3,7 +3,7 @@ function modulo_interaccion_comsol(varargin)
 
     bootstrap_modulo();
     theme = tesis_auxiliares('tema_ui');
-    paths = tesis_auxiliares('asegurar_dataset_paths');
+    paths = tesis_auxiliares('dataset_paths');
     defaults = detectar_rutas_comsol_default(paths);
 
     fig = uifigure('Name', 'Interaccion con COMSOL', ...
@@ -163,8 +163,8 @@ function modulo_interaccion_comsol(varargin)
     end
 
     function c = construir_panel_extractor(parent)
-        g = uigridlayout(parent, [15, 4]);
-        g.RowHeight = {22, 28, 28, 22, 28, 28, 28, 28, 22, 28, 122, 30, 22, 32, '1x'};
+        g = uigridlayout(parent, [16, 4]);
+        g.RowHeight = {22, 28, 28, 22, 28, 28, 28, 28, 28, 22, 28, 122, 30, 22, 32, '1x'};
         g.ColumnWidth = {145, '1x', 145, '1x'};
         g.Padding = [12 12 12 12];
         g.RowSpacing = 6;
@@ -195,41 +195,43 @@ function modulo_interaccion_comsol(varargin)
         c.ed_nant_fin = campo_num(g, 6, 3, 'N ant fin', 4);
         c.ed_pot_ini = campo_num(g, 7, 1, 'Pot ini W', 5);
         c.ed_pot_fin = campo_num(g, 7, 3, 'Pot fin W', 100);
+        c.ed_caso_ini = campo_num(g, 8, 1, 'Caso ini', 0);
+        c.ed_caso_fin = campo_num(g, 8, 3, 'Caso fin', 8);
 
         c.chk_hueso = uicheckbox(g, 'Text', 'Extraer solo bloque de hueso 0-45 mm', 'Value', true);
-        c.chk_hueso.Layout.Row = 8; c.chk_hueso.Layout.Column = [1 2];
-        c.ed_grilla = campo_num(g, 8, 3, 'Grilla', 60);
+        c.chk_hueso.Layout.Row = 9; c.chk_hueso.Layout.Column = [1 2];
+        c.ed_grilla = campo_num(g, 9, 3, 'Grilla', 60);
 
         lbl_sondas = uilabel(g, 'Text', 'Desfase 1 antena y sondas');
-        lbl_sondas.Layout.Row = 9; lbl_sondas.Layout.Column = [1 4];
+        lbl_sondas.Layout.Row = 10; lbl_sondas.Layout.Column = [1 4];
         tesis_auxiliares('tema_ui', 'label', lbl_sondas, 'section');
-        c.ed_desfase_x = campo_num(g, 10, 1, 'Desfase X', 1);
-        c.ed_desfase_y = campo_num(g, 10, 3, 'Desfase Y', 1);
+        c.ed_desfase_x = campo_num(g, 11, 1, 'Desfase X', 1);
+        c.ed_desfase_y = campo_num(g, 11, 3, 'Desfase Y', 1);
 
         c.tbl_sondas = uitable(g, 'Data', [0 0 18.6; 0 0 25.2; 0 0 31.8; 0 0 38.4], ...
             'ColumnName', {'X_mm', 'Y_mm', 'Z_mm'}, ...
             'ColumnEditable', [true true true]);
-        c.tbl_sondas.Layout.Row = 11; c.tbl_sondas.Layout.Column = [1 4];
+        c.tbl_sondas.Layout.Row = 12; c.tbl_sondas.Layout.Column = [1 4];
 
         c.btn_add_sonda = uibutton(g, 'Text', 'Agregar sonda', 'ButtonPushedFcn', @(~,~) agregar_sonda_extractor());
-        c.btn_add_sonda.Layout.Row = 12; c.btn_add_sonda.Layout.Column = [1 2];
+        c.btn_add_sonda.Layout.Row = 13; c.btn_add_sonda.Layout.Column = [1 2];
         tesis_auxiliares('tema_ui', 'button', c.btn_add_sonda, 'secondary');
         c.btn_rm_sonda = uibutton(g, 'Text', 'Remover sonda seleccionada/ultima', 'ButtonPushedFcn', @(~,~) remover_sonda_extractor());
-        c.btn_rm_sonda.Layout.Row = 12; c.btn_rm_sonda.Layout.Column = [3 4];
+        c.btn_rm_sonda.Layout.Row = 13; c.btn_rm_sonda.Layout.Column = [3 4];
         tesis_auxiliares('tema_ui', 'button', c.btn_rm_sonda, 'secondary');
 
         lbl_acc = uilabel(g, 'Text', 'Ejecucion COMSOL');
-        lbl_acc.Layout.Row = 13; lbl_acc.Layout.Column = [1 4];
+        lbl_acc.Layout.Row = 14; lbl_acc.Layout.Column = [1 4];
         tesis_auxiliares('tema_ui', 'label', lbl_acc, 'section');
 
         c.btn_inspeccionar = uibutton(g, 'Text', 'Inspeccionar .mph detectados', ...
             'ButtonPushedFcn', @(~,~) inspeccionar_extractor());
-        c.btn_inspeccionar.Layout.Row = 14; c.btn_inspeccionar.Layout.Column = [1 2];
+        c.btn_inspeccionar.Layout.Row = 15; c.btn_inspeccionar.Layout.Column = [1 2];
         tesis_auxiliares('tema_ui', 'button', c.btn_inspeccionar, 'secondary');
 
         c.btn_run = uibutton(g, 'Text', 'Extraer dataset masivo', ...
             'ButtonPushedFcn', @(~,~) ejecutar_extractor('dataset'));
-        c.btn_run.Layout.Row = 14; c.btn_run.Layout.Column = [3 4];
+        c.btn_run.Layout.Row = 15; c.btn_run.Layout.Column = [3 4];
         tesis_auxiliares('tema_ui', 'button', c.btn_run, 'success');
     end
 
@@ -318,6 +320,8 @@ function modulo_interaccion_comsol(varargin)
             cfg.potencia_inicio = controles_extractor.ed_pot_ini.Value;
             cfg.potencia_fin = controles_extractor.ed_pot_fin.Value;
             cfg.potencia_paso = 5;
+            cfg.caso_inicio = controles_extractor.ed_caso_ini.Value;
+            cfg.caso_fin = controles_extractor.ed_caso_fin.Value;
         end
     end
 
@@ -335,24 +339,23 @@ function modulo_interaccion_comsol(varargin)
         if ~isfield(controles_extractor, 'chk_ignorar')
             return;
         end
-        habilitado = visible_enable(~controles_extractor.chk_ignorar.Value);
+        if controles_extractor.chk_ignorar.Value
+            habilitado = 'off';
+        else
+            habilitado = 'on';
+        end
         controles_extractor.dd_tipo.Enable = habilitado;
         controles_extractor.ed_nant_ini.Enable = habilitado;
         controles_extractor.ed_nant_fin.Enable = habilitado;
         controles_extractor.ed_pot_ini.Enable = habilitado;
         controles_extractor.ed_pot_fin.Enable = habilitado;
+        controles_extractor.ed_caso_ini.Enable = habilitado;
+        controles_extractor.ed_caso_fin.Enable = habilitado;
         if controles_extractor.chk_ignorar.Value
             log_evento('Filtros de modelo inhabilitados: se procesaran todos los .mph validos detectados.');
         end
     end
 
-    function valor = visible_enable(condicion)
-        if condicion
-            valor = 'on';
-        else
-            valor = 'off';
-        end
-    end
     function seleccionar_root_generador()
         seleccionar_carpeta(controles_generador.ed_raiz, 'Selecciona root de simulaciones');
         ruta = controles_generador.ed_raiz.Value;
@@ -528,7 +531,7 @@ function modulo_interaccion_comsol(varargin)
             log_evento('Ejecutando extractor COMSOL. Modo: %s', modo);
             lbl_estado.Text = 'Extractor en ejecucion...';
             drawnow limitrate;
-            ejecutar_extractor_comsol_integrado('run', cfg);
+            extractor_comsol_masivo('run', cfg);
             lbl_estado.Text = 'Extractor finalizado.';
             log_evento('Dataset masivo COMSOL actualizado: %s', obtener_ruta_dataset_salida(cfg));
         catch ME
@@ -729,8 +732,7 @@ function ruta = buscar_archivo_en_proyecto(root, nombre)
 end
 function bootstrap_modulo()
     carpeta_modulo = fileparts(mfilename('fullpath'));
-    candidatos_aux = {fullfile(carpeta_modulo, '..', 'Aux_Codes'), ...
-        fullfile(carpeta_modulo, '..', '..', 'Aux_Codes')};
+    candidatos_aux = {fullfile(carpeta_modulo, '..', 'aux_codes')};
     for k_aux = 1:numel(candidatos_aux)
         if isfolder(candidatos_aux{k_aux}), addpath(candidatos_aux{k_aux}); end
     end
@@ -787,16 +789,6 @@ function generador_sin_metales_multi_solucion_sin_tumor(varargin)
 %      Coordenadas_Antenas.txt
 % =========================================================
 
-    % Permite ejecutar el modulo desde el launcher o directamente.
-    carpeta_modulo = fileparts(mfilename('fullpath'));
-    candidatos_aux = {fullfile(carpeta_modulo, '..', 'Aux_Codes'), ...
-        fullfile(carpeta_modulo, '..', '..', 'Aux_Codes')};
-    for k_aux = 1:numel(candidatos_aux)
-        if isfolder(candidatos_aux{k_aux}), addpath(candidatos_aux{k_aux}); end
-    end
-    if exist('tesis_auxiliares', 'file') == 2
-        tesis_auxiliares('configurar_paths', carpeta_modulo);
-    end
 if nargin == 0
     error('Use modulo_interaccion_comsol para abrir la UI integrada o pase ''run'', config.');
 end
@@ -1927,11 +1919,6 @@ function umbral = umbral_carbonizacion_generador(umbrales, idx_caso)
 end
 
 function valores = crear_rango_entero(inicio, fin, paso, minimo, maximo, etiqueta)
-    valores = crear_rango_numerico(inicio, fin, paso, minimo, maximo, etiqueta);
-    valores = unique(round(valores), 'stable');
-end
-
-function valores = crear_rango_numerico(inicio, fin, paso, minimo, maximo, etiqueta)
     if ~isnumeric(inicio) || ~isscalar(inicio) || ~isnumeric(fin) || ~isscalar(fin)
         error('El rango de %s debe usar valores numericos escalares.', etiqueta);
     end
@@ -1952,6 +1939,7 @@ function valores = crear_rango_numerico(inicio, fin, paso, minimo, maximo, etiqu
             valores = unique([valores, fin], 'stable');
         end
     end
+    valores = unique(round(valores), 'stable');
 end
 
 function disponibles = detectar_antenas_disponibles(ruta_antenas)
@@ -2098,9 +2086,6 @@ end
 
 % ---- Fin copia local: generador_sin_metales_multi_solucion_sin_tumor.m ----
 end
-function ejecutar_extractor_comsol_integrado(varargin)
-    extractor_comsol_masivo(varargin{:});
-
 % ---- Inicio copia local: extractor_comsol_masivo.m ----
 function extractor_comsol_masivo(varargin)
 % =========================================================================
@@ -2157,16 +2142,6 @@ function extractor_comsol_masivo(varargin)
 %    - Si una sonda queda fuera del dominio se hace snap al nodo más cercano
 %    - Los modelos se liberan de memoria tras cada extracción
 % =========================================================================
-    % Permite ejecutar el modulo desde el launcher o directamente.
-    carpeta_modulo = fileparts(mfilename('fullpath'));
-    candidatos_aux = {fullfile(carpeta_modulo, '..', 'Aux_Codes'), ...
-        fullfile(carpeta_modulo, '..', '..', 'Aux_Codes')};
-    for k_aux = 1:numel(candidatos_aux)
-        if isfolder(candidatos_aux{k_aux}), addpath(candidatos_aux{k_aux}); end
-    end
-    if exist('tesis_auxiliares', 'file') == 2
-        tesis_auxiliares('configurar_paths', carpeta_modulo);
-    end
     if nargin == 0
         error('Use modulo_interaccion_comsol para abrir la UI integrada o pase ''run'', config.');
     end
@@ -2230,7 +2205,7 @@ function extractor_comsol_masivo(varargin)
     log_extractor('Modelos encontrados: %d\n\n', n_modelos);
     % ── Cargar .mat existente o iniciar uno nuevo ─────────────────────────
     if isempty(ruta_salida_mat)
-        data_paths = tesis_auxiliares('asegurar_dataset_paths');
+        data_paths = tesis_auxiliares('dataset_paths');
         out_path = fullfile(data_paths.datasets_masivos, archivo_salida_mat);
     else
         out_path = ruta_salida_mat;
@@ -3593,4 +3568,3 @@ function log_extractor(formato, varargin)
 end
 
 % ---- Fin copia local: extractor_comsol_masivo.m ----
-end

@@ -3,7 +3,7 @@ clc;
 close all;
 
 carpeta_modulo = fileparts(mfilename('fullpath'));
-candidatos_aux = {fullfile(carpeta_modulo, '..', 'Aux_Codes')};
+candidatos_aux = {fullfile(carpeta_modulo, '..', 'aux_codes')};
 for k_aux = 1:numel(candidatos_aux)
     if isfolder(candidatos_aux{k_aux})
         addpath(candidatos_aux{k_aux});
@@ -13,7 +13,7 @@ end
 paths = struct();
 if exist('tesis_auxiliares', 'file') == 2
     root_proyecto = tesis_auxiliares('configurar_paths', carpeta_modulo);
-    paths = tesis_auxiliares('asegurar_dataset_paths', root_proyecto);
+    paths = tesis_auxiliares('dataset_paths', root_proyecto);
 end
 
 app = struct();
@@ -26,6 +26,10 @@ else
 end
 crearCarpeta(app.data_root);
 app.carpeta = string(app.data_root);
+app.catalogo_carpetas = struct('ruta', {}, 'etiqueta', {}, 'tipo', {}, ...
+    'antena', {}, 'caso', {}, 'potencia', {}, 'fecha', {}, 'tiempo', {}, ...
+    'prueba', {}, 'zonas', {});
+app.metadata_dataset = struct();
 app.fileList = [];
 app.nFiles = 0;
 app.BW = {};
@@ -104,9 +108,9 @@ panelControles = uipanel(body, ...
 panelControles.Layout.Row = 1;
 panelControles.Layout.Column = 1;
 
-ctrl = uigridlayout(panelControles, [20 2]);
-ctrl.RowHeight = {24, 22, 30, 34, 120, 24, 30, 30, 30, 30, 30, 30, ...
-    24, 34, 34, 34, 34, 34, 34, '1x'};
+ctrl = uigridlayout(panelControles, [29 2]);
+ctrl.RowHeight = {24, 22, 30, 30, 30, 30, 30, 30, 30, 30, 30, 34, ...
+    34, 120, 24, 30, 30, 30, 30, 30, 30, 24, 34, 34, 34, 34, 34, 34, '1x'};
 ctrl.ColumnWidth = {'1x', 110};
 ctrl.Padding = [10 10 10 10];
 ctrl.RowSpacing = 7;
@@ -126,7 +130,25 @@ txtCarpeta = uieditfield(ctrl, 'text', ...
 txtCarpeta.Layout.Row = 3;
 txtCarpeta.Layout.Column = [1 2];
 
-crearBotonComparacion(ctrl, 'Seleccionar carpeta', 4, 1, ...
+ddTipo = crearFiltroMetadata(ctrl, 4, 'Tipo');
+ddAntena = crearFiltroMetadata(ctrl, 5, 'Antenas');
+ddCaso = crearFiltroMetadata(ctrl, 6, 'Caso');
+ddPotencia = crearFiltroMetadata(ctrl, 7, 'Potencia');
+ddFecha = crearFiltroMetadata(ctrl, 8, 'Fecha');
+ddTiempo = crearFiltroMetadata(ctrl, 9, 'Tiempo');
+ddPrueba = crearFiltroMetadata(ctrl, 10, 'Prueba');
+ddZonas = crearFiltroMetadata(ctrl, 11, 'Zonas');
+filtrosMetadata = struct('campo', {'tipo', 'antena', 'caso', 'potencia', ...
+    'fecha', 'tiempo', 'prueba', 'zonas'}, 'control', {ddTipo, ddAntena, ...
+    ddCaso, ddPotencia, ddFecha, ddTiempo, ddPrueba, ddZonas});
+for idx_filtro = 1:numel(filtrosMetadata)
+    filtrosMetadata(idx_filtro).control.ValueChangedFcn = @(~, ~) aplicarFiltrosMetadata();
+end
+ddDataset = crearFiltroMetadata(ctrl, 12, 'Dataset');
+ddDataset.Items = {'(sin carpetas)'};
+ddDataset.ValueChangedFcn = @(src, ~) cargarCarpetaSeleccionada(src.Value);
+
+crearBotonComparacion(ctrl, 'Seleccionar carpeta', 13, 1, ...
     'btn_carpeta_alphashape', @(~, ~) seleccionarCarpeta());
 
 btnProcesar = uibutton(ctrl, ...
@@ -134,59 +156,59 @@ btnProcesar = uibutton(ctrl, ...
     'Enable', 'off', ...
     'Tag', 'btn_segmentar_hueso_alphashape', ...
     'ButtonPushedFcn', @(~, ~) procesarImagenes());
-btnProcesar.Layout.Row = 4;
+btnProcesar.Layout.Row = 13;
 btnProcesar.Layout.Column = 2;
 
 lstImagenes = uilistbox(ctrl, ...
     'Items', {'Sin carpeta cargada'}, ...
     'Tag', 'lst_imagenes_alphashape');
-lstImagenes.Layout.Row = 5;
+lstImagenes.Layout.Row = 14;
 lstImagenes.Layout.Column = [1 2];
 
-crearLabelAncho(ctrl, 'Parámetros', 6, 'lbl_seccion_parametros_alphashape');
-crearLabel(ctrl, 'K-means', 7, 'lbl_kmeans_alphashape');
+crearLabelAncho(ctrl, 'Parámetros', 15, 'lbl_seccion_parametros_alphashape');
+crearLabel(ctrl, 'K-means', 16, 'lbl_kmeans_alphashape');
 spnClusters = uispinner(ctrl, 'Limits', [2 8], 'Value', 4, 'Step', 1, ...
     'Tag', 'spn_clusters_alphashape');
-spnClusters.Layout.Row = 7;
+spnClusters.Layout.Row = 16;
 spnClusters.Layout.Column = 2;
 
-crearLabel(ctrl, 'Área mínima', 8, 'lbl_area_minima_alphashape');
+crearLabel(ctrl, 'Área mínima', 17, 'lbl_area_minima_alphashape');
 spnArea = uispinner(ctrl, 'Limits', [50 50000], 'Value', 3000, 'Step', 100, ...
     'Tag', 'spn_area_alphashape');
-spnArea.Layout.Row = 8;
+spnArea.Layout.Row = 17;
 spnArea.Layout.Column = 2;
 
-crearLabel(ctrl, 'Cierre', 9, 'lbl_cierre_alphashape');
+crearLabel(ctrl, 'Cierre', 18, 'lbl_cierre_alphashape');
 spnCierre = uispinner(ctrl, 'Limits', [1 80], 'Value', 18, 'Step', 1, ...
     'Tag', 'spn_cierre_alphashape');
-spnCierre.Layout.Row = 9;
+spnCierre.Layout.Row = 18;
 spnCierre.Layout.Column = 2;
 
-crearLabel(ctrl, 'Alpha x', 10, 'lbl_alpha_alphashape');
+crearLabel(ctrl, 'Alpha x', 19, 'lbl_alpha_alphashape');
 spnAlpha = uispinner(ctrl, 'Limits', [0.5 10], 'Value', 5, 'Step', 0.25, ...
     'Tag', 'spn_alpha_alphashape');
-spnAlpha.Layout.Row = 10;
+spnAlpha.Layout.Row = 19;
 spnAlpha.Layout.Column = 2;
 
-crearLabel(ctrl, 'Subdivisión', 11, 'lbl_subdivision_alphashape');
+crearLabel(ctrl, 'Subdivisión', 20, 'lbl_subdivision_alphashape');
 spnSubdiv = uispinner(ctrl, 'Limits', [0 3], 'Value', 2, 'Step', 1, ...
     'Tag', 'spn_subdivision_alphashape');
-spnSubdiv.Layout.Row = 11;
+spnSubdiv.Layout.Row = 20;
 spnSubdiv.Layout.Column = 2;
 
-crearLabel(ctrl, 'Suavizado', 12, 'lbl_suavizado_alphashape');
+crearLabel(ctrl, 'Suavizado', 21, 'lbl_suavizado_alphashape');
 spnSuavizado = uispinner(ctrl, 'Limits', [0 250], 'Value', 120, 'Step', 10, ...
     'Tag', 'spn_suavizado_alphashape');
-spnSuavizado.Layout.Row = 12;
+spnSuavizado.Layout.Row = 21;
 spnSuavizado.Layout.Column = 2;
 
-crearLabelAncho(ctrl, 'Acciones', 13, 'lbl_seccion_acciones_alphashape');
-btnCalibrar = crearBoton(ctrl, '2. Calibrar y alinear', 14, 'btn_calibrar_alphashape', @(~, ~) calibrarYAlinear());
-btnAblacion = crearBoton(ctrl, '3. Segmentar ablación', 15, 'btn_segmentar_ablacion_alphashape', @(~, ~) segmentarAblacion());
-btnGrosores = crearBoton(ctrl, '4. Capturar grosores', 16, 'btn_grosores_alphashape', @(~, ~) capturarGrosores());
-btnReconstruir = crearBoton(ctrl, '5. Reconstruir y guardar STL', 17, 'btn_reconstruir_alphashape', @(~, ~) reconstruir3D());
-btnCalcular = crearBoton(ctrl, '6. Calcular volumen del STL', 18, 'btn_calcular_volumen_alphashape', @(~, ~) CalcularVol());
-btnComparar = crearBoton(ctrl, '7. Comparar volumen del STL', 19, 'btn_comparar_volumen_alphashape', @(~, ~) CompaVol());
+crearLabelAncho(ctrl, 'Acciones', 22, 'lbl_seccion_acciones_alphashape');
+btnCalibrar = crearBoton(ctrl, '2. Calibrar y alinear', 23, 'btn_calibrar_alphashape', @(~, ~) calibrarYAlinear());
+btnAblacion = crearBoton(ctrl, '3. Segmentar ablación', 24, 'btn_segmentar_ablacion_alphashape', @(~, ~) segmentarAblacion());
+btnGrosores = crearBoton(ctrl, '4. Capturar grosores', 25, 'btn_grosores_alphashape', @(~, ~) capturarGrosores());
+btnReconstruir = crearBoton(ctrl, '5. Reconstruir y guardar STL', 26, 'btn_reconstruir_alphashape', @(~, ~) reconstruir3D());
+btnCalcular = crearBoton(ctrl, '6. Calcular volumen del STL', 27, 'btn_calcular_volumen_alphashape', @(~, ~) CalcularVol());
+btnComparar = crearBoton(ctrl, '7. Comparar volumen del STL', 28, 'btn_comparar_volumen_alphashape', @(~, ~) CompaVol());
 
 tabs = uitabgroup(body, 'Tag', 'tabs_alphashape');
 tabs.Layout.Row = 1;
@@ -283,7 +305,64 @@ btnMenYTr.Enable = 'off';
 btnMasZTr.Enable = 'off';
 btnMenZTr.Enable = 'off';
 
-aplicarTema();
+archivos_catalogo = [dir(fullfile(app.data_root, '**', '*.JPEG')); ...
+    dir(fullfile(app.data_root, '**', '*.jpg')); ...
+    dir(fullfile(app.data_root, '**', '*.jpeg'))];
+carpetas_catalogo = unique({archivos_catalogo.folder}, 'stable');
+for idx_catalogo = 1:numel(carpetas_catalogo)
+    partes_catalogo = split(strrep(carpetas_catalogo{idx_catalogo}, '\', '/'), '/');
+    if any(strcmpi(partes_catalogo, 'repetidos')) || ...
+            any(strcmpi(partes_catalogo, 'Alineadas')) || ...
+            any(strcmpi(partes_catalogo, 'Ablacion_segmentada'))
+        continue;
+    end
+    md_catalogo = tesis_auxiliares('metadata_ruta', carpetas_catalogo{idx_catalogo});
+    entrada_catalogo = struct('ruta', carpetas_catalogo{idx_catalogo}, ...
+        'etiqueta', '', 'tipo', md_catalogo.tipo, ...
+        'antena', md_catalogo.antena, 'caso', '', 'potencia', '', ...
+        'fecha', md_catalogo.fecha_adquisicion, 'tiempo', '', ...
+        'prueba', '', 'zonas', '');
+    if isempty(entrada_catalogo.tipo), entrada_catalogo.tipo = '(sin metadata)'; end
+    if isempty(entrada_catalogo.antena), entrada_catalogo.antena = '(sin metadata)'; end
+    if isempty(entrada_catalogo.fecha), entrada_catalogo.fecha = '(sin metadata)'; end
+    if isfinite(md_catalogo.caso), entrada_catalogo.caso = sprintf('Caso_%d', round(md_catalogo.caso)); end
+    if isfinite(md_catalogo.potencia_W), entrada_catalogo.potencia = sprintf('Potencia_%gW', md_catalogo.potencia_W); end
+    if isfinite(md_catalogo.tiempo_ejecucion_min), entrada_catalogo.tiempo = sprintf('Tiempo_%gmin', md_catalogo.tiempo_ejecucion_min); end
+    if isfinite(md_catalogo.numero_prueba), entrada_catalogo.prueba = sprintf('Prueba_%d', round(md_catalogo.numero_prueba)); end
+    if isfinite(md_catalogo.num_zonas), entrada_catalogo.zonas = sprintf('Zonas_%d', round(md_catalogo.num_zonas)); end
+    for campo_catalogo = {'caso', 'potencia', 'tiempo', 'prueba', 'zonas'}
+        if isempty(entrada_catalogo.(campo_catalogo{1}))
+            entrada_catalogo.(campo_catalogo{1}) = '(sin metadata)';
+        end
+    end
+    relativa_catalogo = erase(carpetas_catalogo{idx_catalogo}, [app.data_root filesep]);
+    entrada_catalogo.etiqueta = strjoin({entrada_catalogo.tipo, ...
+        entrada_catalogo.antena, entrada_catalogo.caso, entrada_catalogo.potencia, ...
+        entrada_catalogo.fecha, entrada_catalogo.tiempo, entrada_catalogo.prueba, ...
+        entrada_catalogo.zonas, relativa_catalogo}, ' | ');
+    app.catalogo_carpetas(end + 1) = entrada_catalogo;
+end
+for idx_catalogo = 1:numel(filtrosMetadata)
+    valores_catalogo = unique( ...
+        {app.catalogo_carpetas.(filtrosMetadata(idx_catalogo).campo)}, 'stable');
+    filtrosMetadata(idx_catalogo).control.Items = [{'Todos'}, valores_catalogo];
+    filtrosMetadata(idx_catalogo).control.Value = 'Todos';
+end
+aplicarFiltrosMetadata();
+tesis_auxiliares('tema_ui', 'apply', fig);
+tesis_auxiliares('tema_ui', 'label', titulo, 'title');
+tesis_auxiliares('tema_ui', 'label', lblBase, 'muted');
+tesis_auxiliares('tema_ui', 'textarea', txtEstado);
+botones_tema = [btnProcesar btnCalibrar btnAblacion btnGrosores btnReconstruir ...
+    btnCalcular btnComparar btnSTLfijo btnSTLRot btnSTLNormZ btnSTlHueso btnCalibrarSTL ...
+    btnMasX btnMenX btnMasY btnMenY btnMasZ btnMenZ ...
+    btnMasXTr btnMenXTr btnMasYTr btnMenYTr btnMasZTr btnMenZTr];
+for idx_boton = 1:numel(botones_tema)
+    tesis_auxiliares('tema_ui', 'button', botones_tema(idx_boton), 'secondary');
+end
+tesis_auxiliares('tema_ui', 'button', btnProcesar, 'success');
+tesis_auxiliares('tema_ui', 'button', btnReconstruir, 'success');
+tesis_auxiliares('tema_ui', 'button', btnComparar, 'success');
 limpiarAxes();
 
     function p = crearPanel(parent, tituloPanel, row, col, tag)
@@ -313,6 +392,19 @@ limpiarAxes();
         lbl.Layout.Column = [1 2];
         if exist('tesis_auxiliares', 'file') == 2
             tesis_auxiliares('tema_ui', 'label', lbl, 'section');
+        end
+    end
+
+    function control = crearFiltroMetadata(parent, row, texto)
+        lbl = uilabel(parent, 'Text', texto);
+        lbl.Layout.Row = row;
+        lbl.Layout.Column = 1;
+        control = uidropdown(parent, 'Items', {'Todos'}, 'Value', 'Todos');
+        control.Layout.Row = row;
+        control.Layout.Column = 2;
+        if exist('tesis_auxiliares', 'file') == 2
+            tesis_auxiliares('tema_ui', 'label', lbl, 'normal');
+            tesis_auxiliares('tema_ui', 'dropdown', control);
         end
     end
 
@@ -354,31 +446,30 @@ limpiarAxes();
         ax.Layout.Column = 1;
     end
 
-    function aplicarTema()
-        if exist('tesis_auxiliares', 'file') ~= 2
-            return;
-        end
-
-        tesis_auxiliares('tema_ui', 'apply', fig);
-        tesis_auxiliares('tema_ui', 'label', titulo, 'title');
-        tesis_auxiliares('tema_ui', 'label', lblBase, 'muted');
-        tesis_auxiliares('tema_ui', 'textarea', txtEstado);
-        botones = [btnProcesar btnCalibrar btnAblacion btnGrosores btnReconstruir ...
-            btnCalcular btnComparar btnSTLfijo btnSTLRot btnSTLNormZ btnSTlHueso btnCalibrarSTL ...
-            btnMasX btnMenX btnMasY btnMenY btnMasZ btnMenZ ...
-            btnMasXTr btnMenXTr btnMasYTr btnMenYTr btnMasZTr btnMenZTr];
-        for idx_boton = 1:numel(botones)
-            tesis_auxiliares('tema_ui', 'button', botones(idx_boton), 'secondary');
-        end
-        tesis_auxiliares('tema_ui', 'button', btnProcesar, 'success');
-        tesis_auxiliares('tema_ui', 'button', btnReconstruir, 'success');
-        tesis_auxiliares('tema_ui', 'button', btnComparar, 'success');
-    end
-
     function inicio = directorioInicial()
         inicio = char(app.carpeta);
         if strlength(app.carpeta) == 0 || ~isfolder(inicio)
             inicio = app.data_root;
+        end
+    end
+
+    function aplicarFiltrosMetadata()
+        mask = true(1, numel(app.catalogo_carpetas));
+        for idx = 1:numel(filtrosMetadata)
+            valor = filtrosMetadata(idx).control.Value;
+            if ~strcmp(valor, 'Todos')
+                mask = mask & strcmpi({app.catalogo_carpetas.(filtrosMetadata(idx).campo)}, valor);
+            end
+        end
+        catalogo = app.catalogo_carpetas(mask);
+        if isempty(catalogo)
+            ddDataset.Items = {'(sin carpetas)'};
+            ddDataset.ItemsData = {''};
+            ddDataset.Value = '';
+        else
+            ddDataset.Items = {catalogo.etiqueta};
+            ddDataset.ItemsData = {catalogo.ruta};
+            ddDataset.Value = catalogo(1).ruta;
         end
     end
 
@@ -388,8 +479,13 @@ limpiarAxes();
         if isequal(carpeta, 0)
             return;
         end
+        cargarCarpetaSeleccionada(carpeta);
+    end
 
+    function cargarCarpetaSeleccionada(carpeta)
+        if isempty(carpeta) || ~isfolder(carpeta), return; end
         app.carpeta = string(carpeta);
+        app.metadata_dataset = tesis_auxiliares('metadata_ruta', carpeta);
         txtCarpeta.Value = char(app.carpeta);
 
         fileList2 = dir(fullfile(app.carpeta, '*.JPEG'));
@@ -750,6 +846,7 @@ limpiarAxes();
             'mmPorPixel', ...
             'distanciaPixeles', ...
             'distanciaRealMm', ...
+            'metadata_dataset', ...
             'archivoSTL');
 
         btnCalcular.Enable = 'on';
@@ -1619,8 +1716,6 @@ H = hsvImg(:, :, 1);
 S = hsvImg(:, :, 2);
 V = hsvImg(:, :, 3);
 L = labImg(:, :, 1);
-A = labImg(:, :, 2); %#ok<NASGU>
-B = labImg(:, :, 3); %#ok<NASGU>
 
 R = imgDouble(:, :, 1);
 G = imgDouble(:, :, 2);
@@ -1916,31 +2011,4 @@ promedioVecinos(verticesValidos, :) = (A(verticesValidos, :) * vertices) ./ grad
 verticesNuevos(verticesValidos, :) = vertices(verticesValidos, :) + ...
     factor * (promedioVecinos(verticesValidos, :) - vertices(verticesValidos, :));
 
-end
-
-function [V,F] = lectorSTL(filename) %#ok<DEFNU>
-
-fid = fopen(filename,'rb');
-fseek(fid,80,'bof');
-numFaces = fread(fid,1,'uint32');
-
-Vraw = zeros(numFaces*3,3);
-F = zeros(numFaces,3); %#ok<PREALL>
-
-for i = 1:numFaces
-    fread(fid,3,'float32');
-    v1 = fread(fid,3,'float32');
-    v2 = fread(fid,3,'float32');
-    v3 = fread(fid,3,'float32');
-    fread(fid,1,'uint16');
-
-    idx = (i-1)*3;
-    Vraw(idx+1,:) = v1';
-    Vraw(idx+2,:) = v2';
-    Vraw(idx+3,:) = v3';
-end
-fclose(fid);
-
-[V,~,ic] = unique(Vraw,'rows','stable');
-F = reshape(ic,3,numFaces)';
 end

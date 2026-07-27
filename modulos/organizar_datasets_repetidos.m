@@ -7,7 +7,7 @@ function resumen = organizar_datasets_repetidos(varargin)
 % mueven a repetidos/equivalentes y las que difieren a repetidos/conflictos.
 
     bootstrap_organizador();
-    paths = tesis_auxiliares('asegurar_dataset_paths');
+    paths = tesis_auxiliares('dataset_paths');
     config = normalizar_config_organizador(varargin{:});
     root = campo_config_organizador(config, 'carpeta_catalogo', ...
         paths.datasets_masivos_por_metadata);
@@ -30,10 +30,6 @@ function resumen = organizar_datasets_repetidos(varargin)
     if ~esta_dentro_de_organizador(root_repetidos, root)
         error('La carpeta repetidos debe permanecer dentro del catalogo.');
     end
-    if ejecutar_movimientos && ~isfolder(root_repetidos)
-        mkdir(root_repetidos);
-    end
-
     entradas = catalogar_archivos_organizador(root, root_repetidos, logfn);
     resumen = struct( ...
         'fecha', char(datetime('now', 'Format', 'yyyy-MM-dd HH:mm:ss')), ...
@@ -150,7 +146,7 @@ end
 
 function bootstrap_organizador()
     carpeta = fileparts(mfilename('fullpath'));
-    aux = fullfile(carpeta, '..', 'Aux_Codes');
+    aux = fullfile(carpeta, '..', 'aux_codes');
     if isfolder(aux), addpath(aux); end
     tesis_auxiliares('configurar_paths', carpeta);
 end
@@ -489,12 +485,13 @@ function escribir_csv_indice_organizador(ruta, particiones)
 end
 
 function escribir_reporte_repetidos_organizador(root_repetidos, resumen)
-    if ~isfolder(root_repetidos), mkdir(root_repetidos); end
     ruta = fullfile(root_repetidos, 'Indice_Repetidos.mat');
     hay_nuevos = ~isempty(resumen.equivalentes) || ~isempty(resumen.conflictos);
+    if ~hay_nuevos && ~isfile(ruta), return; end
     if isfile(ruta) && ~hay_nuevos
         return;
     end
+    if ~isfolder(root_repetidos), mkdir(root_repetidos); end
     if isfile(ruta)
         try
             anterior = load(ruta, 'resumen');

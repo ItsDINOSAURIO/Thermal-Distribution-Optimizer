@@ -3,7 +3,7 @@ function modulo_manejador_visual_datos(varargin)
 
     bootstrap_modulo();
     theme = tesis_auxiliares('tema_ui');
-    paths = tesis_auxiliares('asegurar_dataset_paths');
+    paths = tesis_auxiliares('dataset_paths');
     dataset_default = tesis_auxiliares('dataset_masivo_reciente', paths);
     dataset_dist_default = paths.datasets_masivos_por_metadata;
     if ~isfolder(dataset_dist_default)
@@ -75,7 +75,7 @@ function modulo_manejador_visual_datos(varargin)
         ctrl.Layout.Column = 1;
         tesis_auxiliares('tema_ui', 'panel', ctrl);
         activar_scroll(ctrl);
-        g = crear_grid_control(ctrl, 15);
+        g = crear_grid_control(ctrl, 18);
         c.sim = row_value(g, 1, 'Fuente framework', dataset_dist_default);
         c.corr = row_path(g, 2, 'Correccion MAT', paths.correlaciones, '*.mat', @load_corr_dist);
         c.tipo = drop(g, 3, 'Tipo', {'Todos'}); c.tipo.ValueChangedFcn = @(~,~) aplicar_filtros_catalogo_dist();
@@ -83,14 +83,20 @@ function modulo_manejador_visual_datos(varargin)
         c.caso = drop(g, 5, 'Caso', {'Todos'}); c.caso.ValueChangedFcn = @(~,~) aplicar_filtros_catalogo_dist();
         c.potencia = drop(g, 6, 'Potencia', {'Todos'}); c.potencia.ValueChangedFcn = @(~,~) aplicar_filtros_catalogo_dist();
         c.fecha = drop(g, 7, 'Fecha', {'Todos'}); c.fecha.ValueChangedFcn = @(~,~) aplicar_filtros_catalogo_dist();
-        c.modelo = drop(g, 8, 'Modelo', {'(sin dataset)'}); c.modelo.ValueChangedFcn = @(~,~) datasets_dist(true);
-        c.ds = drop(g, 9, 'Dataset', {'(sin dataset)'}); c.ds.ValueChangedFcn = @(~,~) cargar_dataset_seleccionado_dist();
-        c.tiempo = drop(g, 10, 'Tiempo', {'(sin tiempos)'}); c.tiempo.ValueChangedFcn = @(~,~) plot_dist();
-        c.tmin = num(g, 11, 'Filtro min C', 55); c.tmax = num(g, 12, 'Filtro max C', 200);
-        c.k = num(g, 13, 'Intensidad 0-1', 1);
+        c.tiempo_corr = drop(g, 8, 'Tiempo ejecucion', {'Todos'}); c.tiempo_corr.ValueChangedFcn = @(~,~) aplicar_filtros_catalogo_dist();
+        c.prueba = drop(g, 9, 'Prueba', {'Todos'}); c.prueba.ValueChangedFcn = @(~,~) aplicar_filtros_catalogo_dist();
+        c.zonas = drop(g, 10, 'Zonas', {'Todos'}); c.zonas.ValueChangedFcn = @(~,~) aplicar_filtros_catalogo_dist();
+        c.modelo = drop(g, 11, 'Modelo', {'(sin dataset)'}); c.modelo.ValueChangedFcn = @(~,~) datasets_dist(true);
+        c.ds = drop(g, 12, 'Dataset', {'(sin dataset)'}); c.ds.ValueChangedFcn = @(~,~) cargar_dataset_seleccionado_dist();
+        c.tiempo = drop(g, 13, 'Tiempo termico', {'(sin tiempos)'}); c.tiempo.ValueChangedFcn = @(~,~) plot_dist();
+        c.tmin = num(g, 14, 'Filtro min C', 55); c.tmax = num(g, 15, 'Filtro max C', 200);
+        c.k = num(g, 16, 'Intensidad 0-1', 1);
         c.offset = uicheckbox(g, 'Text', 'Aplicar offset basal experimental', 'Value', true, 'ValueChangedFcn', @(~,~) plot_dist());
-        c.offset.Layout.Row = 14; c.offset.Layout.Column = [1 3];
+        c.offset.Layout.Row = 17; c.offset.Layout.Column = [1 3];
         set_tag(c.fecha, 'dist_filtro_fecha');
+        set_tag(c.tiempo_corr, 'dist_filtro_tiempo_ejecucion');
+        set_tag(c.prueba, 'dist_filtro_prueba');
+        set_tag(c.zonas, 'dist_filtro_zonas');
         c.tmin.ValueChangedFcn = @(~,~) plot_dist();
         c.tmax.ValueChangedFcn = @(~,~) plot_dist();
         c.k.ValueChangedFcn = @(~,~) plot_dist();
@@ -121,7 +127,7 @@ function modulo_manejador_visual_datos(varargin)
         ctrl.Layout.Column = 1;
         tesis_auxiliares('tema_ui', 'panel', ctrl);
         activar_scroll(ctrl);
-        g = crear_grid_control(ctrl, 17);
+        g = crear_grid_control(ctrl, 20);
         c.fuente = drop(g, 1, 'Fuente catalogo', {'Corregidos', 'Simulados'});
         c.fuente.ValueChangedFcn = @(~,~) aplicar_fuente_math();
         c.dataset = row_value(g, 2, 'Catalogo activo', paths.datasets_corregidos_por_metadata);
@@ -145,12 +151,15 @@ function modulo_manejador_visual_datos(varargin)
         c.caso = drop(g, 10, 'Caso', {'Todos'}); c.caso.ValueChangedFcn = @(~,~) aplicar_filtros_catalogo_math();
         c.potencia = drop(g, 11, 'Potencia', {'Todos'}); c.potencia.ValueChangedFcn = @(~,~) aplicar_filtros_catalogo_math();
         c.fecha = drop(g, 12, 'Fecha', {'Todos'}); c.fecha.ValueChangedFcn = @(~,~) aplicar_filtros_catalogo_math();
-        c.modelo = drop(g, 13, 'Modelo', {'(sin dataset)'}); c.modelo.ValueChangedFcn = @(~,~) datasets_math();
-        c.ds = drop(g, 14, 'Dataset', {'(sin dataset)'}); c.ds.ValueChangedFcn = @(~,~) cargar_dataset_seleccionado_math();
-        c.tiempo = drop(g, 15, 'Tiempo', {'(sin volumen)'});
+        c.tiempo_corr = drop(g, 13, 'Tiempo ejecucion', {'Todos'}); c.tiempo_corr.ValueChangedFcn = @(~,~) aplicar_filtros_catalogo_math();
+        c.prueba = drop(g, 14, 'Prueba', {'Todos'}); c.prueba.ValueChangedFcn = @(~,~) aplicar_filtros_catalogo_math();
+        c.zonas = drop(g, 15, 'Zonas', {'Todos'}); c.zonas.ValueChangedFcn = @(~,~) aplicar_filtros_catalogo_math();
+        c.modelo = drop(g, 16, 'Modelo', {'(sin dataset)'}); c.modelo.ValueChangedFcn = @(~,~) datasets_math();
+        c.ds = drop(g, 17, 'Dataset', {'(sin dataset)'}); c.ds.ValueChangedFcn = @(~,~) cargar_dataset_seleccionado_math();
+        c.tiempo = drop(g, 18, 'Tiempo termico', {'(sin volumen)'});
         c.tiempo.ValueChangedFcn = @(~,~) actualizar_tiempo_vol_math();
         c.tlabel = uilabel(g, 'Text', 'Tiempo 4D: sin dataset corregido cargado');
-        c.tlabel.Layout.Row = 16; c.tlabel.Layout.Column = [1 3];
+        c.tlabel.Layout.Row = 19; c.tlabel.Layout.Column = [1 3];
         tesis_auxiliares('tema_ui', 'label', c.tlabel, 'status');
         set_tag(c.fuente, 'math_fuente_catalogo');
         set_tag(c.dataset, 'math_dataset_corregido');
@@ -164,6 +173,9 @@ function modulo_manejador_visual_datos(varargin)
         set_tag(c.caso, 'math_filtro_caso');
         set_tag(c.potencia, 'math_filtro_potencia');
         set_tag(c.fecha, 'math_filtro_fecha');
+        set_tag(c.tiempo_corr, 'math_filtro_tiempo_ejecucion');
+        set_tag(c.prueba, 'math_filtro_prueba');
+        set_tag(c.zonas, 'math_filtro_zonas');
         set_tag(c.modelo, 'math_modelo_selector');
         set_tag(c.ds, 'math_dataset_selector');
         set_tag(c.tiempo, 'math_tiempo_selector');
@@ -306,60 +318,6 @@ function modulo_manejador_visual_datos(varargin)
             if valor, obj.Enable = 'on'; else, obj.Enable = 'off'; end
         end
     end
-    function load_dataset_dist(varargin)
-        try
-            ruta = resolver_catalogo_visual_dist();
-            c_dist.sim.Value = ruta;
-            state.dataset = [];
-            state.dataset_path = '';
-            state.catalogo_dist = [];
-            state.catalogo_filtrado_dist = [];
-            state.catalogo_dataset_indices = [];
-            if isfolder(ruta)
-                state.catalogo_dist = catalogar_datasets_visual(ruta);
-                if isempty(state.catalogo_dist)
-                    logmsg('Catalogo sin particiones MAT exportables: %s', ruta);
-                    limpiar_dist('Catalogo sin particiones MAT exportables.');
-                    return;
-                end
-                poblar_filtros_catalogo_dist();
-                logmsg('Catalogo visual cargado: %d particiones metadata. Dataset inicial cargado si hay coincidencias.', ...
-                    numel(state.catalogo_dist));
-                aplicar_filtros_catalogo_dist(true);
-            elseif isfile(ruta)
-                state.catalogo_dist = catalogar_datasets_visual(ruta);
-                if ~isempty(state.catalogo_dist)
-                    poblar_filtros_catalogo_dist();
-                    logmsg('Particion visual registrada por metadata: %s', ruta);
-                    aplicar_filtros_catalogo_dist(true);
-                else
-                    state.dataset = load_dataset(ruta);
-                    state.dataset_path = ruta;
-                    modelos_dist(true);
-                    logmsg('Dataset visual cargado.');
-                end
-            else
-                logmsg('Dataset/catalogo no encontrado: %s', ruta);
-            end
-        catch ME
-            fail('dataset', ME);
-        end
-    end
-    function ruta = resolver_catalogo_visual_dist()
-        ruta_catalogo = paths.datasets_masivos_por_metadata;
-        if isfolder(ruta_catalogo) && hay_mats_particionados_visual(ruta_catalogo)
-            ruta = ruta_catalogo;
-            return;
-        end
-        ruta_actual = c_dist.sim.Value;
-        if isfile(ruta_actual) || (isfolder(ruta_actual) && hay_mats_particionados_visual(ruta_actual))
-            ruta = ruta_actual;
-        elseif isfile(dataset_default)
-            ruta = dataset_default;
-        else
-            ruta = ruta_catalogo;
-        end
-    end
     function load_corr_dist(varargin)
         try
             if ~isfile(c_dist.corr.Value), logmsg('Correccion no encontrada: %s', c_dist.corr.Value); return; end
@@ -451,7 +409,11 @@ function modulo_manejador_visual_datos(varargin)
         try
             ruta = c_math.dataset.Value;
             if ~(isfile(ruta) || isfolder(ruta))
-                ruta = ruta_catalogo_math();
+                if ~isfield(c_math, 'fuente') || strcmp(c_math.fuente.Value, 'Corregidos')
+                    ruta = paths.datasets_corregidos_por_metadata;
+                else
+                    ruta = dataset_dist_default;
+                end
                 c_math.dataset.Value = ruta;
             end
             state.dataset_math = [];
@@ -468,31 +430,19 @@ function modulo_manejador_visual_datos(varargin)
                 logmsg('Catalogo matematico sin particiones: %s', ruta);
                 return;
             end
-            poblar_filtros_catalogo_math();
+            state.actualizando_filtros_math = true;
+            limpieza = onCleanup(@() set_actualizando_filtros_math(false));
+            controles = controles_filtros_catalogo_math();
+            for k = 1:numel(controles)
+                poblar_filtro_catalogo(controles(k).control, ...
+                    valores_catalogo(state.catalogo_math, controles(k).campo));
+            end
+            clear limpieza;
             aplicar_filtros_catalogo_math(graficar);
             logmsg('Catalogo matematico cargado: %d particiones.', numel(state.catalogo_math));
         catch ME
             fail('catalogo matematico', ME);
         end
-    end
-
-    function ruta = ruta_catalogo_math()
-        if ~isfield(c_math, 'fuente') || strcmp(c_math.fuente.Value, 'Corregidos')
-            ruta = paths.datasets_corregidos_por_metadata;
-        else
-            ruta = dataset_dist_default;
-        end
-    end
-
-    function poblar_filtros_catalogo_math()
-        if isempty(state.catalogo_math), return; end
-        state.actualizando_filtros_math = true;
-        limpieza = onCleanup(@() set_actualizando_filtros_math(false));
-        controles = controles_filtros_catalogo_math();
-        for k = 1:numel(controles)
-            poblar_filtro_catalogo(controles(k).control, valores_catalogo(state.catalogo_math, controles(k).campo));
-        end
-        clear limpieza;
     end
 
     function aplicar_filtros_catalogo_math(graficar)
@@ -501,7 +451,13 @@ function modulo_manejador_visual_datos(varargin)
         if state.actualizando_filtros_math, return; end
         state.actualizando_filtros_math = true;
         limpieza = onCleanup(@() set_actualizando_filtros_math(false));
-        actualizar_opciones_filtros_catalogo_math();
+        controles = controles_filtros_catalogo_math();
+        for k = 1:numel(controles)
+            base = filtrar_catalogo_por_controles_math( ...
+                state.catalogo_math, controles(k).campo);
+            poblar_filtro_catalogo(controles(k).control, ...
+                valores_catalogo(base, controles(k).campo));
+        end
         state.catalogo_filtrado_math = filtrar_catalogo_por_controles_math(state.catalogo_math, '');
         state.catalogo_dataset_indices_math = [];
         modelos_math(graficar);
@@ -509,19 +465,13 @@ function modulo_manejador_visual_datos(varargin)
         clear limpieza;
     end
 
-    function actualizar_opciones_filtros_catalogo_math()
-        controles = controles_filtros_catalogo_math();
-        for k = 1:numel(controles)
-            base = filtrar_catalogo_por_controles_math(state.catalogo_math, controles(k).campo);
-            poblar_filtro_catalogo(controles(k).control, valores_catalogo(base, controles(k).campo));
-        end
-    end
-
     function controles = controles_filtros_catalogo_math()
         controles = struct( ...
-            'campo', {'tipo', 'antena', 'caso', 'potencia', 'fecha'}, ...
+            'campo', {'tipo', 'antena', 'caso', 'potencia', 'fecha', ...
+                'tiempo_corr', 'prueba', 'zonas'}, ...
             'control', {c_math.tipo, c_math.antena, c_math.caso, ...
-                c_math.potencia, c_math.fecha});
+                c_math.potencia, c_math.fecha, c_math.tiempo_corr, ...
+                c_math.prueba, c_math.zonas});
     end
 
     function catalogo = filtrar_catalogo_por_controles_math(catalogo, campo_excluido)
@@ -647,8 +597,14 @@ function modulo_manejador_visual_datos(varargin)
     function [ds, entrada] = current_ds_math()
         ds = [];
         entrada = crear_catalogo_visual(0);
-        idx_catalogo = indice_catalogo_math_actual();
-        if isempty(idx_catalogo), return; end
+        if isempty(state.catalogo_dataset_indices_math) || isempty(c_math.ds.Value)
+            return;
+        end
+        pos = find(strcmp(c_math.ds.Items, c_math.ds.Value), 1, 'first');
+        if isempty(pos) || pos > numel(state.catalogo_dataset_indices_math)
+            return;
+        end
+        idx_catalogo = state.catalogo_dataset_indices_math(pos);
         catalogo = catalogo_math_actual();
         if idx_catalogo > numel(catalogo), return; end
         entrada = catalogo(idx_catalogo);
@@ -660,27 +616,6 @@ function modulo_manejador_visual_datos(varargin)
         ds = resolver_dataset_particion_visual(state.dataset_math, entrada);
     end
 
-    function idx_catalogo = indice_catalogo_math_actual()
-        idx_catalogo = [];
-        if isempty(state.catalogo_dataset_indices_math) || isempty(c_math.ds.Value)
-            return;
-        end
-        pos = find(strcmp(c_math.ds.Items, c_math.ds.Value), 1, 'first');
-        if isempty(pos) || pos > numel(state.catalogo_dataset_indices_math)
-            return;
-        end
-        idx_catalogo = state.catalogo_dataset_indices_math(pos);
-    end
-    function poblar_filtros_catalogo_dist()
-        if isempty(state.catalogo_dist), return; end
-        state.actualizando_filtros = true;
-        limpieza = onCleanup(@() set_actualizando_filtros(false));
-        controles = controles_filtros_catalogo();
-        for k = 1:numel(controles)
-            poblar_filtro_catalogo(controles(k).control, valores_catalogo(state.catalogo_dist, controles(k).campo));
-        end
-        clear limpieza;
-    end
     function poblar_filtro_catalogo(control, valores)
         previo = control.Value;
         valores = valores(~cellfun(@isempty, valores));
@@ -702,7 +637,13 @@ function modulo_manejador_visual_datos(varargin)
         state.actualizando_filtros = true;
         limpieza = onCleanup(@() set_actualizando_filtros(false));
 
-        actualizar_opciones_filtros_catalogo();
+        controles = controles_filtros_catalogo();
+        for k = 1:numel(controles)
+            base = filtrar_catalogo_por_controles( ...
+                state.catalogo_dist, controles(k).campo);
+            poblar_filtro_catalogo(controles(k).control, ...
+                valores_catalogo(base, controles(k).campo));
+        end
         state.catalogo_filtrado_dist = filtrar_catalogo_por_controles(state.catalogo_dist, '');
         state.catalogo_dataset_indices = [];
         if isempty(state.catalogo_filtrado_dist)
@@ -715,18 +656,13 @@ function modulo_manejador_visual_datos(varargin)
         end
         clear limpieza;
     end
-    function actualizar_opciones_filtros_catalogo()
-        controles = controles_filtros_catalogo();
-        for k = 1:numel(controles)
-            base = filtrar_catalogo_por_controles(state.catalogo_dist, controles(k).campo);
-            poblar_filtro_catalogo(controles(k).control, valores_catalogo(base, controles(k).campo));
-        end
-    end
     function controles = controles_filtros_catalogo()
         controles = struct( ...
-            'campo', {'tipo', 'antena', 'caso', 'potencia', 'fecha'}, ...
+            'campo', {'tipo', 'antena', 'caso', 'potencia', 'fecha', ...
+                'tiempo_corr', 'prueba', 'zonas'}, ...
             'control', {c_dist.tipo, c_dist.antena, c_dist.caso, ...
-                c_dist.potencia, c_dist.fecha});
+                c_dist.potencia, c_dist.fecha, c_dist.tiempo_corr, ...
+                c_dist.prueba, c_dist.zonas});
     end
     function catalogo = filtrar_catalogo_por_controles(catalogo, campo_excluido)
         controles = controles_filtros_catalogo();
@@ -842,7 +778,7 @@ function modulo_manejador_visual_datos(varargin)
         try
             if isempty(state.dataset)
                 if ~isempty(state.catalogo_dist)
-                    ds_tmp = current_ds(); %#ok<NASGU>
+                    current_ds();
                 elseif isfile(c_dist.sim.Value)
                     state.dataset = load_dataset(c_dist.sim.Value); modelos_dist(); logmsg('Dataset visual cargado.');
                 else
@@ -874,8 +810,14 @@ function modulo_manejador_visual_datos(varargin)
     function ds = current_ds()
         ds = [];
         if ~isempty(state.catalogo_dist)
-            idx_catalogo = indice_catalogo_visual_actual();
-            if isempty(idx_catalogo), return; end
+            if isempty(state.catalogo_dataset_indices) || isempty(c_dist.ds.Value)
+                return;
+            end
+            pos = find(strcmp(c_dist.ds.Items, c_dist.ds.Value), 1, 'first');
+            if isempty(pos) || pos > numel(state.catalogo_dataset_indices)
+                return;
+            end
+            idx_catalogo = state.catalogo_dataset_indices(pos);
             catalogo = catalogo_visual_actual();
             if idx_catalogo > numel(catalogo), return; end
             entrada = catalogo(idx_catalogo);
@@ -1230,11 +1172,6 @@ function modulo_manejador_visual_datos(varargin)
             end
         end
         actualizar_tiempos_vol_math();
-    end
-
-    function actualizar_volumen_nav()
-        actualizar_tiempos_vol_math();
-        plot_vol_math();
     end
 
     function actualizar_tiempos_vol_math()
@@ -1723,7 +1660,8 @@ function modulo_manejador_visual_datos(varargin)
                 entrada.fuente = campo_meta_visual(p, 'fuente', '');
                 entrada.dataset_corregido = bool_meta_visual(campo_meta_visual(p, 'dataset_corregido', false));
                 entrada.tag_correccion = campo_meta_visual(p, 'tag_correccion', '');
-                entrada.fecha = fecha_catalogo_visual(p, entrada.ruta);
+                [entrada.fecha, entrada.tiempo_corr, entrada.prueba, entrada.zonas] = ...
+                    metadata_adquisicion_visual(p, entrada.ruta);
                 entrada.clave = clave_catalogo_visual(entrada);
                 if ~isempty(entrada.modelo) && ~isempty(entrada.dataset)
                     catalogo(end + 1) = entrada; %#ok<AGROW>
@@ -1760,7 +1698,8 @@ function modulo_manejador_visual_datos(varargin)
             entrada.fuente = campo_meta_visual(pm, 'fuente', '');
             entrada.dataset_corregido = bool_meta_visual(campo_meta_visual(pm, 'dataset_corregido', false));
             entrada.tag_correccion = campo_meta_visual(pm, 'tag_correccion', '');
-            entrada.fecha = fecha_catalogo_visual(pm, ruta);
+            [entrada.fecha, entrada.tiempo_corr, entrada.prueba, entrada.zonas] = ...
+                metadata_adquisicion_visual(pm, ruta);
             entrada.clave = clave_catalogo_visual(entrada);
             if isempty(entrada.modelo) || isempty(entrada.dataset)
                 return;
@@ -1774,7 +1713,8 @@ function modulo_manejador_visual_datos(varargin)
     function catalogo = crear_catalogo_visual(n)
         plantilla = struct('ruta', '', 'modelo', '', 'dataset', '', ...
             'tipo', '', 'antena', '', 'caso', '', 'potencia', '', ...
-            'fecha', '', 'tag_correccion', '', 'fuente', '', ...
+            'fecha', '', 'tiempo_corr', '', 'prueba', '', 'zonas', '', ...
+            'tag_correccion', '', 'fuente', '', ...
             'dataset_corregido', false, 'clave', '');
         if n == 0
             catalogo = plantilla([]);
@@ -1800,7 +1740,8 @@ function modulo_manejador_visual_datos(varargin)
     function clave = clave_catalogo_visual(entrada)
         identidad_correccion = entrada.tag_correccion;
         if isempty(identidad_correccion)
-            identidad_correccion = entrada.fecha;
+            identidad_correccion = strjoin({entrada.fecha, entrada.tiempo_corr, ...
+                entrada.prueba, entrada.zonas}, '__');
         end
         partes = {entrada.modelo, entrada.dataset, identidad_correccion};
         partes = partes(~cellfun(@isempty, partes));
@@ -1839,46 +1780,35 @@ function modulo_manejador_visual_datos(varargin)
         end
     end
 
-    function fecha = fecha_catalogo_visual(meta, ruta)
-        fecha = campo_meta_visual(meta, 'fecha_adquisicion', '');
+    function [fecha, tiempo, prueba, zonas] = metadata_adquisicion_visual(meta, ruta)
+        md = tesis_auxiliares('metadata_ruta', ruta, meta);
+        fecha = char(md.fecha_adquisicion);
         if isempty(fecha)
             fecha = campo_meta_visual(meta, 'fecha_experimento', '');
         end
-        tag = campo_meta_visual(meta, 'tag_correccion', '');
-        texto = strrep([char(tag) '/' char(ruta)], '\', '/');
-        if isempty(fecha)
-            token = regexp(texto, '(?:^|/)Fecha_([^/]+)(?:/|$)', ...
-                'tokens', 'once', 'ignorecase');
-            if ~isempty(token), fecha = token{1}; end
+        tiempo = '';
+        prueba = '';
+        zonas = '';
+        if isfinite(md.tiempo_ejecucion_min)
+            tiempo = sprintf('Tiempo_%gmin', md.tiempo_ejecucion_min);
         end
-        if isempty(fecha)
-            token = regexp(texto, ...
-                'correccion_(.+?)_[\d]+(?:p[\d]+)?min_prueba_\d+_zonas_\d+', ...
-                'tokens', 'once', 'ignorecase');
-            if ~isempty(token), fecha = token{1}; end
+        if isfinite(md.numero_prueba)
+            prueba = sprintf('Prueba_%d', round(md.numero_prueba));
         end
-        fecha = char(fecha);
+        if isfinite(md.num_zonas)
+            zonas = sprintf('Zonas_%d', round(md.num_zonas));
+        end
     end
 
     function etiqueta = etiqueta_catalogo_visual(entrada)
-        partes = {entrada.modelo, entrada.dataset, entrada.tipo, entrada.antena, entrada.caso, entrada.potencia};
+        partes = {entrada.modelo, entrada.dataset, entrada.tipo, entrada.antena, ...
+            entrada.caso, entrada.potencia};
         if ~isempty(entrada.fecha)
             partes{end + 1} = ['Fecha_' entrada.fecha];
         end
+        partes = [partes, {entrada.tiempo_corr, entrada.prueba, entrada.zonas}];
         partes = partes(~cellfun(@isempty, partes));
         etiqueta = strjoin(partes, ' | ');
-    end
-
-    function idx_catalogo = indice_catalogo_visual_actual()
-        idx_catalogo = [];
-        if isempty(state.catalogo_dataset_indices) || isempty(c_dist.ds.Value)
-            return;
-        end
-        pos = find(strcmp(c_dist.ds.Items, c_dist.ds.Value), 1, 'first');
-        if isempty(pos) || pos > numel(state.catalogo_dataset_indices)
-            return;
-        end
-        idx_catalogo = state.catalogo_dataset_indices(pos);
     end
 
     function data = load_dataset(ruta)
@@ -1940,13 +1870,6 @@ function modulo_manejador_visual_datos(varargin)
             ct = corr.correccion_termica;
         elseif isfield(corr, 't_rel_min') && isfield(corr, 'factor_enfriamiento')
             ct = corr;
-        end
-    end
-
-    function n = contar_zonas_vis(ct)
-        n = 0;
-        if ~isempty(ct) && isfield(ct, 'zonas') && ~isempty(ct.zonas)
-            n = numel(ct.zonas);
         end
     end
 
@@ -2126,98 +2049,6 @@ function modulo_manejador_visual_datos(varargin)
         if isempty(d), paso = 1; else, paso = median(d); end
     end
 
-    function v = load_volume(ruta)
-        S = load(ruta);
-        if isfield(S, 'resultado')
-            v = S.resultado;
-        else
-            v = S;
-        end
-        v = normalizar_volumen_vis(v);
-    end
-
-    function v = normalizar_volumen_vis(v)
-        if ~isstruct(v)
-            return;
-        end
-        es_corregido = isfield(v, 'correccion_exportada') && ...
-            isfield(v.correccion_exportada, 'activa') && ...
-            logical(v.correccion_exportada.activa);
-        t_exp = [];
-        t_fine_exp = [];
-        if isfield(v, 't_exp'), t_exp = double(v.t_exp(:)); end
-        if isfield(v, 't_fine_exp'), t_fine_exp = double(v.t_fine_exp(:)); end
-
-        if isfield(v, 'V_base_exp')
-            V_export = double(v.V_base_exp(:));
-            if es_corregido
-                v.V_corr = V_export;
-                v.t_full = tiempo_compatible_vis(t_exp, V_export);
-            else
-                v.V_base = V_export;
-                if numel(t_fine_exp) == numel(V_export)
-                    v.t_fine = t_fine_exp;
-                else
-                    v.t_fine = tiempo_compatible_vis(t_exp, V_export);
-                end
-            end
-        end
-        if isfield(v, 'V_sin_correccion') && ~isempty(v.V_sin_correccion)
-            v.V_sin_correccion = double(v.V_sin_correccion(:));
-        elseif isfield(v, 'V_base') && ~isempty(v.V_base)
-            v.V_sin_correccion = double(v.V_base(:));
-        end
-        if isfield(v, 'V_corr_exp') && ~isempty(v.V_corr_exp)
-            v.V_corr = double(v.V_corr_exp(:));
-        end
-        if ~isfield(v, 't_fine') && ~isempty(t_fine_exp)
-            v.t_fine = t_fine_exp;
-        end
-        if ~isfield(v, 't_full') && ~isempty(t_exp)
-            v.t_full = t_exp;
-        end
-        if isfield(v, 'V_ext') && ~isfield(v, 't_ext') && ...
-                isfield(v, 't_full') && isfield(v, 't_fine')
-            t_full = v.t_full(:);
-            n_fine = numel(v.t_fine);
-            if numel(t_full) > n_fine
-                v.t_ext = t_full(n_fine + 1:end);
-            end
-        end
-        if isfield(v, 'metodos_extrapolacion') && isstruct(v.metodos_extrapolacion)
-            nombres = fieldnames(v.metodos_extrapolacion);
-            for mi = 1:numel(nombres)
-                m = v.metodos_extrapolacion.(nombres{mi});
-                if ~isfield(m, 'xg_exp') && isfield(v, 'xg_exp'), m.xg_exp = v.xg_exp; end
-                if ~isfield(m, 'yg_exp') && isfield(v, 'yg_exp'), m.yg_exp = v.yg_exp; end
-                if ~isfield(m, 'zg_exp') && isfield(v, 'zg_exp'), m.zg_exp = v.zg_exp; end
-                if ~isfield(m, 'T_abl_exp') && isfield(v, 'T_abl_exp'), m.T_abl_exp = v.T_abl_exp; end
-                v.metodos_extrapolacion.(nombres{mi}) = normalizar_volumen_simple_vis(m);
-            end
-        end
-    end
-
-    function v = normalizar_volumen_simple_vis(v)
-        if ~isstruct(v), return; end
-        t_exp = [];
-        if isfield(v, 't_exp'), t_exp = double(v.t_exp(:)); end
-        if isfield(v, 'V_base_exp') && ~isempty(v.V_base_exp)
-            v.V_base_exp = double(v.V_base_exp(:));
-            if ~isfield(v, 't_full')
-                v.t_full = tiempo_compatible_vis(t_exp, v.V_base_exp);
-            end
-        end
-        if isfield(v, 'V_sin_correccion') && ~isempty(v.V_sin_correccion)
-            v.V_sin_correccion = double(v.V_sin_correccion(:));
-        end
-        if isfield(v, 'V_corr') && ~isempty(v.V_corr)
-            v.V_corr = double(v.V_corr(:));
-        end
-        if ~isfield(v, 't_exp') && isfield(v, 't_full')
-            v.t_exp = v.t_full(:);
-        end
-    end
-
     function t = tiempo_compatible_vis(t_ref, valores)
         n = numel(valores);
         t_ref = double(t_ref(:));
@@ -2230,29 +2061,6 @@ function modulo_manejador_visual_datos(varargin)
         else
             t = linspace(t_ref(1), t_ref(end), n)';
         end
-    end
-
-    function txt = resumen_struct_vis(s)
-        if isempty(s)
-            txt = 'Sin datos cargados.'; return;
-        end
-        campos = fieldnames(s);
-        lineas = cell(min(numel(campos), 12), 1);
-        for ii = 1:numel(lineas)
-            val = s.(campos{ii});
-            if isnumeric(val)
-                desc = sprintf('%s %s', class(val), mat2str(size(val)));
-            elseif isstruct(val)
-                desc = sprintf('struct (%d campos)', numel(fieldnames(val)));
-            else
-                desc = class(val);
-            end
-            lineas{ii} = sprintf('%s: %s', campos{ii}, desc);
-        end
-        if numel(campos) > numel(lineas)
-            lineas{end+1} = sprintf('... %d campos adicionales', numel(campos)-numel(lineas));
-        end
-        txt = strjoin(lineas, newline);
     end
 
     function val = getfield_default(s, field, def)
@@ -2270,6 +2078,24 @@ function modulo_manejador_visual_datos(varargin)
         claves = {catalogo.clave};
         assert(numel(unique(lower(string(claves)))) == numel(catalogo), ...
             'El catalogo visual aun contiene claves duplicadas.');
+        assert(all(~cellfun(@isempty, {catalogo.tiempo_corr})) && ...
+            all(~cellfun(@isempty, {catalogo.prueba})) && ...
+            all(~cellfun(@isempty, {catalogo.zonas})), ...
+            'El catalogo visual perdio tiempo, prueba o zonas.');
+        muestra_1 = crear_catalogo_visual(1);
+        muestra_1.modelo = 'modelo_Monopolo_1ant';
+        muestra_1.dataset = 'dset_c1_p30';
+        muestra_1.fecha = 'junio_19';
+        muestra_1.tiempo_corr = 'Tiempo_20min';
+        muestra_1.prueba = 'Prueba_1';
+        muestra_1.zonas = 'Zonas_4';
+        muestra_2 = muestra_1;
+        muestra_2.prueba = 'Prueba_2';
+        assert(~strcmp(clave_catalogo_visual(muestra_1), ...
+            clave_catalogo_visual(muestra_2)) && ...
+            ~strcmp(etiqueta_catalogo_visual(muestra_1), ...
+            etiqueta_catalogo_visual(muestra_2)), ...
+            'Dos pruebas de la misma fecha siguen siendo ambiguas.');
         pareja_fechas = false;
         for i = 1:numel(catalogo)
             for j = i + 1:numel(catalogo)
@@ -2284,7 +2110,7 @@ function modulo_manejador_visual_datos(varargin)
         end
         assert(pareja_fechas, ...
             'No se conservaron dos fechas para un mismo modelo/dataset.');
-        fprintf('SELFTEST_VISUAL_FECHA_OK catalogo=%d fechas=%s\n', ...
+        fprintf('SELFTEST_VISUAL_METADATA_OK catalogo=%d fechas=%s\n', ...
             numel(catalogo), strjoin(fechas, ','));
     end
 
@@ -2310,25 +2136,6 @@ function modulo_manejador_visual_datos(varargin)
         drawnow limitrate;
     end
 end
-function tf = hay_mats_particionados_visual(carpeta)
-    tf = false;
-    if ~isfolder(carpeta)
-        return;
-    end
-    archivos = dir(fullfile(carpeta, '**', '*.mat'));
-    archivos = archivos(~[archivos.isdir]);
-    for k = 1:numel(archivos)
-        nombre = lower(archivos(k).name);
-        ruta_archivo = fullfile(archivos(k).folder, archivos(k).name);
-        if ~ruta_repetida_visual(ruta_archivo) && endsWith(nombre, '.mat') && ...
-                ~startsWith(nombre, 'indice_') && ...
-                ~startsWith(nombre, 'reporte_') && ...
-                ~contains(nombre, 'historial')
-            tf = true;
-            return;
-        end
-    end
-end
 
 function tf = ruta_repetida_visual(ruta)
     partes = regexp(strrep(lower(char(ruta)), '\', '/'), '/', 'split');
@@ -2337,8 +2144,7 @@ end
 
 function bootstrap_modulo()
     carpeta_modulo = fileparts(mfilename('fullpath'));
-    candidatos_aux = {fullfile(carpeta_modulo, '..', 'Aux_Codes'), ...
-        fullfile(carpeta_modulo, '..', '..', 'Aux_Codes')};
+    candidatos_aux = {fullfile(carpeta_modulo, '..', 'aux_codes')};
     for k_aux = 1:numel(candidatos_aux)
         if isfolder(candidatos_aux{k_aux}), addpath(candidatos_aux{k_aux}); end
     end
