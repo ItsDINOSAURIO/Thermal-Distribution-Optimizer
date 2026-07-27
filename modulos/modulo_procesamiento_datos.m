@@ -1,11 +1,18 @@
 function modulo_procesamiento_datos(varargin)
-%MODULO_PROCESAMIENTO_DATOS App unica para procesamientos de DATASETS.
+%MODULO_PROCESAMIENTO_DATOS App unica para procesamientos de datasets.
 
     bootstrap_modulo();
     if nargin >= 1 && (ischar(varargin{1}) || (isstring(varargin{1}) && isscalar(varargin{1})))
         switch lower(char(varargin{1}))
             case 'selftest_volumen'
                 ejecutar_correlador_volumen_integrado('selftest_limite_volumen');
+                return;
+            case 'selftest_metadata'
+                ejecutar_correlador_volumen_integrado('selftest_metadata_corr');
+                ejecutar_exportador_correcciones_integrado('selftest_metadata');
+                ejecutar_exportador_mat_integrado('selftest_metadata_paths');
+                ejecutar_preprocesador_stl_integrado('selftest_metadata_paths');
+                ejecutar_selftest_carga_correcciones_filtrada();
                 return;
         end
     end
@@ -20,8 +27,9 @@ function modulo_procesamiento_datos(varargin)
     state = struct('exp', [], 'sim', [], 'corr', [], 'dataset', [], ...
         'dataset_catalog', [], 'dataset_catalog_filtrado', [], ...
         'dataset_catalog_indices', [], 'actualizando_filtros_ext', false, ...
-        'actualizando_extrap_ext', false, ...
-        'dataset_ruta', '', 'dataset_key', '', 'volumen', []);
+        'actualizando_filtros_corr', false, 'actualizando_extrap_ext', false, ...
+        'dataset_ruta', '', 'dataset_key', '', 'volumen', [], ...
+        'corr_catalog', [], 'corr_catalog_cargado', false, 'corr_ruta', '');
 
     fig = uifigure('Name', 'Modulo Procesamiento de Datos', ...
         'Position', [55 45 1360 820], 'Color', theme.colors.bg);
@@ -45,7 +53,7 @@ function modulo_procesamiento_datos(varargin)
         'Value', 'STL/TXT desde MAT', 'ValueChangedFcn', @(~,~) mostrar());
     dd.Layout.Row = 1; dd.Layout.Column = 1;
     tesis_auxiliares('tema_ui', 'dropdown', dd);
-    b_data = uibutton(gm, 'Text', 'Abrir DATASETS', 'ButtonPushedFcn', @(~,~) abrir(paths.root));
+    b_data = uibutton(gm, 'Text', 'Abrir datasets', 'ButtonPushedFcn', @(~,~) abrir(paths.root));
     b_data.Layout.Row = 1; b_data.Layout.Column = 2;
     tesis_auxiliares('tema_ui', 'button', b_data, 'secondary');
     b_root = uibutton(gm, 'Text', 'Abrir carpeta del proyecto', 'ButtonPushedFcn', @(~,~) abrir(tesis_auxiliares('project_root')));
@@ -160,18 +168,25 @@ function modulo_procesamiento_datos(varargin)
         ctrl.Layout.Column = 1;
         tesis_auxiliares('tema_ui', 'panel', ctrl);
         activar_scroll(ctrl);
-        n_filas_ext = 21 + 2 * double(mostrar_temporal_avanzado);
+        n_filas_ext = 24 + 2 * double(mostrar_temporal_avanzado);
         g = crear_grid_control(ctrl, n_filas_ext);
         c.dataset = row_path(g, 1, 'Dataset/catalogo', dataset_default, 'catalogo', @cargar_ext_dataset);
-        c.corr = row_path(g, 2, 'Correccion MAT', paths.correlaciones, '*.mat', @cargar_ext_corr);
-        c.tipo = drop(g, 3, 'Tipo', {'Todos'}); c.tipo.ValueChangedFcn = @(~,~) aplicar_filtros_ext();
-        c.antena = drop(g, 4, 'Antenas', {'Todos'}); c.antena.ValueChangedFcn = @(~,~) aplicar_filtros_ext();
-        c.caso = drop(g, 5, 'Caso', {'Todos'}); c.caso.ValueChangedFcn = @(~,~) aplicar_filtros_ext();
-        c.potencia = drop(g, 6, 'Potencia', {'Todos'}); c.potencia.ValueChangedFcn = @(~,~) aplicar_filtros_ext();
-        c.modelo = drop(g, 7, 'Modelo', {'(sin dataset)'}); c.modelo.ValueChangedFcn = @(~,~) modelo_ext_cambiado();
-        c.ds = drop(g, 8, 'Dataset', {'(sin dataset)'});
-        c.nxyz = num(g, 9, 'Nx=Ny=Nz', 45);
-        fila = 10;
+        c.tipo = drop(g, 2, 'Tipo', {'Todos'}); c.tipo.ValueChangedFcn = @(~,~) aplicar_filtros_ext();
+        c.antena = drop(g, 3, 'Antenas', {'Todos'}); c.antena.ValueChangedFcn = @(~,~) aplicar_filtros_ext();
+        c.caso = drop(g, 4, 'Caso', {'Todos'}); c.caso.ValueChangedFcn = @(~,~) aplicar_filtros_ext();
+        c.potencia = drop(g, 5, 'Potencia', {'Todos'}); c.potencia.ValueChangedFcn = @(~,~) aplicar_filtros_ext();
+        c.corr_fecha = drop(g, 6, 'Fecha adquisicion', {'Todos'});
+        c.corr_tiempo = drop(g, 7, 'Tiempo ejecucion', {'Todos'});
+        c.corr_prueba = drop(g, 8, 'Numero de prueba', {'Todos'});
+        c.corr_zona = drop(g, 9, 'Zona experimental', {'Todos'});
+        c.corr_fecha.ValueChangedFcn = @(~,~) aplicar_filtros_correccion_ext();
+        c.corr_tiempo.ValueChangedFcn = @(~,~) aplicar_filtros_correccion_ext();
+        c.corr_prueba.ValueChangedFcn = @(~,~) aplicar_filtros_correccion_ext();
+        c.corr_zona.ValueChangedFcn = @(~,~) aplicar_filtros_correccion_ext();
+        c.modelo = drop(g, 10, 'Modelo', {'(sin dataset)'}); c.modelo.ValueChangedFcn = @(~,~) modelo_ext_cambiado();
+        c.ds = drop(g, 11, 'Dataset', {'(sin dataset)'});
+        c.nxyz = num(g, 12, 'Nx=Ny=Nz', 45);
+        fila = 13;
         if mostrar_temporal_avanzado
             c.nt = num(g, fila, 'Nt fino', 200);
             fila = fila + 1;
@@ -409,8 +424,12 @@ function modulo_procesamiento_datos(varargin)
             if isempty(state.corr), run_corr(); end
             if isempty(state.corr), error('No hay correccion valida para guardar.'); end
             if ~isfolder(paths.correlaciones), mkdir(paths.correlaciones); end
-            out = fullfile(paths.correlaciones, ejecutar_correlador_volumen_integrado('nombre_correccion', state.corr));
-            ejecutar_correlador_volumen_integrado('guardar_correccion', out, state.corr);
+            relativa = ejecutar_correlador_volumen_integrado( ...
+                'ruta_relativa_correccion', state.corr);
+            out = fullfile(paths.correlaciones, relativa);
+            out = ejecutar_correlador_volumen_integrado('guardar_correccion', out, state.corr);
+            state.corr_catalog = [];
+            state.corr_catalog_cargado = false;
             logmsg('Correccion guardada: %s', out); estado.Text = 'Correccion guardada.';
         catch ME
             fail('Guardar correlacion', ME);
@@ -444,7 +463,7 @@ function modulo_procesamiento_datos(varargin)
         if c_ext.usar_corr.Value
             asegurar_ext_corr_cargada();
             if isempty(state.corr)
-                error('Carga o calcula una correccion antes de aplicar correccion termica.');
+                error('Completa los filtros de metadata antes de aplicar la correccion termica.');
             end
             corr = state.corr;
         end
@@ -483,7 +502,9 @@ function modulo_procesamiento_datos(varargin)
             asegurar_ext_dataset_seleccionado();
             if isempty(state.dataset), error('Carga un Dataset MAT antes de exportar el dataset corregido.'); end
             asegurar_ext_corr_cargada();
-            if isempty(state.corr), error('Carga o calcula una correccion antes de exportar el dataset corregido.'); end
+            if isempty(state.corr)
+                error('Completa los filtros de metadata antes de exportar el dataset corregido.');
+            end
             n = max(5, round(c_ext.nxyz.Value));
             cfg = cfg_volumen(n);
             cfg.correccion = state.corr;
@@ -517,7 +538,7 @@ function modulo_procesamiento_datos(varargin)
         end
         cfg = struct('dataset', state.dataset, 'modelo', modelo, 'dsName', dsName, ...
             'ruta_dataset', ruta_ext_dataset_actual(), ...
-            'ruta_correccion', c_ext.corr.Value, ...
+            'ruta_correccion', state.corr_ruta, ...
             'nx', n, 'ny', n, 'nz', n, 'nt_fine', NaN, ...
             'T_abl', c_ext.tabl.Value, 't_extra_max', c_ext.t_extra.Value, ...
             'nt_ext', nt_ext_cfg, 'estrategia', c_ext.estrategia.Value, ...
@@ -626,6 +647,7 @@ function modulo_procesamiento_datos(varargin)
         end
         clear limpieza;
         invalidar_extrap_reactiva();
+        aplicar_filtros_correccion_ext();
     end
 
     function actualizar_opciones_filtros_ext()
@@ -713,6 +735,9 @@ function modulo_procesamiento_datos(varargin)
     function cargar_ext_dataset(ed)
         try
             ruta = normalizar_ruta_ext_catalogo(ed.Value);
+            if ruta_esta_en_repetidos_global(ruta)
+                error('El dataset seleccionado esta en repetidos y no es procesable: %s', ruta);
+            end
             ed.Value = ruta;
             state.dataset = [];
             state.dataset_catalog = leer_catalogo_ext_ligero(ruta);
@@ -766,13 +791,10 @@ function modulo_procesamiento_datos(varargin)
         keys = {};
         for k = 1:numel(raw.particiones)
             p = raw.particiones(k);
-            ruta_mat = texto_catalogo_ext(p, 'ruta');
+            ruta_mat = resolver_ruta_ext_indexada( ...
+                ruta, texto_catalogo_ext(p, 'ruta'));
             if isempty(ruta_mat)
                 continue;
-            end
-            if ~isfile(ruta_mat)
-                ruta_rel = fullfile(ruta, ruta_mat);
-                if isfile(ruta_rel), ruta_mat = ruta_rel; else, continue; end
             end
             entrada = crear_catalogo_ext(1);
             entrada.ruta = ruta_mat;
@@ -792,6 +814,30 @@ function modulo_procesamiento_datos(varargin)
             end
             keys{end+1} = key; %#ok<AGROW>
             catalogo(end+1) = entrada; %#ok<AGROW>
+        end
+    end
+
+    function ruta_mat = resolver_ruta_ext_indexada(root_catalogo, ruta_guardada)
+        ruta_mat = char(ruta_guardada);
+        if isfile(ruta_mat)
+            if ruta_esta_en_repetidos_global(ruta_mat), ruta_mat = ''; end
+            return;
+        end
+
+        normalizada = strrep(ruta_mat, '\', '/');
+        marcador = '/datasets_masivos_por_metadata/';
+        posiciones = strfind(lower(normalizada), marcador);
+        if isempty(posiciones)
+            ruta_mat = '';
+            return;
+        end
+        relativa = normalizada(posiciones(end) + numel(marcador):end);
+        partes = regexp(relativa, '/', 'split');
+        candidata = fullfile(root_catalogo, partes{:});
+        if isfile(candidata)
+            ruta_mat = candidata;
+        else
+            ruta_mat = '';
         end
     end
 
@@ -922,28 +968,6 @@ function modulo_procesamiento_datos(varargin)
         end
     end
 
-    function cargar_ext_corr(ed)
-        try
-            if ~isfile(ed.Value)
-                state.corr = [];
-                logmsg('Correccion MAT no encontrada: %s', ed.Value);
-                actualizar_correccion_ext_reactiva();
-                return;
-            end
-            state.corr = cargar_correccion_local(ed.Value);
-            horizonte = horizonte_correccion_min(state.corr);
-            if isfinite(horizonte) && horizonte > 0
-                c_ext.t_extra.Value = horizonte;
-                logmsg('Horizonte de extrapolacion inferido desde correccion: %.4g min.', horizonte);
-            end
-            logmsg('Correccion importada para extrapolacion: %s', ed.Value);
-            estado.Text = 'Correccion cargada.';
-            actualizar_correccion_ext_reactiva();
-        catch ME
-            fail('Correccion MAT', ME);
-        end
-    end
-
     function corr = cargar_correccion_local(ruta)
         raw = load(ruta);
         if ~isfield(raw, 'correccion_termica')
@@ -956,15 +980,183 @@ function modulo_procesamiento_datos(varargin)
     end
 
     function asegurar_ext_corr_cargada()
-        if isempty(state.corr) && isfile(c_ext.corr.Value)
-            state.corr = cargar_correccion_local(c_ext.corr.Value);
-            horizonte = horizonte_correccion_min(state.corr);
-            if isfinite(horizonte) && horizonte > 0 && c_ext.t_extra.Value <= 0
-                c_ext.t_extra.Value = horizonte;
-                logmsg('Horizonte de extrapolacion inferido desde correccion: %.4g min.', horizonte);
-            end
-            logmsg('Correccion cargada desde archivo: %s', c_ext.corr.Value);
+        if isempty(state.corr)
+            aplicar_filtros_correccion_ext();
         end
+        if isempty(state.corr)
+            error(['Selecciona metadata completa de correccion: fecha, tiempo, ', ...
+                'numero de prueba y zona experimental.']);
+        end
+        validar_correccion_ext_metadata(state.corr);
+    end
+
+    function validar_correccion_ext_metadata(corr)
+        entrada = entrada_catalogo_ext_actual();
+        if isempty(entrada) || ~isstruct(corr)
+            return;
+        end
+        meta = metadata_correccion_ext_unificada(corr);
+        if isempty(meta.tipo_antena) || ~isfinite(meta.num_antenas) || ...
+                ~isfinite(meta.caso) || ~isfinite(meta.potencia_W)
+            error('La correccion no contiene metadata completa de tipo/antenas/caso/potencia.');
+        end
+        esperado_antena = sprintf('%dant', round(meta.num_antenas));
+        esperado_caso = sprintf('Caso_%d', round(meta.caso));
+        esperado_potencia = sprintf('Potencia_%gW', meta.potencia_W);
+        if ~strcmpi(entrada.tipo, meta.tipo_antena) || ...
+                ~strcmpi(entrada.antena, esperado_antena) || ...
+                ~strcmpi(entrada.caso, esperado_caso) || ...
+                ~strcmpi(entrada.potencia, esperado_potencia)
+            error(['Correccion incompatible. Correccion=%s/%s/%s/%s; ', ...
+                'dataset=%s/%s/%s/%s.'], meta.tipo_antena, esperado_antena, ...
+                esperado_caso, esperado_potencia, entrada.tipo, entrada.antena, ...
+                entrada.caso, entrada.potencia);
+        end
+    end
+
+    function asegurar_catalogo_correcciones_ext()
+        if ~state.corr_catalog_cargado
+            state.corr_catalog = catalogar_correcciones_metadata_ext(paths.correlaciones);
+            state.corr_catalog_cargado = true;
+            logmsg('Catalogo de correcciones cargado: %d archivo(s) con metadata completa.', ...
+                numel(state.corr_catalog));
+        end
+    end
+
+    function aplicar_filtros_correccion_ext()
+        if state.actualizando_filtros_corr, return; end
+        asegurar_catalogo_correcciones_ext();
+        state.actualizando_filtros_corr = true;
+        limpieza = onCleanup(@() set_actualizando_filtros_corr(false));
+        controles = controles_filtros_correccion_ext();
+        for k = 1:numel(controles)
+            base = filtrar_catalogo_correccion_ui( ...
+                state.corr_catalog, controles(k).campo);
+            if isempty(base)
+                valores = {};
+            else
+                valores = {base.(controles(k).campo)};
+            end
+            poblar_filtro_ext(controles(k).control, valores);
+        end
+        clear limpieza;
+        sincronizar_correccion_ext_filtrada();
+    end
+
+    function controles = controles_filtros_correccion_ext()
+        controles = struct( ...
+            'campo', {'fecha', 'tiempo', 'prueba', 'zona'}, ...
+            'control', {c_ext.corr_fecha, c_ext.corr_tiempo, ...
+                c_ext.corr_prueba, c_ext.corr_zona});
+    end
+
+    function catalogo = filtrar_catalogo_correccion_ui(catalogo, campo_excluido)
+        if isempty(catalogo), return; end
+        mask = true(size(catalogo));
+        if ~strcmp(c_ext.tipo.Value, 'Todos')
+            mask = mask & strcmpi({catalogo.tipo}, c_ext.tipo.Value);
+        end
+        if ~strcmp(c_ext.antena.Value, 'Todos')
+            mask = mask & strcmpi({catalogo.antena}, c_ext.antena.Value);
+        end
+        caso = numero_filtro_correccion_ext(c_ext.caso.Value, 'Caso_');
+        if isfinite(caso), mask = mask & abs([catalogo.caso] - caso) < 1e-9; end
+        potencia = numero_filtro_correccion_ext(c_ext.potencia.Value, 'Potencia_', 'W');
+        if isfinite(potencia)
+            mask = mask & abs([catalogo.potencia_W] - potencia) < 1e-9;
+        end
+        controles = controles_filtros_correccion_ext();
+        for k = 1:numel(controles)
+            if strcmp(controles(k).campo, campo_excluido) || ...
+                    strcmp(controles(k).control.Value, 'Todos')
+                continue;
+            end
+            mask = mask & strcmpi({catalogo.(controles(k).campo)}, ...
+                controles(k).control.Value);
+        end
+        catalogo = catalogo(mask);
+    end
+
+    function sincronizar_correccion_ext_filtrada()
+        [completo, tipo, antena, caso, potencia] = filtro_correccion_ext_actual();
+        filtros_corr = controles_filtros_correccion_ext();
+        completo = completo && all(arrayfun(@(x) ...
+            ~strcmp(x.control.Value, 'Todos'), filtros_corr));
+        if ~completo
+            descargar_correccion_ext_filtrada();
+            estado.Text = 'Completa los filtros especificos de correccion.';
+            return;
+        end
+        candidatas = filtrar_catalogo_correccion_ui(state.corr_catalog, '');
+        if isempty(candidatas)
+            descargar_correccion_ext_filtrada();
+            logmsg(['Sin correccion para filtros: %s/%s/Caso_%d/Potencia_%gW/', ...
+                '%s/%s/%s/%s.'], tipo, antena, caso, potencia, ...
+                c_ext.corr_fecha.Value, c_ext.corr_tiempo.Value, ...
+                c_ext.corr_prueba.Value, c_ext.corr_zona.Value);
+            estado.Text = 'Sin correccion compatible con los filtros.';
+            return;
+        end
+        if numel(candidatas) > 1
+            descargar_correccion_ext_filtrada();
+            logmsg(['Metadata ambigua: %d correcciones coinciden exactamente; ', ...
+                'no se eligio la mas reciente.'], numel(candidatas));
+            estado.Text = 'Correccion ambigua; revisa duplicados de correlacion.';
+            return;
+        end
+        seleccionada = candidatas.ruta;
+        if strcmpi(state.corr_ruta, seleccionada) && ~isempty(state.corr)
+            return;
+        end
+        try
+            corr = cargar_correccion_local(seleccionada);
+            validar_correccion_ext_metadata(corr);
+            state.corr = corr;
+            state.corr_ruta = seleccionada;
+            horizonte = horizonte_correccion_min(corr);
+            if isfinite(horizonte) && horizonte > 0
+                c_ext.t_extra.Value = horizonte;
+            end
+            logmsg('Correccion resuelta por metadata: %s', seleccionada);
+            estado.Text = 'Correccion resuelta por metadata.';
+            actualizar_correccion_ext_reactiva();
+        catch ME
+            descargar_correccion_ext_filtrada();
+            logmsg('Correccion filtrada invalida: %s', ME.message);
+            estado.Text = 'Error en correccion filtrada.';
+        end
+    end
+
+    function [completo, tipo, antena, caso, potencia] = filtro_correccion_ext_actual()
+        tipo = char(c_ext.tipo.Value);
+        antena = char(c_ext.antena.Value);
+        caso = numero_filtro_correccion_ext(c_ext.caso.Value, 'Caso_');
+        potencia = numero_filtro_correccion_ext(c_ext.potencia.Value, 'Potencia_', 'W');
+        completo = ~strcmp(tipo, 'Todos') && ~strcmp(antena, 'Todos') && ...
+            isfinite(caso) && isfinite(potencia);
+    end
+
+    function valor = numero_filtro_correccion_ext(texto, prefijo, sufijo)
+        if nargin < 3, sufijo = ''; end
+        texto = char(texto);
+        texto = regexprep(texto, ['^' regexptranslate('escape', prefijo)], '', 'ignorecase');
+        if ~isempty(sufijo)
+            texto = regexprep(texto, [regexptranslate('escape', sufijo) '$'], '', 'ignorecase');
+        end
+        texto = strrep(lower(texto), 'p', '.');
+        valor = str2double(texto);
+    end
+
+    function descargar_correccion_ext_filtrada()
+        if ~isempty(state.corr) || ~isempty(state.corr_ruta)
+            state.corr = [];
+            state.corr_ruta = '';
+            actualizar_correccion_ext_reactiva();
+        end
+    end
+
+    function set_actualizando_filtros_corr(valor)
+        state.actualizando_filtros_corr = valor;
     end
 
     function tmax_abs = horizonte_correccion_min(corr)
@@ -1057,7 +1249,7 @@ function modulo_procesamiento_datos(varargin)
             cfg = res.cfg;
             cfg.aplicar_offset_base = c_ext.offset.Value;
             cfg.intensidad_correccion = max(0, min(1, c_ext.intensidad.Value));
-            cfg.ruta_correccion = c_ext.corr.Value;
+            cfg.ruta_correccion = state.corr_ruta;
             cfg.carpeta_exportacion = c_ext.out.Value;
             cfg.export_mat = true;
             cfg.export_m = true;
@@ -1069,7 +1261,7 @@ function modulo_procesamiento_datos(varargin)
                     res = ejecutar_correlador_volumen_integrado( ...
                         'reaplicar_correccion_volumen', res, cfg, []);
                     state.volumen = res;
-                    estado.Text = 'Carga una correccion MAT para aplicarla al volumen construido.';
+                    estado.Text = 'Completa los filtros de correccion para aplicarla al volumen.';
                     plot_vol();
                     return;
                 end
@@ -1699,11 +1891,25 @@ function tf = hay_mats_particionados(carpeta)
     if ~isfolder(carpeta)
         return;
     end
+    ruta_indice = fullfile(carpeta, 'Indice_Datasets_Metadata.mat');
+    if isfile(ruta_indice)
+        try
+            raw = load(ruta_indice, 'particiones');
+            tf = isfield(raw, 'particiones') && isstruct(raw.particiones) && ...
+                ~isempty(raw.particiones);
+            if tf
+                return;
+            end
+        catch
+            % Indice incompleto: se conserva el escaneo de compatibilidad.
+        end
+    end
     archivos = dir(fullfile(carpeta, '**', '*.mat'));
     archivos = archivos(~[archivos.isdir]);
     for k = 1:numel(archivos)
         nombre = lower(archivos(k).name);
-        if endsWith(nombre, '.mat') && ...
+        ruta_archivo = fullfile(archivos(k).folder, archivos(k).name);
+        if ~ruta_esta_en_repetidos_global(ruta_archivo) && endsWith(nombre, '.mat') && ...
                 ~startsWith(nombre, 'indice_') && ...
                 ~startsWith(nombre, 'reporte_') && ...
                 ~contains(nombre, 'historial')
@@ -1730,6 +1936,11 @@ end
 % =========================================================================
 
 function ejecutar_exportador_mat_integrado(varargin)
+    if nargin >= 1 && ischar(varargin{1}) && ...
+            strcmpi(varargin{1}, 'selftest_metadata_paths')
+        ejecutar_selftest_rutas_stl_corregidas();
+        return;
+    end
     comsol_mat_exportador_masivo(varargin{:});
 
 % ---- Inicio copia local: comsol_mat_exportador_masivo.m ----
@@ -1912,6 +2123,9 @@ function ejecutar_desde_ui_comsol_mat_exportador(valores, logfn)
 end
 
 function rutas_mat = resolver_mats_exportador(ruta_mat_entrada)
+    if ruta_esta_en_repetidos_global(ruta_mat_entrada)
+        error('La entrada STL esta dentro de repetidos y fue bloqueada: %s', ruta_mat_entrada);
+    end
     if isfolder(ruta_mat_entrada)
         rutas_indice = resolver_mats_indice_exportador(ruta_mat_entrada);
         if ~isempty(rutas_indice)
@@ -1923,7 +2137,9 @@ function rutas_mat = resolver_mats_exportador(ruta_mat_entrada)
         keep = true(numel(archivos), 1);
         for k = 1:numel(archivos)
             nombre = lower(archivos(k).name);
-            keep(k) = endsWith(nombre, '.mat') && ...
+            ruta_archivo = fullfile(archivos(k).folder, archivos(k).name);
+            keep(k) = ~ruta_esta_en_repetidos_global(ruta_archivo) && ...
+                endsWith(nombre, '.mat') && ...
                 ~startsWith(nombre, 'indice_') && ...
                 ~startsWith(nombre, 'reporte_') && ...
                 ~contains(nombre, 'historial');
@@ -1955,7 +2171,8 @@ function rutas_mat = resolver_mats_indice_exportador(carpeta)
             return;
         end
         rutas_mat = {raw.particiones.ruta};
-        rutas_mat = rutas_mat(cellfun(@isfile, rutas_mat));
+        rutas_mat = rutas_mat(cellfun(@isfile, rutas_mat) & ...
+            ~cellfun(@ruta_esta_en_repetidos_global, rutas_mat));
     catch
         rutas_mat = {};
     end
@@ -2006,6 +2223,12 @@ function [dataset, carga_correcta, partition_meta] = cargar_dataset_desde_mat(ru
     dataset = struct();
     carga_correcta = false;
     partition_meta = struct();
+
+    if ruta_esta_en_repetidos_global(ruta_mat_entrada)
+        log_exportador('[ERROR] El archivo esta en repetidos y no puede exportarse: %s\n', ...
+            ruta_mat_entrada);
+        return;
+    end
 
     try
         datos_crudos = load(ruta_mat_entrada);
@@ -2871,6 +3094,10 @@ function subcarpeta = subcarpeta_optimizador_desde_metadata( ...
         end
     end
     subcarpeta = fullfile(tipo, antena, caso_txt, potencia_txt);
+    carpetas_correccion = carpetas_metadata_correccion_global(partition_meta);
+    if ~isempty(carpetas_correccion)
+        subcarpeta = fullfile(subcarpeta, carpetas_correccion{:});
+    end
 end
 
 function texto = texto_potencia_exportador(potencia)
@@ -3028,9 +3255,33 @@ function log_exportador(formato, varargin)
     end
 end
 
+function ejecutar_selftest_rutas_stl_corregidas()
+    meta = struct('tipo', 'Monopolo', 'antena', '1ant', ...
+        'num_antenas', 1, 'caso', 1, 'potencia_W', 30, ...
+        'dataset_corregido', true, ...
+        'tag_correccion', 'correccion_junio_19_20min_prueba_1_zonas_4');
+    ruta_19 = strrep(subcarpeta_optimizador_desde_metadata( ...
+        'modelo_Monopolo_1ant', 'dset_c1_p30', meta), '\', '/');
+    esperada = ['Monopolo/1ant/Caso_1/Potencia_30W/' ...
+        'Fecha_junio_19/Tiempo_20min/Prueba_1/Zonas_4'];
+    assert(strcmpi(ruta_19, esperada), ...
+        'La ruta STL no conserva la metadata experimental completa.');
+    meta.tag_correccion = 'correccion_junio_22_20min_prueba_1_zonas_4';
+    ruta_22 = strrep(subcarpeta_optimizador_desde_metadata( ...
+        'modelo_Monopolo_1ant', 'dset_c1_p30', meta), '\', '/');
+    assert(~strcmpi(ruta_19, ruta_22), ...
+        'Dos fechas de correccion resolvieron la misma carpeta STL.');
+    fprintf('SELFTEST_STL_METADATA_PATHS_OK %s | %s\n', ruta_19, ruta_22);
+end
+
 % ---- Fin copia local: comsol_mat_exportador_masivo.m ----
 end
 function ejecutar_preprocesador_stl_integrado(varargin)
+    if nargin >= 1 && ischar(varargin{1}) && ...
+            strcmpi(varargin{1}, 'selftest_metadata_paths')
+        ejecutar_selftest_metadata_voxel_corregido();
+        return;
+    end
     preprocesar_stl_a_mat(varargin{:});
 
 % ---- Inicio copia local: preprocesar_stl_a_mat.m ----
@@ -3106,6 +3357,8 @@ function preprocesar_stl_a_mat(varargin)
         tipo_procesamiento = seleccionar_tipo_procesamiento();
     end
     archivos_stl = dir(fullfile(carpeta_stl, '**', '*.stl'));
+    archivos_stl = archivos_stl(~arrayfun(@(a) ruta_esta_en_repetidos_global( ...
+        fullfile(a.folder, a.name)), archivos_stl));
     if isempty(archivos_stl)
         error('No se encontraron archivos .stl en la carpeta especificada.');
     end
@@ -3311,6 +3564,56 @@ function pasa = ruta_stl_pasa_filtro_metadata_preprocesador(metadata_o_ruta, fil
         potencia_filtro = normalizar_token_numerico_preprocesador(filtro_potencia, 'potencia');
         pasa = pasa && strcmpi(potencia_meta, potencia_filtro);
     end
+    filtro_fecha = obtener_valor_filtro_preprocesador( ...
+        filtro_metadata, {'fecha_adquisicion', 'fecha'});
+    if ~isempty(filtro_fecha)
+        pasa = pasa && strcmpi(metadata.fecha_adquisicion, char(filtro_fecha));
+    end
+    filtro_tiempo = obtener_valor_filtro_preprocesador( ...
+        filtro_metadata, {'tiempo_ejecucion_min'});
+    if filtro_numerico_definido_preprocesador(filtro_tiempo)
+        pasa = pasa && numeros_metadata_iguales_preprocesador( ...
+            metadata.tiempo_ejecucion_min, filtro_tiempo);
+    end
+    filtro_prueba = obtener_valor_filtro_preprocesador( ...
+        filtro_metadata, {'numero_prueba'});
+    if filtro_numerico_definido_preprocesador(filtro_prueba)
+        pasa = pasa && numeros_metadata_iguales_preprocesador( ...
+            metadata.numero_prueba, filtro_prueba);
+    end
+    filtro_zonas = obtener_valor_filtro_preprocesador( ...
+        filtro_metadata, {'num_zonas'});
+    if filtro_numerico_definido_preprocesador(filtro_zonas)
+        pasa = pasa && numeros_metadata_iguales_preprocesador( ...
+            metadata.num_zonas, filtro_zonas);
+    end
+end
+
+function tf = filtro_numerico_definido_preprocesador(valor)
+    tf = ~isempty(valor);
+    if tf && isnumeric(valor)
+        tf = isscalar(valor) && isfinite(double(valor));
+    end
+end
+
+function tf = numeros_metadata_iguales_preprocesador(a, b)
+    a = numero_metadata_preprocesador(a);
+    b = numero_metadata_preprocesador(b);
+    tf = isfinite(a) && isfinite(b) && abs(a - b) < 1e-9;
+end
+
+function valor = numero_metadata_preprocesador(valor)
+    if isnumeric(valor) && isscalar(valor)
+        valor = double(valor);
+    else
+        token = regexp(lower(char(valor)), '[-+]?\d+(?:[p.]\d+)?', ...
+            'match', 'once');
+        if isempty(token)
+            valor = NaN;
+        else
+            valor = str2double(strrep(token, 'p', '.'));
+        end
+    end
 end
 
 function metadata = asegurar_metadata_stl_preprocesador(metadata_o_ruta)
@@ -3441,6 +3744,15 @@ function metadata = crear_metadata_preprocesamiento_stl(ruta_relativa, ruta_stl,
     metadata.antena = regexp(ruta_normalizada, '\d+ant', 'match', 'once');
     metadata.caso = extraer_token_metadata_preprocesamiento(ruta_normalizada, 'Caso_([0-9]+)');
     metadata.potencia = extraer_token_metadata_preprocesamiento(ruta_normalizada, 'Potencia_([0-9]+(?:p[0-9]+)?)W');
+    meta_corr = metadata_especifica_correccion_global(ruta_normalizada);
+    metadata.fecha_adquisicion = meta_corr.fecha_adquisicion;
+    metadata.tiempo_ejecucion_min = meta_corr.tiempo_ejecucion_min;
+    metadata.numero_prueba = meta_corr.numero_prueba;
+    metadata.num_zonas = meta_corr.num_zonas;
+    metadata.zona_experimental = meta_corr.zona_experimental;
+    metadata.tag_correccion = meta_corr.tag_correccion;
+    metadata.dataset_corregido = ~isempty(meta_corr.fecha_adquisicion) || ...
+        contains(lower(ruta_normalizada), 'correccion');
     metadata.es_geometria_ablacion = contains(lower(ruta_normalizada), 'geometria_ablacion');
     metadata.fuente_metadata = 'ruta_stl';
     metadata = completar_metadata_stl_desde_sidecar_preprocesador(metadata);
@@ -3711,6 +4023,27 @@ function [vertices, caras] = leer_stl_binario(nombre_archivo)
     caras = reshape(indices_unicos, 3, numero_caras)';
 end
 
+function ejecutar_selftest_metadata_voxel_corregido()
+    ruta = fullfile('Monopolo', '1ant', 'Caso_1', 'Potencia_30W', ...
+        'Fecha_junio_19', 'Tiempo_20min', 'Prueba_1', 'Zonas_4', ...
+        'Geometria_Ablacion_t5.0000min.stl');
+    metadata = crear_metadata_preprocesamiento_stl(ruta, '', 'sdf', 0.5);
+    assert(strcmp(metadata.fecha_adquisicion, 'junio_19'));
+    assert(metadata.tiempo_ejecucion_min == 20);
+    assert(metadata.numero_prueba == 1 && metadata.num_zonas == 4);
+    filtro = struct('tipo', 'Monopolo', 'antena', '1ant', ...
+        'caso', 'c1', 'potencia', 'p30', ...
+        'fecha_adquisicion', 'junio_19', ...
+        'tiempo_ejecucion_min', 20, 'numero_prueba', 1, 'num_zonas', 4);
+    assert(ruta_stl_pasa_filtro_metadata_preprocesador(metadata, filtro));
+    filtro.fecha_adquisicion = 'junio_22';
+    assert(~ruta_stl_pasa_filtro_metadata_preprocesador(metadata, filtro));
+    fprintf(['SELFTEST_VOXEL_METADATA_PATHS_OK fecha=%s tiempo=%g ' ...
+        'prueba=%g zonas=%g\n'], metadata.fecha_adquisicion, ...
+        metadata.tiempo_ejecucion_min, metadata.numero_prueba, ...
+        metadata.num_zonas);
+end
+
 % ---- Fin copia local: preprocesar_stl_a_mat.m ----
 end
 function varargout = ejecutar_correlador_volumen_integrado(varargin)
@@ -3725,9 +4058,13 @@ function varargout = ejecutar_correlador_volumen_integrado(varargin)
             case 'calcular_correlacion'
                 varargout{1} = calcular_correlacion(varargin{2}); return;
             case 'guardar_correccion'
-                guardar_correccion_mat(varargin{2}, varargin{3}); if nargout > 0, varargout{1} = []; end; return;
+                ruta_guardada = guardar_correccion_mat(varargin{2}, varargin{3});
+                if nargout > 0, varargout{1} = ruta_guardada; end
+                return;
             case 'nombre_correccion'
                 varargout{1} = nombre_correccion_default(varargin{2}); return;
+            case 'ruta_relativa_correccion'
+                varargout{1} = ruta_relativa_correccion_default(varargin{2}); return;
             case 'cargar_dataset'
                 varargout{1} = cargar_dataset_termico(varargin{2}); return;
             case 'construir_volumen'
@@ -3740,6 +4077,10 @@ function varargout = ejecutar_correlador_volumen_integrado(varargin)
                 varargout{1} = reaplicar_correccion_volumen_resultado(varargin{2}, varargin{3}, varargin{4}); return;
             case 'selftest_limite_volumen'
                 ejecutar_selftest_limite_volumen();
+                if nargout > 0, varargout{1} = true; end
+                return;
+            case 'selftest_metadata_corr'
+                ejecutar_selftest_metadata_correlacion();
                 if nargout > 0, varargout{1} = true; end
                 return;
         end
@@ -3779,7 +4120,6 @@ function correlador_volumen_interpolado_ui(varargin)
     state.ruta_exp = '';
     state.ruta_sim = '';
     state.ruta_dataset = '';
-    state.ruta_correccion_externa = '';
     data_paths = tesis_auxiliares('asegurar_dataset_paths');
     state.carpeta_exportacion = data_paths.volumen_4d;
     state.exp = [];
@@ -3957,16 +4297,10 @@ function correlador_volumen_interpolado_ui(varargin)
         'Position', [xCtrl+400 268 48 24], 'Value', 1, 'Limits', [0 1], ...
         'ValueChangedFcn', @actualizar_correccion_4d_y_redibujar);
 
-    btnCorrExt = uibutton(fig, 'Position', [xCtrl 236 162 28], ...
-        'Text', 'Cargar correccion', ...
-        'ButtonPushedFcn', @cargar_correccion_externa);
-    lblCorrExt = uilabel(fig, 'Position', [xCtrl+172 240 276 20], ...
-        'Text', 'usa la generada si existe', 'Interpreter', 'none');
-
-    btnExportDir = uibutton(fig, 'Position', [xCtrl 202 162 28], ...
+    btnExportDir = uibutton(fig, 'Position', [xCtrl 236 162 28], ...
         'Text', 'Carpeta exportacion', ...
         'ButtonPushedFcn', @seleccionar_exportacion);
-    lblExportDir = uilabel(fig, 'Position', [xCtrl+172 206 276 20], ...
+    lblExportDir = uilabel(fig, 'Position', [xCtrl+172 240 276 20], ...
         'Text', state.carpeta_exportacion, 'Interpreter', 'none');
 
     chkExportMat = uicheckbox(fig, 'Position', [xCtrl 174 90 22], ...
@@ -4002,7 +4336,6 @@ function correlador_volumen_interpolado_ui(varargin)
     tesis_auxiliares('tema_ui', 'button', btnExp, 'primary');
     tesis_auxiliares('tema_ui', 'button', btnSim, 'primary');
     tesis_auxiliares('tema_ui', 'button', btnDataset, 'primary');
-    tesis_auxiliares('tema_ui', 'button', btnCorrExt, 'secondary');
     tesis_auxiliares('tema_ui', 'button', btnExportDir, 'secondary');
     tesis_auxiliares('tema_ui', 'button', btnRunCorr, 'success');
     tesis_auxiliares('tema_ui', 'button', btnSaveCorr, 'primary');
@@ -4119,14 +4452,16 @@ function correlador_volumen_interpolado_ui(varargin)
         end
         insertar_separacion_log();
         ruta_default_corr = fullfile(data_paths.correlaciones, ...
-            nombre_correccion_default(state.correccion));
+            ruta_relativa_correccion_default(state.correccion));
+        carpeta_default_corr = fileparts(ruta_default_corr);
+        if ~isfolder(carpeta_default_corr), mkdir(carpeta_default_corr); end
         [file, path] = uiputfile('*.mat', ...
             'Guardar correccion termica', ruta_default_corr);
         if isequal(file, 0)
             return;
         end
-        guardar_correccion_mat(fullfile(path, file), state.correccion);
-        establecer_estado('Correccion guardada: %s', fullfile(path, file));
+        ruta_guardada = guardar_correccion_mat(fullfile(path, file), state.correccion);
+        establecer_estado('Correccion guardada: %s', ruta_guardada);
     end
 
     function cfg = obtener_config_correlacion()
@@ -4184,27 +4519,6 @@ function correlador_volumen_interpolado_ui(varargin)
         ddDataset.Items = dsNames;
         ddDataset.Value = dsNames{1};
         state.actualizando = false;
-    end
-
-    function cargar_correccion_externa(~, ~)
-        [file, path] = uigetfile('*.mat', 'Selecciona correccion termica', ...
-            data_paths.correlaciones);
-        if isequal(file, 0)
-            return;
-        end
-        ruta = fullfile(path, file);
-        try
-            raw = load(ruta);
-            state.correccion = cargar_correccion_desde_struct(raw, file);
-            state.ruta_correccion_externa = ruta;
-            lblCorrExt.Text = file;
-            dibujar_funcion_correccion_4d();
-            actualizar_correccion_4d_y_redibujar();
-            establecer_estado('Correccion externa cargada: %s.', file);
-        catch ME
-            uialert(fig, ME.message, 'Error correccion');
-            establecer_estado('Error al cargar correccion externa.');
-        end
     end
 
     function seleccionar_exportacion(~, ~)
@@ -4277,7 +4591,7 @@ function correlador_volumen_interpolado_ui(varargin)
         cfg.nt_ext = NaN;
         cfg.estrategia = ddEstrategia.Value;
         cfg.carpeta_exportacion = state.carpeta_exportacion;
-        cfg.ruta_correccion = state.ruta_correccion_externa;
+        cfg.ruta_correccion = '';
         cfg.export_mat = chkExportMat.Value;
         cfg.export_m = chkExportM.Value;
         cfg.export_rbf = chkExportRBF.Value;
@@ -5096,7 +5410,7 @@ function correccion_termica = crear_modelo_correccion_ui(t_comun, ...
         'rmse_polinomio_C', rmse_polinomio);
 end
 
-function guardar_correccion_mat(ruta, corr)
+function ruta_guardada = guardar_correccion_mat(ruta, corr)
     t_comun = corr.t_comun;
     y_exp_interp = corr.y_exp_interp;
     y_sim_interp = corr.y_sim_interp;
@@ -5106,44 +5420,240 @@ function guardar_correccion_mat(ruta, corr)
     nombre_exp = campo_corr_texto(corr, 'nombre_exp');
     nombre_sim = campo_corr_texto(corr, 'nombre_sim');
     metadata_correlacion = metadata_correlacion_archivos(corr);
-    save(ruta, 't_comun', 'y_exp_interp', 'y_sim_interp', ...
+    carpeta = fileparts(ruta);
+    if ~isfolder(carpeta), mkdir(carpeta); end
+    ruta_guardada = ruta_disponible_correccion(ruta, corr);
+    carpeta_guardada = fileparts(ruta_guardada);
+    if ~isfolder(carpeta_guardada), mkdir(carpeta_guardada); end
+    marca = char(datetime('now', 'Format', 'yyyyMMdd_HHmmss_SSS'));
+    ruta_temporal = sprintf('%s.partial_%s', ruta_guardada, marca);
+    cleanup = onCleanup(@() borrar_temporal_correccion(ruta_temporal));
+    save(ruta_temporal, 't_comun', 'y_exp_interp', 'y_sim_interp', ...
         'p_arreglo', 'y_delta', 'correccion_termica', ...
         'nombre_exp', 'nombre_sim', 'metadata_correlacion');
+    [ok, msg] = movefile(ruta_temporal, ruta_guardada);
+    if ~ok, error('No se pudo finalizar la correlacion: %s', msg); end
+    clear cleanup;
 end
 
 function nombre = nombre_correccion_default(corr)
-    [~, base_exp] = fileparts(campo_corr_texto(corr, 'nombre_exp'));
-    [~, base_sim] = fileparts(campo_corr_texto(corr, 'nombre_sim'));
-    tag_exp = simplificar_tag_correlacion(base_exp);
-    tag_carpeta = tag_carpeta_experimental(campo_corr_texto(corr, 'nombre_exp'));
-    if ~isempty(tag_carpeta)
-        tag_exp = [tag_carpeta '_' tag_exp];
-    end
-    tag_sim = simplificar_tag_archivo(base_sim, 12);
-    sufijo = 'global';
     if isfield(corr, 'correccion_termica') && ...
             isfield(corr.correccion_termica, 'zonas') && ...
             ~isempty(corr.correccion_termica.zonas)
-        sufijo = sprintf('z%d', numel(corr.correccion_termica.zonas));
-    end
-    if strcmp(tag_exp, 'datos')
-        nombre = sprintf('corr_%s_%s.mat', tag_sim, sufijo);
+        nombre = 'Correccion_termica_zonal.mat';
     else
-        nombre = sprintf('corr_%s_%s.mat', tag_exp, sufijo);
+        nombre = 'Correccion_termica_global.mat';
     end
-    nombre = regexprep(nombre, '[^\w\-.]', '_');
+end
+
+function relativa = ruta_relativa_correccion_default(corr)
+    meta = metadata_correlacion_archivos(corr);
+    nombre = nombre_correccion_default(corr);
+    if metadata_correlacion_completa(meta)
+        potencia = sprintf('Potencia_%gW', meta.potencia_W);
+        potencia = strrep(potencia, '.', 'p');
+        partes = {meta.tipo_antena, sprintf('%dant', round(meta.num_antenas)), ...
+            sprintf('Caso_%d', round(meta.caso)), potencia};
+        if metadata_correlacion_especifica_completa(meta)
+            partes = [partes, {['Fecha_' simplificar_tag_archivo(meta.fecha_adquisicion, 32)], ...
+                sprintf('Tiempo_%gmin', meta.tiempo_ejecucion_min), ...
+                sprintf('Prueba_%d', round(meta.numero_prueba)), ...
+                sprintf('Zonas_%d', round(meta.num_zonas))}];
+        end
+        relativa = fullfile(partes{:}, nombre);
+    else
+        relativa = fullfile('metadata_incompleta', nombre);
+    end
 end
 
 function metadata = metadata_correlacion_archivos(corr)
     ruta_exp = campo_corr_texto(corr, 'nombre_exp');
     ruta_sim = campo_corr_texto(corr, 'nombre_sim');
+    meta_sim = extraer_metadata_ruta_correlacion(ruta_sim);
+    meta_exp = extraer_metadata_experimental_correlacion(ruta_exp, corr);
     metadata = struct( ...
         'ruta_exp', ruta_exp, ...
         'ruta_sim', ruta_sim, ...
         'carpeta_exp', carpeta_contenedora_exp(ruta_exp), ...
         'tag_carpeta_exp', tag_carpeta_experimental(ruta_exp), ...
         'archivo_exp', nombre_archivo(ruta_exp), ...
-        'archivo_sim', nombre_archivo(ruta_sim));
+        'archivo_sim', nombre_archivo(ruta_sim), ...
+        'tipo_antena', meta_sim.tipo_antena, ...
+        'num_antenas', meta_sim.num_antenas, ...
+        'caso', meta_sim.caso, ...
+        'potencia_W', meta_sim.potencia_W, ...
+        'fecha_experimento', tag_carpeta_experimental(ruta_exp), ...
+        'fecha_adquisicion', meta_exp.fecha_adquisicion, ...
+        'tiempo_ejecucion_min', meta_exp.tiempo_ejecucion_min, ...
+        'numero_prueba', meta_exp.numero_prueba, ...
+        'num_zonas', meta_exp.num_zonas, ...
+        'zona_experimental', meta_exp.zona_experimental, ...
+        'duracion_min', duracion_correlacion(corr), ...
+        'sonda_simulada', campo_corr_texto(corr, 'sonda'), ...
+        'sonda_experimental', campo_corr_texto(corr, 'sonda_experimental'), ...
+        'schema_version', 3);
+end
+
+function meta = extraer_metadata_experimental_correlacion(ruta_exp, corr)
+    meta = struct('fecha_adquisicion', tag_carpeta_experimental(ruta_exp), ...
+        'tiempo_ejecucion_min', NaN, 'numero_prueba', 1, ...
+        'num_zonas', NaN, 'zona_experimental', '');
+    if isempty(meta.fecha_adquisicion)
+        normal = strrep(char(ruta_exp), '\', '/');
+        token_fecha = regexp(normal, '/([^/]+)/[^/]+$', 'tokens', 'once');
+        if ~isempty(token_fecha), meta.fecha_adquisicion = token_fecha{1}; end
+    end
+    [~, base_exp] = fileparts(char(ruta_exp));
+    token = regexp(base_exp, '(\d+(?:[p.]\d+)?)\s*min', ...
+        'tokens', 'once', 'ignorecase');
+    if ~isempty(token)
+        meta.tiempo_ejecucion_min = str2double(strrep(lower(token{1}), 'p', '.'));
+    end
+    token = regexp(base_exp, '\d+(?:[p.]\d+)?\s*min[_\s-]*(\d+)', ...
+        'tokens', 'once', 'ignorecase');
+    if ~isempty(token), meta.numero_prueba = str2double(token{1}); end
+    if isstruct(corr) && isfield(corr, 'correccion_termica') && ...
+            isstruct(corr.correccion_termica) && ...
+            isfield(corr.correccion_termica, 'zonas')
+        meta.num_zonas = numel(corr.correccion_termica.zonas);
+    end
+    if isfinite(meta.num_zonas)
+        meta.zona_experimental = sprintf('Zonas_%d', round(meta.num_zonas));
+    end
+end
+
+function meta = extraer_metadata_ruta_correlacion(ruta)
+    normal = strrep(char(ruta), '\', '/');
+    meta = struct('tipo_antena', '', 'num_antenas', NaN, ...
+        'caso', NaN, 'potencia_W', NaN);
+    tipos = {'Doble_slot', 'Monopolo', 'Un_slot'};
+    for k = 1:numel(tipos)
+        if contains(normal, ['/' tipos{k} '/'], 'IgnoreCase', true)
+            meta.tipo_antena = tipos{k};
+            break;
+        end
+    end
+    token = regexp(normal, '(\d+)ant', 'tokens', 'once', 'ignorecase');
+    if ~isempty(token), meta.num_antenas = str2double(token{1}); end
+    token = regexp(normal, 'Caso_(\d+)', 'tokens', 'once', 'ignorecase');
+    if ~isempty(token), meta.caso = str2double(token{1}); end
+    token = regexp(normal, 'Potencia_([\d.p]+)W', 'tokens', 'once', 'ignorecase');
+    if ~isempty(token)
+        meta.potencia_W = str2double(strrep(lower(token{1}), 'p', '.'));
+    end
+end
+
+function tf = metadata_correlacion_completa(meta)
+    tf = isstruct(meta) && isfield(meta, 'tipo_antena') && ...
+        ~isempty(meta.tipo_antena) && isfield(meta, 'num_antenas') && ...
+        isfinite(meta.num_antenas) && isfield(meta, 'caso') && ...
+        isfinite(meta.caso) && isfield(meta, 'potencia_W') && ...
+        isfinite(meta.potencia_W);
+end
+
+function tf = metadata_correlacion_especifica_completa(meta)
+    tf = metadata_correlacion_completa(meta) && ...
+        isfield(meta, 'fecha_adquisicion') && ~isempty(meta.fecha_adquisicion) && ...
+        isfield(meta, 'tiempo_ejecucion_min') && isfinite(meta.tiempo_ejecucion_min) && ...
+        isfield(meta, 'numero_prueba') && isfinite(meta.numero_prueba) && ...
+        isfield(meta, 'num_zonas') && isfinite(meta.num_zonas);
+end
+
+function duracion = duracion_correlacion(corr)
+    duracion = NaN;
+    if isstruct(corr) && isfield(corr, 't_comun') && ~isempty(corr.t_comun)
+        t = double(corr.t_comun(:));
+        t = t(isfinite(t));
+        if ~isempty(t), duracion = max(t) - min(t); end
+    end
+end
+
+function ruta = ruta_disponible_correccion(ruta, corr)
+    if ~isfile(ruta), return; end
+    [folder, base, ext] = fileparts(ruta);
+    if correccion_guardada_equivalente(ruta, corr)
+        categoria = 'equivalentes';
+    else
+        categoria = 'conflictos';
+    end
+    folder_repetido = fullfile(folder, 'repetidos', categoria);
+    revision = 2;
+    ruta = fullfile(folder_repetido, sprintf('Revision_%d', revision), [base ext]);
+    while isfile(ruta)
+        revision = revision + 1;
+        ruta = fullfile(folder_repetido, sprintf('Revision_%d', revision), [base ext]);
+    end
+end
+
+function tf = correccion_guardada_equivalente(ruta, corr)
+    campos = {'t_comun', 'y_exp_interp', 'y_sim_interp', 'p_arreglo', ...
+        'y_delta', 'correccion_termica', 'nombre_exp', 'nombre_sim', ...
+        'metadata_correlacion'};
+    try
+        guardada = load(ruta, campos{:});
+        esperada = struct( ...
+            't_comun', corr.t_comun, ...
+            'y_exp_interp', corr.y_exp_interp, ...
+            'y_sim_interp', corr.y_sim_interp, ...
+            'p_arreglo', corr.p_arreglo, ...
+            'y_delta', corr.y_delta, ...
+            'correccion_termica', corr.correccion_termica, ...
+            'nombre_exp', campo_corr_texto(corr, 'nombre_exp'), ...
+            'nombre_sim', campo_corr_texto(corr, 'nombre_sim'), ...
+            'metadata_correlacion', metadata_correlacion_archivos(corr));
+        tf = all(cellfun(@(campo) isfield(guardada, campo) && ...
+            isequaln(guardada.(campo), esperada.(campo)), campos));
+    catch
+        tf = false;
+    end
+end
+
+function borrar_temporal_correccion(ruta)
+    if isfile(ruta), delete(ruta); end
+end
+
+function ejecutar_selftest_metadata_correlacion()
+    corr = struct();
+    corr.nombre_exp = fullfile('datasets', 'experimentales', '19_jun', ...
+        '1 antenas_30 watt 20min.csv');
+    corr.nombre_sim = fullfile('datasets', 'distribuciones_stl', 'Monopolo', ...
+        '1ant', 'Caso_1', 'Potencia_30W', 'Registro_Sondas_Temperatura.txt');
+    corr.t_comun = [0; 20];
+    corr.y_exp_interp = [20; 35];
+    corr.y_sim_interp = [20; 32];
+    corr.p_arreglo = [1; 1.25];
+    corr.y_delta = [0; 3];
+    corr.sonda = 'P1';
+    corr.correccion_termica = struct('zonas', repmat(struct('indice', 1), 4, 1));
+    meta = metadata_correlacion_archivos(corr);
+    assert(metadata_correlacion_completa(meta));
+    assert(metadata_correlacion_especifica_completa(meta));
+    assert(strcmp(meta.tipo_antena, 'Monopolo'));
+    assert(meta.num_antenas == 1 && meta.caso == 1 && meta.potencia_W == 30);
+    assert(strcmp(meta.fecha_adquisicion, '19_jun') && ...
+        meta.tiempo_ejecucion_min == 20 && meta.numero_prueba == 1 && ...
+        meta.num_zonas == 4 && strcmp(meta.zona_experimental, 'Zonas_4'));
+    nombre = nombre_correccion_default(corr);
+    assert(strcmp(nombre, 'Correccion_termica_zonal.mat'));
+    relativa = strrep(ruta_relativa_correccion_default(corr), '\', '/');
+    assert(contains(relativa, 'Monopolo/1ant/Caso_1/Potencia_30W/', ...
+        'IgnoreCase', true));
+    assert(contains(relativa, ...
+        'Fecha_19_jun/Tiempo_20min/Prueba_1/Zonas_4/', 'IgnoreCase', true));
+    ruta_temporal = [tempname '.mat'];
+    cleanup = onCleanup(@() borrar_temporal_correccion(ruta_temporal));
+    guardar_correccion_mat(ruta_temporal, corr);
+    equivalente = strrep(ruta_disponible_correccion(ruta_temporal, corr), '\', '/');
+    assert(contains(equivalente, '/repetidos/equivalentes/Revision_2/', ...
+        'IgnoreCase', true));
+    corr_conflicto = corr;
+    corr_conflicto.y_delta(end) = corr_conflicto.y_delta(end) + 1;
+    conflicto = strrep(ruta_disponible_correccion( ...
+        ruta_temporal, corr_conflicto), '\', '/');
+    assert(contains(conflicto, '/repetidos/conflictos/Revision_2/', ...
+        'IgnoreCase', true));
+    clear cleanup;
+    fprintf('SELFTEST_CORR_METADATA_OK %s\n', relativa);
 end
 
 function txt = campo_corr_texto(corr, campo)
@@ -5217,32 +5727,6 @@ function tag = simplificar_tag_archivo(txt, nmax)
         tag = tag(1:nmax);
         tag = regexprep(tag, '_+$', '');
     end
-end
-
-function corr = cargar_correccion_desde_struct(raw, nombre)
-    if ~isfield(raw, 'correccion_termica')
-        error('El archivo no contiene correccion_termica.');
-    end
-    corr = struct();
-    if isfield(raw, 'nombre_exp') && ~isempty(raw.nombre_exp)
-        corr.nombre_exp = char(raw.nombre_exp);
-    else
-        corr.nombre_exp = nombre;
-    end
-    if isfield(raw, 'nombre_sim') && ~isempty(raw.nombre_sim)
-        corr.nombre_sim = char(raw.nombre_sim);
-    else
-        corr.nombre_sim = nombre;
-    end
-    campos = {'t_comun', 'y_exp_interp', 'y_sim_interp', 'p_arreglo', 'y_delta'};
-    for k = 1:numel(campos)
-        if isfield(raw, campos{k})
-            corr.(campos{k}) = raw.(campos{k});
-        else
-            corr.(campos{k}) = [];
-        end
-    end
-    corr.correccion_termica = raw.correccion_termica;
 end
 
 function dataset = cargar_dataset_termico(ruta)
@@ -6180,6 +6664,15 @@ function tag = tag_correccion_volumen(cfg, corr)
     if isempty(corr)
         return;
     end
+    meta = metadata_correlacion_archivos(corr);
+    if metadata_correlacion_especifica_completa(meta)
+        tiempo = strrep(sprintf('%g', meta.tiempo_ejecucion_min), '.', 'p');
+        tag = sanitizar_tag(sprintf( ...
+            'correccion_%s_%smin_prueba_%d_zonas_%d', ...
+            meta.fecha_adquisicion, tiempo, round(meta.numero_prueba), ...
+            round(meta.num_zonas)));
+        return;
+    end
     txt = texto_tag_correccion_volumen(cfg, true);
     if isempty(txt)
         txt = texto_tag_correccion_volumen(corr, false);
@@ -6398,6 +6891,11 @@ end
 % ---- Fin copia local: correlador_volumen_interpolado_ui.m ----
 end
 function varargout = ejecutar_exportador_correcciones_integrado(varargin)
+    if nargin >= 1 && ischar(varargin{1}) && strcmpi(varargin{1}, 'selftest_metadata')
+        ejecutar_selftest_filtros_metadata();
+        if nargout > 0, varargout{1} = true; end
+        return;
+    end
     if nargout > 0
         [varargout{1:nargout}] = exportador_masivo_correcciones(varargin{:});
     else
@@ -6516,7 +7014,7 @@ function lanzar_ui_exportador_masivo_correcciones()
     btn_run = uibutton(gl, 'Text', 'Ejecutar todo');
     btn_run.Layout.Column = [1 2];
     tesis_auxiliares('tema_ui', 'button', btn_run, 'success');
-    btn_open = uibutton(gl, 'Text', 'Abrir carpeta DATASETS');
+    btn_open = uibutton(gl, 'Text', 'Abrir carpeta datasets');
     btn_open.Layout.Column = [1 2];
 
     pnl_log = uipanel(fig, 'Title', 'Registro de eventos', ...
@@ -6621,7 +7119,7 @@ function resumen = exportar_dataset_seleccionado_corregido(config)
     end
     corr_raw = obtener_campo_config_exportador(config, 'correccion', []);
     if isempty(corr_raw)
-        error('Carga una correccion termica antes de exportar.');
+        error('No hay una correccion resuelta por metadata para exportar.');
     end
     if isstruct(corr_raw) && isfield(corr_raw, 'correccion_termica')
         corr = corr_raw.correccion_termica;
@@ -6670,8 +7168,10 @@ function resumen = exportar_dataset_seleccionado_corregido(config)
 end
 
 function tag = tag_correccion_seleccionada(corr_raw, corr, config)
+    tag = tag_experimental_correccion_exportador(corr_raw);
+    if isempty(tag), tag = tag_experimental_correccion_exportador(corr); end
+    if ~isempty(tag), return; end
     rutas = {'ruta_correccion', 'ruta_correccion_mat'};
-    tag = '';
     for k = 1:numel(rutas)
         campo = rutas{k};
         if isstruct(config) && isfield(config, campo) && ~isempty(config.(campo)) && ...
@@ -6721,6 +7221,12 @@ function partition_meta = crear_partition_meta_corregido(config, ds_corr, corr, 
     partition_meta.agrupar_por = 'tipo_antenas_caso_potencia';
     partition_meta.dataset_corregido = true;
     partition_meta.tag_correccion = tag_corr;
+    meta_especifica = metadata_especifica_correccion_global(tag_corr);
+    partition_meta.fecha_adquisicion = meta_especifica.fecha_adquisicion;
+    partition_meta.tiempo_ejecucion_min = meta_especifica.tiempo_ejecucion_min;
+    partition_meta.numero_prueba = meta_especifica.numero_prueba;
+    partition_meta.num_zonas = meta_especifica.num_zonas;
+    partition_meta.zona_experimental = meta_especifica.zona_experimental;
     partition_meta.root_salida = root_salida;
     partition_meta.fecha_generacion = char(datetime('now', 'Format', 'yyyy-MM-dd HH:mm:ss'));
     partition_meta.correccion_termica = crear_metadata_correccion_exportador(corr, config);
@@ -6777,8 +7283,9 @@ function [carpeta, archivo] = destino_particion_corregida(root_salida, partition
         texto_meta_o_default(partition_meta.tipo, 'Tipo_desconocido'), ...
         texto_meta_o_default(partition_meta.antena, 'antenas_desconocidas'), ...
         texto_caso_corregido(partition_meta.caso), ...
-        texto_potencia_corregida(partition_meta.potencia_W));
-    archivo = [sanitizar_nombre_correccion_exportador(partition_meta.partition_key) '.mat'];
+        texto_potencia_corregida(partition_meta.potencia_W), ...
+        sanitizar_nombre_correccion_exportador(partition_meta.tag_correccion));
+    archivo = 'Dataset_corregido.mat';
 end
 
 function valor = primer_match_corregido(texto, candidatos, predeterminado)
@@ -6909,10 +7416,17 @@ function resumen = ejecutar_exportador_masivo_correcciones(config)
     rutas_correcciones = obtener_campo_config_exportador(config, ...
         'rutas_correcciones', {});
     if isempty(rutas_correcciones)
-        archivos = dir(fullfile(carpeta_correlaciones, '*.mat'));
+        archivos = dir(fullfile(carpeta_correlaciones, '**', '*.mat'));
+        archivos = archivos(~arrayfun(@(a) ruta_esta_en_repetidos( ...
+            fullfile(a.folder, a.name)), archivos));
         rutas_correcciones = arrayfun(@(a) fullfile(a.folder, a.name), ...
             archivos, 'UniformOutput', false);
     end
+    if ischar(rutas_correcciones) || isstring(rutas_correcciones)
+        rutas_correcciones = cellstr(rutas_correcciones);
+    end
+    rutas_correcciones = rutas_correcciones(~cellfun( ...
+        @ruta_esta_en_repetidos_global, rutas_correcciones));
 
     if ~(isfile(ruta_dataset) || isfolder(ruta_dataset))
         error('No existe el dataset masivo o catalogo de particiones: %s', ruta_dataset);
@@ -6942,7 +7456,6 @@ function resumen = ejecutar_exportador_masivo_correcciones(config)
 
     resumen = struct('correlaciones', {{}}, 'datasets', {{}}, ...
         'stl', {{}}, 'mat', {{}});
-    dataset_base = [];
     logfn('Dataset base: %s', ruta_dataset);
     logfn('Correlaciones detectadas: %d', numel(rutas_correcciones));
 
@@ -6954,18 +7467,27 @@ function resumen = ejecutar_exportador_masivo_correcciones(config)
         end
         [~, nombre_corr] = fileparts(ruta_corr);
         tag_corr = sanitizar_tag_exportador(nombre_corr);
-        filtro_corr = crear_filtro_correlacion_exportador(nombre_corr, tag_corr);
+        corr_raw = load(ruta_corr);
+        if ~isfield(corr_raw, 'correccion_termica')
+            logfn('[WARN] Omitida: no contiene correccion_termica.');
+            continue;
+        end
+        filtro_corr = crear_filtro_correlacion_exportador( ...
+            nombre_corr, tag_corr, corr_raw);
+        tag_corr = filtro_corr.tag;
+        partition_meta_corr = crear_partition_meta_masivo_correccion( ...
+            filtro_corr, ruta_dataset, ruta_corr);
         logfn('---');
         logfn('[%d/%d] Correccion: %s', ci, numel(rutas_correcciones), nombre_corr);
-        logfn('Filtro de correlacion: antenas=%s | potencia=%s | caso=%s', ...
+        logfn('Filtro de correlacion: tipo=%s | antenas=%s | potencia=%s | caso=%s', ...
+            valor_filtro_log_exportador(filtro_corr.tipo), ...
             valor_filtro_log_exportador(filtro_corr.antena), ...
             valor_filtro_log_exportador(filtro_corr.potencia), ...
             valor_filtro_log_exportador(filtro_corr.caso));
 
         carpeta_dataset_corr = fullfile(carpeta_salida_datasets, tag_corr);
         asegurar_carpeta_exportador(carpeta_dataset_corr);
-        ruta_out_dataset = fullfile(carpeta_dataset_corr, ...
-            sprintf('Dataset_corregido_%s.mat', tag_corr));
+        ruta_out_dataset = fullfile(carpeta_dataset_corr, 'Dataset_corregido.mat');
         ruta_done_dataset = [ruta_out_dataset '.done'];
         dataset_vigente = dataset_corregido_vigente_exportador( ...
             ruta_out_dataset, ruta_done_dataset, filtro_corr);
@@ -6973,25 +7495,23 @@ function resumen = ejecutar_exportador_masivo_correcciones(config)
         if dataset_vigente && ~sobrescribir
             logfn('Fase 1/3 dataset corregido vigente. Omitido: %s', ruta_out_dataset);
         else
-            if isempty(dataset_base)
-                logfn('Cargando dataset base para correccion...');
-                dataset_base = cargar_dataset_base_exportador(ruta_dataset);
-            end
-            corr_raw = load(ruta_corr);
-            if ~isfield(corr_raw, 'correccion_termica')
-                logfn('[WARN] Omitida: no contiene correccion_termica.');
-                continue;
-            end
             corr = corr_raw.correccion_termica;
             config_corr = config;
             config_corr.correccion = corr_raw;
             config_corr.temperatura_max_corregida_C = obtener_campo_config_exportador( ...
                 config, 'temperatura_max_corregida_C', 120);
+            logfn('Cargando solo particiones compatibles con esta correccion...');
+            dataset_base = cargar_dataset_base_exportador( ...
+                ruta_dataset, filtro_corr, logfn);
             logfn('Fase 1/3 corrigiendo dataset completo...');
             dataset_corr = corregir_dataset_completo_exportador( ...
                 dataset_base, corr, config_corr, logfn, filtro_corr);
+            clear dataset_base corr;
             dataset = dataset_corr;
-            save(ruta_out_dataset, 'dataset', '-v7.3');
+            clear dataset_corr;
+            partition_meta = partition_meta_corr;
+            save(ruta_out_dataset, 'dataset', 'partition_meta', '-v7.3');
+            clear dataset corr_raw;
             escribir_done_exportador(ruta_done_dataset, ruta_dataset, ruta_corr, filtro_corr);
             dataset_regenerado = true;
             logfn('Dataset corregido guardado: %s', ruta_out_dataset);
@@ -7038,6 +7558,37 @@ function resumen = ejecutar_exportador_masivo_correcciones(config)
             ejecutar_preprocesador_stl_integrado('run', cfg_pre);
             resumen.mat{end+1} = carpeta_mat;
         end
+    end
+end
+
+function partition_meta = crear_partition_meta_masivo_correccion( ...
+        filtro_corr, ruta_dataset, ruta_corr)
+    ant = regexp(char(filtro_corr.antena), '(\d+)', 'tokens', 'once');
+    caso = regexp(char(filtro_corr.caso), '(\d+)', 'tokens', 'once');
+    potencia = regexp(char(filtro_corr.potencia), '([\d.p]+)', 'tokens', 'once');
+    partition_meta = struct( ...
+        'tipo', char(filtro_corr.tipo), ...
+        'antena', char(filtro_corr.antena), ...
+        'num_antenas', token_numero_exportador(ant), ...
+        'caso', token_numero_exportador(caso), ...
+        'potencia_W', token_numero_exportador(potencia), ...
+        'dataset_corregido', true, ...
+        'tag_correccion', char(filtro_corr.tag), ...
+        'fecha_adquisicion', char(filtro_corr.fecha_adquisicion), ...
+        'tiempo_ejecucion_min', double(filtro_corr.tiempo_ejecucion_min), ...
+        'numero_prueba', double(filtro_corr.numero_prueba), ...
+        'num_zonas', double(filtro_corr.num_zonas), ...
+        'zona_experimental', char(filtro_corr.zona_experimental), ...
+        'ruta_entrada', char(ruta_dataset), ...
+        'ruta_correccion', char(ruta_corr), ...
+        'agrupar_por', ...
+        'tipo_antenas_caso_potencia_fecha_tiempo_prueba_zonas');
+end
+
+function valor = token_numero_exportador(token)
+    valor = NaN;
+    if ~isempty(token)
+        valor = str2double(strrep(lower(token{1}), 'p', '.'));
     end
 end
 
@@ -7096,20 +7647,75 @@ function dataset_corr = corregir_dataset_completo_exportador(dataset_base, corr,
         n_modelos_corregidos, n_datasets_corregidos);
 end
 
-function dataset_base = cargar_dataset_base_exportador(ruta_dataset)
-    dataset_base = cargar_dataset_termico_compuesto(ruta_dataset);
+function dataset_base = cargar_dataset_base_exportador(ruta_dataset, filtro_corr, logfn)
+    if ~isfolder(ruta_dataset)
+        dataset_base = cargar_dataset_termico_archivo(ruta_dataset);
+        return;
+    end
+
+    rutas_todas = resolver_particiones_dataset(ruta_dataset);
+    rutas = filtrar_particiones_exportador(rutas_todas, filtro_corr);
+    if isempty(rutas)
+        error(['No hay particiones compatibles con la correlacion %s. ', ...
+            'Revisa antenas, potencia y caso en el nombre de la correlacion.'], ...
+            filtro_corr.tag);
+    end
+
+    bytes = 0;
+    for k = 1:numel(rutas)
+        info = dir(rutas{k});
+        if ~isempty(info)
+            bytes = bytes + double(info(1).bytes);
+        end
+    end
+    logfn('Particiones seleccionadas: %d/%d (%.2f GB en disco).', ...
+        numel(rutas), numel(rutas_todas), bytes / 1024^3);
+
+    dataset_base = struct();
+    for k = 1:numel(rutas)
+        nuevo = cargar_dataset_termico_archivo(rutas{k});
+        dataset_base = fusionar_dataset_termico(dataset_base, nuevo);
+        clear nuevo;
+        if k == 1 || mod(k, 25) == 0 || k == numel(rutas)
+            logfn('  Particiones cargadas: %d/%d.', k, numel(rutas));
+            drawnow limitrate;
+        end
+    end
 end
 
-function filtro = crear_filtro_correlacion_exportador(nombre_corr, tag_corr)
+function rutas = filtrar_particiones_exportador(rutas_todas, filtro_corr)
+    rutas = {};
+    % El nombre canonico contiene modelo, caso y potencia, por lo que este
+    % filtro funciona tanto con indices portables como con indices obsoletos.
+    for k = 1:numel(rutas_todas)
+        ruta = rutas_todas{k};
+        if ~ruta_esta_en_repetidos(ruta) && ...
+                modelo_pasa_filtro_correlacion(ruta, filtro_corr) && ...
+                dataset_pasa_filtro_correlacion(ruta, filtro_corr)
+            rutas{end + 1} = rutas_todas{k}; %#ok<AGROW>
+        end
+    end
+    rutas = unique(rutas, 'stable');
+end
+
+function filtro = crear_filtro_correlacion_exportador(nombre_corr, tag_corr, corr_raw)
+    tag_experimental = tag_experimental_correccion_exportador(corr_raw);
+    if ~isempty(tag_experimental), tag_corr = tag_experimental; end
     raw = lower(regexprep(char(nombre_corr), '[^\w]+', '_'));
     ant = regexp(raw, '(\d+)_?ant(?:enas)?', 'tokens', 'once');
     potencia = regexp(raw, '(\d+)_?w(?:att)?', 'tokens', 'once');
     caso = regexp(raw, '(?:^|_)c(?:aso)?_?(\d+)(?=_|$)', 'tokens', 'once');
     filtro = struct( ...
         'tag', tag_corr, ...
+        'tipo', '', ...
         'antena', '', ...
         'potencia', '', ...
-        'caso', '');
+        'caso', '', ...
+        'fecha_adquisicion', '', ...
+        'tiempo_ejecucion_min', NaN, ...
+        'numero_prueba', NaN, ...
+        'num_zonas', NaN, ...
+        'zona_experimental', '');
     if ~isempty(ant)
         filtro.antena = sprintf('%sant', ant{1});
     end
@@ -7119,10 +7725,153 @@ function filtro = crear_filtro_correlacion_exportador(nombre_corr, tag_corr)
     if ~isempty(caso)
         filtro.caso = sprintf('c%s', caso{1});
     end
+    if nargin >= 3 && isstruct(corr_raw)
+        meta = metadata_filtro_desde_correccion(corr_raw);
+        if ~isempty(meta.tipo_antena), filtro.tipo = meta.tipo_antena; end
+        if isfinite(meta.num_antenas), filtro.antena = sprintf('%dant', round(meta.num_antenas)); end
+        if isfinite(meta.potencia_W), filtro.potencia = sprintf('p%g', meta.potencia_W); end
+        if isfinite(meta.caso), filtro.caso = sprintf('c%d', round(meta.caso)); end
+        meta_especifica = metadata_especifica_correccion_global(corr_raw);
+        filtro.fecha_adquisicion = meta_especifica.fecha_adquisicion;
+        filtro.tiempo_ejecucion_min = meta_especifica.tiempo_ejecucion_min;
+        filtro.numero_prueba = meta_especifica.numero_prueba;
+        filtro.num_zonas = meta_especifica.num_zonas;
+        filtro.zona_experimental = meta_especifica.zona_experimental;
+    end
+    if ~isempty(filtro.tipo) && ~isempty(filtro.antena) && ...
+            ~isempty(filtro.caso) && ~isempty(filtro.potencia)
+        filtro.tag = sanitizar_nombre_correccion_exportador(sprintf('%s_%s_%s_%s_%s', ...
+            filtro.tipo, filtro.antena, filtro.caso, filtro.potencia, tag_corr));
+    end
+end
+
+function tag = tag_experimental_correccion_exportador(corr_raw)
+    tag = '';
+    if ~isstruct(corr_raw), return; end
+    fecha = '';
+    tiempo = NaN;
+    prueba = NaN;
+    zonas = NaN;
+    ruta_exp = '';
+    if isfield(corr_raw, 'metadata_correlacion') && ...
+            isstruct(corr_raw.metadata_correlacion)
+        md = corr_raw.metadata_correlacion;
+        fecha = texto_meta_filtro(md, 'fecha_adquisicion');
+        if isempty(fecha), fecha = texto_meta_filtro(md, 'fecha_experimento'); end
+        if isempty(fecha), fecha = texto_meta_filtro(md, 'tag_carpeta_exp'); end
+        tiempo = numero_meta_filtro(md, 'tiempo_ejecucion_min');
+        prueba = numero_meta_filtro(md, 'numero_prueba');
+        zonas = numero_meta_filtro(md, 'num_zonas');
+        ruta_exp = texto_meta_filtro(md, 'ruta_exp');
+    end
+    if isempty(ruta_exp) && isfield(corr_raw, 'nombre_exp') && ...
+            ~isempty(corr_raw.nombre_exp)
+        ruta_exp = char(corr_raw.nombre_exp);
+    end
+    normal = strrep(ruta_exp, '\', '/');
+    [~, base_exp] = fileparts(normal);
+    if isempty(fecha)
+        token = regexp(normal, '/([^/]+)/[^/]+$', 'tokens', 'once');
+        if ~isempty(token), fecha = token{1}; end
+    end
+    if ~isfinite(tiempo)
+        token = regexp(base_exp, '(\d+(?:[p.]\d+)?)\s*min', ...
+            'tokens', 'once', 'ignorecase');
+        if ~isempty(token)
+            tiempo = str2double(strrep(lower(token{1}), 'p', '.'));
+        end
+    end
+    if ~isfinite(prueba)
+        token = regexp(base_exp, '\d+(?:[p.]\d+)?\s*min[_\s-]*(\d+)', ...
+            'tokens', 'once', 'ignorecase');
+        if isempty(token), prueba = 1; else, prueba = str2double(token{1}); end
+    end
+    if ~isfinite(zonas) && isfield(corr_raw, 'correccion_termica') && ...
+            isstruct(corr_raw.correccion_termica) && ...
+            isfield(corr_raw.correccion_termica, 'zonas')
+        zonas = numel(corr_raw.correccion_termica.zonas);
+    end
+    if isempty(fecha) || ~isfinite(tiempo) || ~isfinite(prueba) || ~isfinite(zonas)
+        return;
+    end
+    tiempo_txt = strrep(sprintf('%g', tiempo), '.', 'p');
+    tag = sanitizar_nombre_correccion_exportador(sprintf( ...
+        'correccion_%s_%smin_prueba_%d_zonas_%d', fecha, tiempo_txt, ...
+        round(prueba), round(zonas)));
+end
+
+function meta = metadata_filtro_desde_correccion(corr_raw)
+    meta = struct('tipo_antena', '', 'num_antenas', NaN, ...
+        'caso', NaN, 'potencia_W', NaN);
+    if isfield(corr_raw, 'metadata_correlacion') && ...
+            isstruct(corr_raw.metadata_correlacion)
+        md = corr_raw.metadata_correlacion;
+        meta.tipo_antena = texto_meta_filtro(md, 'tipo_antena');
+        meta.num_antenas = numero_meta_filtro(md, 'num_antenas');
+        meta.caso = numero_meta_filtro(md, 'caso');
+        meta.potencia_W = numero_meta_filtro(md, 'potencia_W');
+        ruta_sim = texto_meta_filtro(md, 'ruta_sim');
+    else
+        ruta_sim = '';
+    end
+    if isempty(ruta_sim) && isfield(corr_raw, 'nombre_sim')
+        ruta_sim = char(corr_raw.nombre_sim);
+    end
+    inferida = extraer_metadata_ruta_filtro(ruta_sim);
+    if isempty(meta.tipo_antena), meta.tipo_antena = inferida.tipo_antena; end
+    if ~isfinite(meta.num_antenas), meta.num_antenas = inferida.num_antenas; end
+    if ~isfinite(meta.caso), meta.caso = inferida.caso; end
+    if ~isfinite(meta.potencia_W), meta.potencia_W = inferida.potencia_W; end
+end
+
+function meta = extraer_metadata_ruta_filtro(ruta)
+    normal = strrep(char(ruta), '\', '/');
+    meta = struct('tipo_antena', '', 'num_antenas', NaN, ...
+        'caso', NaN, 'potencia_W', NaN);
+    tipos = {'Doble_slot', 'Monopolo', 'Un_slot'};
+    for k = 1:numel(tipos)
+        if contains(normal, ['/' tipos{k} '/'], 'IgnoreCase', true)
+            meta.tipo_antena = tipos{k};
+            break;
+        end
+    end
+    token = regexp(normal, '(\d+)ant', 'tokens', 'once', 'ignorecase');
+    if ~isempty(token), meta.num_antenas = str2double(token{1}); end
+    token = regexp(normal, 'Caso_(\d+)', 'tokens', 'once', 'ignorecase');
+    if ~isempty(token), meta.caso = str2double(token{1}); end
+    token = regexp(normal, 'Potencia_([\d.p]+)W', 'tokens', 'once', 'ignorecase');
+    if ~isempty(token)
+        meta.potencia_W = str2double(strrep(lower(token{1}), 'p', '.'));
+    end
+end
+
+function texto = texto_meta_filtro(s, campo)
+    texto = '';
+    if isstruct(s) && isfield(s, campo) && ~isempty(s.(campo))
+        valor = s.(campo);
+        if isstring(valor), valor = char(valor); end
+        if ischar(valor), texto = valor; end
+    end
+end
+
+function valor = numero_meta_filtro(s, campo)
+    valor = NaN;
+    if isstruct(s) && isfield(s, campo) && isnumeric(s.(campo)) && ...
+            isscalar(s.(campo)) && isfinite(double(s.(campo)))
+        valor = double(s.(campo));
+    end
+end
+
+function tf = ruta_esta_en_repetidos(ruta)
+    partes = regexp(strrep(lower(char(ruta)), '\', '/'), '/', 'split');
+    tf = any(strcmp(partes, 'repetidos'));
 end
 
 function tf = modelo_pasa_filtro_correlacion(nombre_modelo, filtro)
     tf = true;
+    if isfield(filtro, 'tipo') && ~isempty(filtro.tipo)
+        tf = tf && contains(char(nombre_modelo), filtro.tipo, 'IgnoreCase', true);
+    end
     if ~isempty(filtro.antena)
         ant_modelo = regexp(lower(nombre_modelo), '\d+ant', 'match', 'once');
         tf = tf && strcmpi(ant_modelo, filtro.antena);
@@ -7599,6 +8348,7 @@ function vigente = dataset_corregido_vigente_exportador(ruta_mat, ruta_done, fil
         contenido = fileread(ruta_done);
         vigente = contains(contenido, 'version=dataset_corregido_filtrado_v2') && ...
             contains(contenido, ['tag=' filtro_corr.tag]) && ...
+            contains(contenido, ['tipo=' filtro_corr.tipo]) && ...
             contains(contenido, ['antena=' filtro_corr.antena]) && ...
             contains(contenido, ['potencia=' filtro_corr.potencia]) && ...
             contains(contenido, ['caso=' filtro_corr.caso]);
@@ -7616,6 +8366,7 @@ function escribir_done_exportador(ruta_done, ruta_dataset, ruta_corr, filtro_cor
     fprintf(fid, 'done=true\n');
     fprintf(fid, 'version=dataset_corregido_filtrado_v2\n');
     fprintf(fid, 'tag=%s\n', filtro_corr.tag);
+    fprintf(fid, 'tipo=%s\n', filtro_corr.tipo);
     fprintf(fid, 'antena=%s\n', filtro_corr.antena);
     fprintf(fid, 'potencia=%s\n', filtro_corr.potencia);
     fprintf(fid, 'caso=%s\n', filtro_corr.caso);
@@ -7632,8 +8383,17 @@ function limpiar_salidas_por_filtro_exportador(root_salida, filtro_corr, logfn)
         logfn('[WARN] Limpieza omitida: correlacion sin numero de antenas detectable.');
         return;
     end
+    carpetas_correccion = carpetas_metadata_correccion_global(filtro_corr);
+    if isempty(carpetas_correccion)
+        logfn(['[WARN] Limpieza omitida: faltan fecha/tiempo/prueba/zonas; ' ...
+            'no se eliminara una carpeta compartida.']);
+        return;
+    end
 
     tipos = obtener_subdirs_exportador(root_salida);
+    if isfield(filtro_corr, 'tipo') && ~isempty(filtro_corr.tipo)
+        tipos = filtrar_valores_exportador(tipos, filtro_corr.tipo);
+    end
     n_limpias = 0;
     for ti = 1:numel(tipos)
         dir_tipo = fullfile(root_salida, tipos{ti});
@@ -7654,8 +8414,12 @@ function limpiar_salidas_por_filtro_exportador(root_salida, filtro_corr, logfn)
                 end
                 for pi = 1:numel(potencias)
                     dir_potencia = fullfile(dir_caso, potencias{pi});
-                    limpiar_carpeta_generada_exportador(dir_potencia, root_salida, logfn);
-                    n_limpias = n_limpias + 1;
+                    dir_adquisicion = fullfile(dir_potencia, carpetas_correccion{:});
+                    if isfolder(dir_adquisicion)
+                        limpiar_carpeta_generada_exportador( ...
+                            dir_adquisicion, root_salida, logfn);
+                        n_limpias = n_limpias + 1;
+                    end
                 end
             end
         end
@@ -7702,10 +8466,432 @@ function abrir_carpeta_exportador(folder)
     end
 end
 
+function ejecutar_selftest_filtros_metadata()
+    paths = tesis_auxiliares('asegurar_dataset_paths');
+    catalogo_corr = catalogar_correcciones_metadata_ext(paths.correlaciones);
+    candidatas = catalogo_corr(strcmpi({catalogo_corr.tipo}, 'Monopolo') & ...
+        strcmpi({catalogo_corr.antena}, '1ant') & ...
+        abs([catalogo_corr.caso] - 1) < 1e-9 & ...
+        abs([catalogo_corr.potencia_W] - 30) < 1e-9);
+    assert(~isempty(candidatas), ...
+        'No existe una correlacion Monopolo/1ant/Caso_1/Potencia_30W para la prueba.');
+    ruta_corr = candidatas(1).ruta;
+    corr_raw = load(ruta_corr);
+    [~, nombre_corr] = fileparts(ruta_corr);
+    tag = sanitizar_tag_exportador(nombre_corr);
+    filtro = crear_filtro_correlacion_exportador(nombre_corr, tag, corr_raw);
+    assert(strcmp(filtro.tipo, 'Monopolo'), 'El tipo inferido no es Monopolo.');
+    assert(strcmp(filtro.antena, '1ant'), 'El numero de antenas inferido no es 1ant.');
+    assert(strcmp(filtro.caso, 'c1'), 'El caso inferido no es Caso_1.');
+    assert(strcmp(filtro.potencia, 'p30'), 'La potencia inferida no es 30 W.');
+    assert(contains(filtro.tag, lower(filtro.fecha_adquisicion)) && ...
+        contains(filtro.tag, sprintf('prueba_%d', round(filtro.numero_prueba))) && ...
+        contains(filtro.tag, sprintf('zonas_%d', round(filtro.num_zonas))), ...
+        'El tag perdio metadata experimental necesaria para evitar colisiones.');
+    assert(isfinite(filtro.tiempo_ejecucion_min) && ...
+        isfinite(filtro.numero_prueba) && isfinite(filtro.num_zonas), ...
+        'El filtro no conserva tiempo/prueba/zonas de la correccion.');
+    partition_meta = struct('tipo', filtro.tipo, 'antena', filtro.antena, ...
+        'caso', 1, 'potencia_W', 30, 'tag_correccion', filtro.tag);
+    [carpeta_prueba, archivo_prueba] = destino_particion_corregida( ...
+        fullfile('datasets', 'datasets_corregidos'), partition_meta);
+    assert(strcmp(archivo_prueba, 'Dataset_corregido.mat'));
+    assert(contains(carpeta_prueba, filtro.tag, 'IgnoreCase', true), ...
+        'La carpeta del dataset corregido no conserva la identidad de correccion.');
+    assert(modelo_pasa_filtro_correlacion('modelo_Monopolo_1ant', filtro));
+    assert(~modelo_pasa_filtro_correlacion('modelo_Doble_slot_1ant', filtro));
+    assert(dataset_pasa_filtro_correlacion('dset_c1_p30', filtro));
+    assert(~dataset_pasa_filtro_correlacion('dset_c0_p30', filtro));
+    rutas = resolver_particiones_dataset(paths.datasets_masivos_por_metadata);
+    filtradas = filtrar_particiones_exportador(rutas, filtro);
+    assert(~isempty(filtradas), 'El filtro completo no encontro particiones.');
+    for k = 1:numel(filtradas)
+        ruta = strrep(filtradas{k}, '\', '/');
+        assert(contains(ruta, '/Monopolo/1ant/Caso_1/Potencia_30W/', ...
+            'IgnoreCase', true), 'Particion fuera de metadata: %s', filtradas{k});
+        assert(~ruta_esta_en_repetidos(filtradas{k}), ...
+            'El filtro incluyo una particion en repetidos: %s', filtradas{k});
+    end
+    fprintf(['SELFTEST_METADATA_OK tipo=%s antena=%s caso=%s potencia=%s ', ...
+        'particiones=%d\n'], filtro.tipo, filtro.antena, filtro.caso, ...
+        filtro.potencia, numel(filtradas));
+end
+
 % ---- Fin copia local: exportador_masivo_correcciones.m ----
 end
 
+function tf = ruta_esta_en_repetidos_global(ruta)
+    partes = regexp(strrep(lower(char(ruta)), '\', '/'), '/', 'split');
+    tf = any(strcmp(partes, 'repetidos'));
+end
+
+function meta = metadata_especifica_correccion_global(fuente)
+    meta = struct('fecha_adquisicion', '', ...
+        'tiempo_ejecucion_min', NaN, 'numero_prueba', NaN, ...
+        'num_zonas', NaN, 'zona_experimental', '', ...
+        'tag_correccion', '');
+    if isstruct(fuente)
+        meta = copiar_metadata_especifica_correccion_global(meta, fuente);
+        if isfield(fuente, 'metadata_correlacion') && ...
+                isstruct(fuente.metadata_correlacion)
+            meta = copiar_metadata_especifica_correccion_global( ...
+                meta, fuente.metadata_correlacion);
+        end
+        if isfield(fuente, 'correccion_termica') && ...
+                isstruct(fuente.correccion_termica)
+            meta = copiar_metadata_especifica_correccion_global( ...
+                meta, fuente.correccion_termica);
+        end
+        texto = meta.tag_correccion;
+        if isempty(texto) && isfield(fuente, 'tag') && ~isempty(fuente.tag)
+            texto = char(fuente.tag);
+        end
+        if isempty(texto) && isfield(fuente, 'ruta_correccion_mat') && ...
+                ~isempty(fuente.ruta_correccion_mat)
+            texto = char(fuente.ruta_correccion_mat);
+        end
+    else
+        texto = char(fuente);
+    end
+    meta = completar_metadata_especifica_desde_texto_global(meta, texto);
+    if isempty(meta.zona_experimental) && isfinite(meta.num_zonas)
+        meta.zona_experimental = sprintf('Zonas_%d', round(meta.num_zonas));
+    end
+    if isempty(meta.tag_correccion) && ~isempty(meta.fecha_adquisicion) && ...
+            isfinite(meta.tiempo_ejecucion_min) && ...
+            isfinite(meta.numero_prueba) && isfinite(meta.num_zonas)
+        tiempo = strrep(sprintf('%g', meta.tiempo_ejecucion_min), '.', 'p');
+        meta.tag_correccion = sprintf( ...
+            'correccion_%s_%smin_prueba_%d_zonas_%d', ...
+            meta.fecha_adquisicion, tiempo, round(meta.numero_prueba), ...
+            round(meta.num_zonas));
+    end
+end
+
+function meta = copiar_metadata_especifica_correccion_global(meta, fuente)
+    campos_texto = {'fecha_adquisicion', 'zona_experimental', 'tag_correccion'};
+    for k = 1:numel(campos_texto)
+        campo = campos_texto{k};
+        if isempty(meta.(campo)) && isfield(fuente, campo) && ...
+                ~isempty(fuente.(campo))
+            meta.(campo) = char(fuente.(campo));
+        end
+    end
+    campos_num = {'tiempo_ejecucion_min', 'numero_prueba', 'num_zonas'};
+    for k = 1:numel(campos_num)
+        campo = campos_num{k};
+        if ~isfinite(meta.(campo)) && isfield(fuente, campo) && ...
+                isnumeric(fuente.(campo)) && isscalar(fuente.(campo)) && ...
+                isfinite(double(fuente.(campo)))
+            meta.(campo) = double(fuente.(campo));
+        end
+    end
+    if ~isfinite(meta.num_zonas) && isfield(fuente, 'zonas') && ...
+            isstruct(fuente.zonas) && ~isempty(fuente.zonas)
+        meta.num_zonas = numel(fuente.zonas);
+    end
+end
+
+function meta = completar_metadata_especifica_desde_texto_global(meta, texto)
+    normal = strrep(char(texto), '\', '/');
+    token = regexp(normal, '(?:^|/)Fecha_([^/]+)(?:/|$)', ...
+        'tokens', 'once', 'ignorecase');
+    if isempty(meta.fecha_adquisicion) && ~isempty(token)
+        meta.fecha_adquisicion = token{1};
+    end
+    token = regexp(normal, '(?:^|/)Tiempo_([\d.p]+)min(?:/|$)', ...
+        'tokens', 'once', 'ignorecase');
+    if ~isfinite(meta.tiempo_ejecucion_min) && ~isempty(token)
+        meta.tiempo_ejecucion_min = str2double(strrep(lower(token{1}), 'p', '.'));
+    end
+    token = regexp(normal, '(?:^|/)Prueba_(\d+)(?:/|$)', ...
+        'tokens', 'once', 'ignorecase');
+    if ~isfinite(meta.numero_prueba) && ~isempty(token)
+        meta.numero_prueba = str2double(token{1});
+    end
+    token = regexp(normal, '(?:^|/)Zonas_(\d+)(?:/|$)', ...
+        'tokens', 'once', 'ignorecase');
+    if ~isfinite(meta.num_zonas) && ~isempty(token)
+        meta.num_zonas = str2double(token{1});
+    end
+
+    token = regexp(normal, ...
+        'correccion_(.+?)_([\d]+(?:p[\d]+)?)min_prueba_(\d+)_zonas_(\d+)', ...
+        'tokens', 'once', 'ignorecase');
+    if ~isempty(token)
+        if isempty(meta.fecha_adquisicion), meta.fecha_adquisicion = token{1}; end
+        if ~isfinite(meta.tiempo_ejecucion_min)
+            meta.tiempo_ejecucion_min = str2double(strrep(lower(token{2}), 'p', '.'));
+        end
+        if ~isfinite(meta.numero_prueba), meta.numero_prueba = str2double(token{3}); end
+        if ~isfinite(meta.num_zonas), meta.num_zonas = str2double(token{4}); end
+        if isempty(meta.tag_correccion)
+            meta.tag_correccion = sprintf( ...
+                'correccion_%s_%smin_prueba_%d_zonas_%d', ...
+                meta.fecha_adquisicion, token{2}, round(meta.numero_prueba), ...
+                round(meta.num_zonas));
+        end
+    end
+end
+
+function carpetas = carpetas_metadata_correccion_global(fuente)
+    carpetas = {};
+    meta = metadata_especifica_correccion_global(fuente);
+    completa = ~isempty(meta.fecha_adquisicion) && ...
+        isfinite(meta.tiempo_ejecucion_min) && ...
+        isfinite(meta.numero_prueba) && isfinite(meta.num_zonas);
+    if completa
+        fecha = sanitizar_segmento_ruta_global(meta.fecha_adquisicion);
+        tiempo = strrep(sprintf('%g', meta.tiempo_ejecucion_min), '.', 'p');
+        carpetas = {['Fecha_' fecha], ['Tiempo_' tiempo 'min'], ...
+            sprintf('Prueba_%d', round(meta.numero_prueba)), ...
+            sprintf('Zonas_%d', round(meta.num_zonas))};
+    elseif ~isempty(meta.tag_correccion)
+        carpetas = {['Correccion_' ...
+            sanitizar_segmento_ruta_global(meta.tag_correccion)]};
+    end
+end
+
+function segmento = sanitizar_segmento_ruta_global(valor)
+    segmento = regexprep(char(valor), '[^a-zA-Z0-9_-]+', '_');
+    segmento = regexprep(segmento, '_+', '_');
+    segmento = regexprep(segmento, '^_|_$', '');
+    if isempty(segmento), segmento = 'desconocido'; end
+end
+
+function catalogo = catalogar_correcciones_metadata_ext(carpeta)
+    plantilla = struct('ruta', '', 'tipo', '', 'antena', '', ...
+        'num_antenas', NaN, 'caso', NaN, 'potencia_W', NaN, ...
+        'fecha', '', 'tiempo', '', 'prueba', '', 'zona', '', ...
+        'fecha_adquisicion', '', 'tiempo_ejecucion_min', NaN, ...
+        'numero_prueba', NaN, 'num_zonas', NaN, ...
+        'datenum', NaN, 'nombre', '');
+    catalogo = plantilla([]);
+    if ~isfolder(carpeta), return; end
+    archivos = dir(fullfile(carpeta, '**', '*.mat'));
+    archivos = archivos(~[archivos.isdir]);
+    for k = 1:numel(archivos)
+        ruta = fullfile(archivos(k).folder, archivos(k).name);
+        if ruta_esta_en_repetidos_global(ruta), continue; end
+        try
+            raw = load(ruta, 'metadata_correlacion', 'nombre_sim', ...
+                'nombre_exp', 'correccion_termica');
+            if ~isfield(raw, 'correccion_termica'), continue; end
+            raw.ruta_correccion_mat = ruta;
+            meta = metadata_correccion_ext_unificada(raw);
+            if ~metadata_corr_ext_completa(meta), continue; end
+            entrada = plantilla;
+            entrada.ruta = ruta;
+            entrada.tipo = meta.tipo_antena;
+            entrada.num_antenas = meta.num_antenas;
+            entrada.antena = sprintf('%dant', round(meta.num_antenas));
+            entrada.caso = meta.caso;
+            entrada.potencia_W = meta.potencia_W;
+            entrada.fecha_adquisicion = meta.fecha_adquisicion;
+            entrada.tiempo_ejecucion_min = meta.tiempo_ejecucion_min;
+            entrada.numero_prueba = meta.numero_prueba;
+            entrada.num_zonas = meta.num_zonas;
+            entrada.fecha = meta.fecha_adquisicion;
+            entrada.tiempo = sprintf('%gmin', meta.tiempo_ejecucion_min);
+            entrada.prueba = sprintf('Prueba_%d', round(meta.numero_prueba));
+            entrada.zona = meta.zona_experimental;
+            entrada.datenum = archivos(k).datenum;
+            entrada.nombre = archivos(k).name;
+            catalogo(end + 1) = entrada; %#ok<AGROW>
+        catch ME
+            warning('CatalogoCorrecciones:ArchivoOmitido', ...
+                'Correccion omitida %s: %s', ruta, ME.message);
+        end
+    end
+end
+
+function filtradas = filtrar_catalogo_correcciones_ext( ...
+        catalogo, tipo, antena, caso, potencia, fecha, tiempo, prueba, zona)
+    if isempty(catalogo)
+        filtradas = catalogo;
+        return;
+    end
+    mask = strcmpi({catalogo.tipo}, char(tipo)) & ...
+        strcmpi({catalogo.antena}, char(antena)) & ...
+        abs([catalogo.caso] - double(caso)) < 1e-9 & ...
+        abs([catalogo.potencia_W] - double(potencia)) < 1e-9 & ...
+        strcmpi({catalogo.fecha}, char(fecha)) & ...
+        strcmpi({catalogo.tiempo}, char(tiempo)) & ...
+        strcmpi({catalogo.prueba}, char(prueba)) & ...
+        strcmpi({catalogo.zona}, char(zona));
+    filtradas = catalogo(mask);
+end
+
+function meta = metadata_correccion_ext_unificada(corr)
+    meta = struct('tipo_antena', '', 'num_antenas', NaN, ...
+        'caso', NaN, 'potencia_W', NaN, 'fecha_adquisicion', '', ...
+        'tiempo_ejecucion_min', NaN, 'numero_prueba', NaN, ...
+        'num_zonas', NaN, 'zona_experimental', '');
+    ruta_sim = '';
+    ruta_exp = '';
+    if isfield(corr, 'metadata_correlacion') && isstruct(corr.metadata_correlacion)
+        md = corr.metadata_correlacion;
+        texto = campo_metadata_corr_ext(md, 'tipo_antena');
+        if ~isempty(texto), meta.tipo_antena = texto; end
+        valor = numero_metadata_corr_ext(md, 'num_antenas');
+        if isfinite(valor), meta.num_antenas = valor; end
+        valor = numero_metadata_corr_ext(md, 'caso');
+        if isfinite(valor), meta.caso = valor; end
+        valor = numero_metadata_corr_ext(md, 'potencia_W');
+        if isfinite(valor), meta.potencia_W = valor; end
+        ruta_sim = campo_metadata_corr_ext(md, 'ruta_sim');
+        ruta_exp = campo_metadata_corr_ext(md, 'ruta_exp');
+        meta.fecha_adquisicion = campo_metadata_corr_ext(md, 'fecha_adquisicion');
+        if isempty(meta.fecha_adquisicion)
+            meta.fecha_adquisicion = campo_metadata_corr_ext(md, 'fecha_experimento');
+        end
+        valor = numero_metadata_corr_ext(md, 'tiempo_ejecucion_min');
+        if isfinite(valor), meta.tiempo_ejecucion_min = valor; end
+        valor = numero_metadata_corr_ext(md, 'numero_prueba');
+        if isfinite(valor), meta.numero_prueba = valor; end
+        valor = numero_metadata_corr_ext(md, 'num_zonas');
+        if isfinite(valor), meta.num_zonas = valor; end
+        meta.zona_experimental = campo_metadata_corr_ext(md, 'zona_experimental');
+    end
+    if isempty(ruta_sim) && isfield(corr, 'nombre_sim') && ~isempty(corr.nombre_sim)
+        ruta_sim = char(corr.nombre_sim);
+    end
+    if isempty(ruta_exp) && isfield(corr, 'nombre_exp') && ~isempty(corr.nombre_exp)
+        ruta_exp = char(corr.nombre_exp);
+    end
+    meta = completar_metadata_corr_ext_desde_ruta(meta, ruta_sim);
+    meta = completar_metadata_experimental_corr_ext(meta, ruta_exp);
+    if ~isfinite(meta.num_zonas) && isfield(corr, 'correccion_termica') && ...
+            isstruct(corr.correccion_termica) && ...
+            isfield(corr.correccion_termica, 'zonas')
+        meta.num_zonas = numel(corr.correccion_termica.zonas);
+    end
+    if isfield(corr, 'ruta_correccion_mat')
+        meta = completar_metadata_corr_ext_desde_ruta( ...
+            meta, char(corr.ruta_correccion_mat));
+        if ~isfinite(meta.num_zonas)
+            token = regexp(char(corr.ruta_correccion_mat), ...
+                '(?:^|_)z(\d+)(?:_|\.|$)', 'tokens', 'once', 'ignorecase');
+            if ~isempty(token), meta.num_zonas = str2double(token{1}); end
+        end
+    end
+    if isempty(meta.zona_experimental) && isfinite(meta.num_zonas)
+        meta.zona_experimental = sprintf('Zonas_%d', round(meta.num_zonas));
+    end
+end
+
+function meta = completar_metadata_experimental_corr_ext(meta, ruta_exp)
+    normal = strrep(char(ruta_exp), '\', '/');
+    [~, base] = fileparts(normal);
+    if isempty(meta.fecha_adquisicion)
+        token = regexp(normal, '/([^/]+)/[^/]+$', 'tokens', 'once');
+        if ~isempty(token), meta.fecha_adquisicion = token{1}; end
+    end
+    token_tiempo = regexp(base, '(\d+(?:[p.]\d+)?)\s*min', ...
+        'tokens', 'once', 'ignorecase');
+    if ~isfinite(meta.tiempo_ejecucion_min) && ~isempty(token_tiempo)
+        meta.tiempo_ejecucion_min = str2double(strrep(lower(token_tiempo{1}), 'p', '.'));
+    end
+    if ~isfinite(meta.numero_prueba)
+        token_prueba = regexp(base, '\d+(?:[p.]\d+)?\s*min[_\s-]*(\d+)', ...
+            'tokens', 'once', 'ignorecase');
+        if isempty(token_prueba)
+            meta.numero_prueba = 1;
+        else
+            meta.numero_prueba = str2double(token_prueba{1});
+        end
+    end
+end
+
+function meta = completar_metadata_corr_ext_desde_ruta(meta, ruta)
+    normal = strrep(char(ruta), '\', '/');
+    if isempty(meta.tipo_antena)
+        tipos = {'Doble_slot', 'Monopolo', 'Un_slot'};
+        for k = 1:numel(tipos)
+            if contains(normal, ['/' tipos{k} '/'], 'IgnoreCase', true)
+                meta.tipo_antena = tipos{k};
+                break;
+            end
+        end
+    end
+    if ~isfinite(meta.num_antenas)
+        token = regexp(normal, '(\d+)ant', 'tokens', 'once', 'ignorecase');
+        if ~isempty(token), meta.num_antenas = str2double(token{1}); end
+    end
+    if ~isfinite(meta.caso)
+        token = regexp(normal, 'Caso_(\d+)', 'tokens', 'once', 'ignorecase');
+        if ~isempty(token), meta.caso = str2double(token{1}); end
+    end
+    if ~isfinite(meta.potencia_W)
+        token = regexp(normal, 'Potencia_([\d.p]+)W', 'tokens', 'once', 'ignorecase');
+        if ~isempty(token)
+            meta.potencia_W = str2double(strrep(lower(token{1}), 'p', '.'));
+        end
+    end
+end
+
+function tf = metadata_corr_ext_completa(meta)
+    tf = isstruct(meta) && ~isempty(meta.tipo_antena) && ...
+        isfinite(meta.num_antenas) && isfinite(meta.caso) && ...
+        isfinite(meta.potencia_W) && ~isempty(meta.fecha_adquisicion) && ...
+        isfinite(meta.tiempo_ejecucion_min) && isfinite(meta.numero_prueba) && ...
+        isfinite(meta.num_zonas) && ~isempty(meta.zona_experimental);
+end
+
+function texto = campo_metadata_corr_ext(s, campo)
+    texto = '';
+    if isstruct(s) && isfield(s, campo) && ~isempty(s.(campo))
+        valor = s.(campo);
+        if isstring(valor), valor = char(valor); end
+        if ischar(valor), texto = valor; end
+    end
+end
+
+function valor = numero_metadata_corr_ext(s, campo)
+    valor = NaN;
+    if isstruct(s) && isfield(s, campo) && isnumeric(s.(campo)) && ...
+            isscalar(s.(campo)) && isfinite(double(s.(campo)))
+        valor = double(s.(campo));
+    end
+end
+
+function ejecutar_selftest_carga_correcciones_filtrada()
+    paths = tesis_auxiliares('asegurar_dataset_paths');
+    catalogo = catalogar_correcciones_metadata_ext(paths.correlaciones);
+    assert(~isempty(catalogo), ...
+        'No hay correcciones con metadata completa para probar el filtro.');
+    for k = 1:numel(catalogo)
+        muestra = catalogo(k);
+        filtradas = filtrar_catalogo_correcciones_ext(catalogo, muestra.tipo, ...
+            muestra.antena, muestra.caso, muestra.potencia_W, muestra.fecha, ...
+            muestra.tiempo, muestra.prueba, muestra.zona);
+        assert(isscalar(filtradas), ...
+            'La metadata especifica no resolvio una correlacion unica.');
+        assert(all(strcmpi({filtradas.tipo}, muestra.tipo)) && ...
+            all(strcmpi({filtradas.antena}, muestra.antena)) && ...
+            all(abs([filtradas.caso] - muestra.caso) < 1e-9) && ...
+            all(abs([filtradas.potencia_W] - muestra.potencia_W) < 1e-9) && ...
+            all(strcmpi({filtradas.fecha}, muestra.fecha)) && ...
+            all(strcmpi({filtradas.tiempo}, muestra.tiempo)) && ...
+            all(strcmpi({filtradas.prueba}, muestra.prueba)) && ...
+            all(strcmpi({filtradas.zona}, muestra.zona)));
+        assert(~any(arrayfun(@(e) ruta_esta_en_repetidos_global(e.ruta), filtradas)));
+    end
+    pruebas = unique({catalogo.prueba});
+    meta_prueba_2 = metadata_especifica_correccion_global( ...
+        'correccion_junio_19_20min_prueba_2_zonas_4');
+    assert(meta_prueba_2.numero_prueba == 2, ...
+        'No se detecto Prueba_2 en el tag de metadata.');
+    fprintf(['SELFTEST_CORR_FILTERED_LOAD_OK catalogo=%d fechas=%d tiempos=%d ', ...
+        'pruebas=%d zonas=%d\n'], numel(catalogo), ...
+        numel(unique({catalogo.fecha})), numel(unique({catalogo.tiempo})), ...
+        numel(pruebas), numel(unique({catalogo.zona})));
+end
+
 function dataset = cargar_dataset_termico_compuesto(ruta)
+    if ruta_esta_en_repetidos_global(ruta)
+        error('El dataset esta dentro de repetidos y fue bloqueado: %s', ruta);
+    end
     if isfolder(ruta)
         rutas = resolver_particiones_dataset(ruta);
         if isempty(rutas)
@@ -7730,7 +8916,8 @@ function rutas = resolver_particiones_dataset(carpeta)
             if isfield(raw, 'particiones') && isstruct(raw.particiones) && ...
                     isfield(raw.particiones, 'ruta')
                 rutas = {raw.particiones.ruta};
-                rutas = rutas(cellfun(@isfile, rutas));
+                rutas = rutas(cellfun(@isfile, rutas) & ...
+                    ~cellfun(@ruta_esta_en_repetidos, rutas));
                 if ~isempty(rutas)
                     rutas = unique(rutas(:)', 'stable');
                     return;
@@ -7745,7 +8932,9 @@ function rutas = resolver_particiones_dataset(carpeta)
     keep = false(numel(archivos), 1);
     for k = 1:numel(archivos)
         nombre = lower(archivos(k).name);
-        keep(k) = endsWith(nombre, '.mat') && ...
+        ruta_archivo = fullfile(archivos(k).folder, archivos(k).name);
+        keep(k) = ~ruta_esta_en_repetidos_global(ruta_archivo) && ...
+            endsWith(nombre, '.mat') && ...
             ~startsWith(nombre, 'indice_') && ...
             ~startsWith(nombre, 'reporte_') && ...
             ~contains(nombre, 'historial');
@@ -7756,6 +8945,9 @@ function rutas = resolver_particiones_dataset(carpeta)
 end
 
 function dataset = cargar_dataset_termico_archivo(ruta)
+    if ruta_esta_en_repetidos_global(ruta)
+        error('El dataset esta dentro de repetidos y fue bloqueado: %s', ruta);
+    end
     raw = load(ruta);
     if isfield(raw, 'dataset')
         dataset = raw.dataset;

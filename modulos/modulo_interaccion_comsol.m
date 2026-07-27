@@ -37,7 +37,7 @@ function modulo_interaccion_comsol(varargin)
     dd_modo.Layout.Column = 1;
     tesis_auxiliares('tema_ui', 'dropdown', dd_modo);
 
-    btn_datasets = uibutton(gr, 'Text', 'Abrir DATASETS', ...
+    btn_datasets = uibutton(gr, 'Text', 'Abrir datasets', ...
         'ButtonPushedFcn', @(~,~) abrir_carpeta(paths.root));
     btn_datasets.Layout.Row = 1;
     btn_datasets.Layout.Column = 2;

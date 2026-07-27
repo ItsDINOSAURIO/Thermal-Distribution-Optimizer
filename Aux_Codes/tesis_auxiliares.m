@@ -89,7 +89,10 @@ function root_proyecto = tesis_project_root_impl(ruta_inicio)
 
     ruta_actual = char(java.io.File(ruta_inicio).getCanonicalPath());
     while true
-        if isfolder(fullfile(ruta_actual, 'DATASETS'))
+        es_root_codigo = isfile(fullfile(ruta_actual, 'iniciar_tesis.m')) && ...
+            isfolder(fullfile(ruta_actual, 'modulos')) && ...
+            isfolder(fullfile(ruta_actual, 'Aux_Codes'));
+        if es_root_codigo || isfolder(fullfile(ruta_actual, 'datasets'))
             root_proyecto = ruta_actual;
             return;
         end
@@ -113,11 +116,13 @@ function paths = tesis_dataset_paths_impl(root_proyecto)
 
     paths = struct();
     paths.root_proyecto = root_proyecto;
-    paths.root = fullfile(root_proyecto, 'DATASETS');
+    paths.root = fullfile(root_proyecto, 'datasets');
     paths.datasets_masivos = fullfile(paths.root, 'datasets_masivos');
     paths.datasets_masivos_por_metadata = fullfile(paths.root, 'datasets_masivos_por_metadata');
+    paths.datasets_masivos_repetidos = fullfile(paths.datasets_masivos_por_metadata, 'repetidos');
     paths.datasets_corregidos = fullfile(paths.root, 'datasets_corregidos');
     paths.datasets_corregidos_por_metadata = fullfile(paths.root, 'datasets_corregidos_por_metadata');
+    paths.datasets_corregidos_repetidos = fullfile(paths.datasets_corregidos_por_metadata, 'repetidos');
     paths.correlaciones = fullfile(paths.root, 'correlaciones');
     paths.distribuciones_stl = fullfile(paths.root, 'distribuciones_stl');
     paths.distribuciones_mat = fullfile(paths.root, 'distribuciones_mat');
@@ -171,6 +176,18 @@ function ruta = dataset_masivo_reciente_impl(root_o_paths, preferir_particiones)
         preferir_particiones = true;
     end
 
+    % El catalogo puede contener miles de MAT. El indice ofrece una ruta
+    % valida sin ejecutar dir('**') en cada apertura de un modulo.
+    if preferir_particiones && isfield(paths, 'datasets_masivos_por_metadata')
+        ruta_indice = fullfile(paths.datasets_masivos_por_metadata, ...
+            'Indice_Datasets_Metadata.mat');
+        ruta_indexada = dataset_reciente_desde_indice_impl(ruta_indice);
+        if ~isempty(ruta_indexada)
+            ruta = ruta_indexada;
+            return;
+        end
+    end
+
     candidatos = struct('folder', {}, 'name', {}, 'datenum', {});
     if preferir_particiones && isfield(paths, 'datasets_masivos_por_metadata')
         candidatos = agregar_archivos_dataset_reciente( ...
@@ -188,6 +205,58 @@ function ruta = dataset_masivo_reciente_impl(root_o_paths, preferir_particiones)
     ruta = fullfile(candidatos(idx).folder, candidatos(idx).name);
 end
 
+function ruta = dataset_reciente_desde_indice_impl(ruta_indice)
+    ruta = '';
+    if ~isfile(ruta_indice)
+        return;
+    end
+    try
+        raw = load(ruta_indice, 'particiones');
+        if ~isfield(raw, 'particiones') || ~isstruct(raw.particiones) || ...
+                ~isfield(raw.particiones, 'ruta')
+            return;
+        end
+        for k = numel(raw.particiones):-1:1
+            candidata = raw.particiones(k).ruta;
+            if isstring(candidata) && isscalar(candidata)
+                candidata = char(candidata);
+            end
+            if ischar(candidata)
+                candidata = resolver_ruta_indice_portable_impl( ...
+                    fileparts(ruta_indice), candidata);
+            end
+            if ~isempty(candidata)
+                ruta = candidata;
+                return;
+            end
+        end
+    catch
+        ruta = '';
+    end
+end
+
+function ruta = resolver_ruta_indice_portable_impl(root_catalogo, ruta_guardada)
+    ruta = char(ruta_guardada);
+    if isfile(ruta)
+        return;
+    end
+    normalizada = strrep(ruta, '\', '/');
+    marcador = '/datasets_masivos_por_metadata/';
+    posiciones = strfind(lower(normalizada), marcador);
+    if isempty(posiciones)
+        ruta = '';
+        return;
+    end
+    relativa = normalizada(posiciones(end) + numel(marcador):end);
+    partes = regexp(relativa, '/', 'split');
+    candidata = fullfile(root_catalogo, partes{:});
+    if isfile(candidata)
+        ruta = candidata;
+    else
+        ruta = '';
+    end
+end
+
 function candidatos = agregar_archivos_dataset_reciente(candidatos, carpeta, recursivo)
     if nargin < 3
         recursivo = false;
@@ -203,7 +272,9 @@ function candidatos = agregar_archivos_dataset_reciente(candidatos, carpeta, rec
     archivos = archivos(~[archivos.isdir]);
     keep = false(numel(archivos), 1);
     for k = 1:numel(archivos)
-        keep(k) = es_archivo_dataset_mat(archivos(k).name);
+        ruta_archivo = fullfile(archivos(k).folder, archivos(k).name);
+        keep(k) = es_archivo_dataset_mat(archivos(k).name) && ...
+            ~ruta_esta_en_repetidos_impl(ruta_archivo);
     end
     archivos = archivos(keep);
     n_previos = numel(candidatos);
@@ -219,6 +290,11 @@ function candidatos = agregar_archivos_dataset_reciente(candidatos, carpeta, rec
             'name', archivos(k).name, ...
             'datenum', archivos(k).datenum);
     end
+end
+
+function tf = ruta_esta_en_repetidos_impl(ruta)
+    partes = regexp(strrep(lower(char(ruta)), '\', '/'), '/', 'split');
+    tf = any(strcmp(partes, 'repetidos'));
 end
 
 function tf = es_archivo_dataset_mat(nombre)
