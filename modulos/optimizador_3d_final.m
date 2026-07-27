@@ -50,6 +50,18 @@ if nargin >= 1 && strcmpi(char(varargin{1}), 'selftest_metadata')
         meta_2.fecha_adquisicion, meta_2.tiempo_ejecucion_min, ...
         meta_2.numero_prueba, meta_2.num_zonas);
     assert(~strcmp(clave_1, clave_2), 'Dos pruebas distintas colisionan.');
+    catalogo_prueba = crear_metadatos_archivo(2);
+    catalogo_prueba(1).es_valido = true;
+    catalogo_prueba(1).tipo = 'Monopolo';
+    catalogo_prueba(1).arreglo = '1ant';
+    catalogo_prueba(2).es_valido = true;
+    catalogo_prueba(2).tipo = 'Dipolo';
+    catalogo_prueba(2).arreglo = '2ant';
+    filtros_prueba = crear_filtros_vacios();
+    filtros_prueba.tipos = {'Monopolo'};
+    assert(isequal(valores_filtro_compatibles( ...
+        catalogo_prueba, filtros_prueba, 'antenas'), {'1ant'}), ...
+        'Los filtros del optimizador no se encadenan.');
     fprintf('SELFTEST_OPTIMIZER_METADATA_OK %s | %s\n', clave_1, clave_2);
     return;
 end
@@ -284,8 +296,8 @@ uibutton(gl_hist, 'Text','Importar historial (.mat)', ...
 uibutton(gl_hist, 'Text','Exportar historial (.mat)', ...
     'ButtonPushedFcn', @exportar_historial);
 
-actualizar_catalogo_filtros(false);
-registrar_mensaje('Aplicación inicializada.');
+actualizar_listas_filtros();
+registrar_mensaje('Aplicación inicializada. Pulse Detectar para cargar los filtros del dataset.');
 
 %% ================================================================== %%
 %%  CALLBACKS
@@ -448,7 +460,13 @@ registrar_mensaje('Aplicación inicializada.');
 
     function actualizar_listas_filtros()
         campo = campo_filtro_actual();
-        disponibles = setdiff(app.filtros_catalogo.(campo), app.filtros_activos.(campo), 'stable');
+        if isempty(app.catalogo_dataset_cache.metadatos)
+            disponibles = app.filtros_catalogo.(campo);
+        else
+            disponibles = valores_filtro_compatibles( ...
+                app.catalogo_dataset_cache.metadatos, app.filtros_activos, campo);
+        end
+        disponibles = setdiff(disponibles, app.filtros_activos.(campo), 'stable');
         activos = app.filtros_activos.(campo);
 
         if isempty(disponibles)
@@ -1786,6 +1804,31 @@ filtros = struct( ...
     'zonas', {{}}, ...
     'resoluciones', {{}}, ...
     'origenes', {{}});
+end
+
+function valores = valores_filtro_compatibles(metadatos, filtros_activos, campo_excluido)
+campos_filtro = {'tipos', 'antenas', 'casos', 'potencias', 'fechas', ...
+    'tiempos', 'pruebas', 'zonas', 'resoluciones', 'origenes'};
+campos_metadata = {'tipo', 'arreglo', 'caso', 'potencia', 'fecha', ...
+    'tiempo', 'prueba', 'zonas', 'resolucion_texto', 'origen'};
+idx_excluido = find(strcmp(campos_filtro, campo_excluido), 1);
+if isempty(metadatos) || isempty(idx_excluido)
+    valores = {};
+    return;
+end
+
+mask = [metadatos.es_valido];
+for idx_campo = 1:numel(campos_filtro)
+    seleccion = filtros_activos.(campos_filtro{idx_campo});
+    if idx_campo == idx_excluido || isempty(seleccion)
+        continue;
+    end
+    datos = {metadatos.(campos_metadata{idx_campo})};
+    mask = mask & ismember(lower(string(datos)), lower(string(seleccion)));
+end
+valores = unique({metadatos(mask).(campos_metadata{idx_excluido})}, 'stable');
+valores = valores(~cellfun('isempty', valores));
+valores = ordenar_valores_filtro(valores);
 end
 
 function valores = agregar_valor_filtro(valores, valor)

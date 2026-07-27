@@ -342,12 +342,6 @@ for idx_catalogo = 1:numel(carpetas_catalogo)
         entrada_catalogo.zonas, relativa_catalogo}, ' | ');
     app.catalogo_carpetas(end + 1) = entrada_catalogo;
 end
-for idx_catalogo = 1:numel(filtrosMetadata)
-    valores_catalogo = unique( ...
-        {app.catalogo_carpetas.(filtrosMetadata(idx_catalogo).campo)}, 'stable');
-    filtrosMetadata(idx_catalogo).control.Items = [{'Todos'}, valores_catalogo];
-    filtrosMetadata(idx_catalogo).control.Value = 'Todos';
-end
 aplicarFiltrosMetadata();
 tesis_auxiliares('tema_ui', 'apply', fig);
 tesis_auxiliares('tema_ui', 'label', titulo, 'title');
@@ -454,6 +448,34 @@ limpiarAxes();
     end
 
     function aplicarFiltrosMetadata()
+        for idx_objetivo = 1:numel(filtrosMetadata)
+            control = filtrosMetadata(idx_objetivo).control;
+            valor_previo = char(control.Value);
+            mask_opciones = true(1, numel(app.catalogo_carpetas));
+            for idx_otro = 1:numel(filtrosMetadata)
+                if idx_otro == idx_objetivo
+                    continue;
+                end
+                valor_otro = filtrosMetadata(idx_otro).control.Value;
+                if ~strcmp(valor_otro, 'Todos')
+                    mask_opciones = mask_opciones & strcmpi( ...
+                        {app.catalogo_carpetas.(filtrosMetadata(idx_otro).campo)}, valor_otro);
+                end
+            end
+            valores = unique( ...
+                {app.catalogo_carpetas(mask_opciones).(filtrosMetadata(idx_objetivo).campo)}, ...
+                'stable');
+            items = [{'Todos'}, valores];
+            if any(strcmpi(items, valor_previo))
+                control.Items = items;
+                control.Value = valor_previo;
+            else
+                control.Value = 'Todos';
+                control.Items = items;
+                control.Value = 'Todos';
+            end
+        end
+
         mask = true(1, numel(app.catalogo_carpetas));
         for idx = 1:numel(filtrosMetadata)
             valor = filtrosMetadata(idx).control.Value;
