@@ -62,6 +62,29 @@ if nargin >= 1 && strcmpi(char(varargin{1}), 'selftest_metadata')
     assert(isequal(valores_filtro_compatibles( ...
         catalogo_prueba, filtros_prueba, 'antenas'), {'1ant'}), ...
         'Los filtros del optimizador no se encadenan.');
+    indices_res = seleccionar_indices_resolucion( ...
+        {'a', 'a', 'b'}, [1, 0.5, 1.5], 0.5);
+    assert(isequal(indices_res(:), [2; 3]), ...
+        'La seleccion eficiente de resoluciones no conserva el MAT esperado.');
+    filtros_origen = crear_filtros_vacios();
+    filtros_origen.origenes = {'corregido'};
+    filtros_origen.fechas = {'Fecha_junio_19'};
+    [filtros_origen, cambio_origen] = cambiar_origen_filtros( ...
+        filtros_origen, 'original');
+    assert(cambio_origen && isequal(filtros_origen.origenes, {'original'}) && ...
+        isempty(filtros_origen.fechas), ...
+        'Cambiar de corregido a original no reinicia los filtros dependientes.');
+    vertices_firma = [0 0 0; 1 0 0; 0 1 0; 0 0 1];
+    caras_firma = [1 2 3; 1 2 4; 1 3 4; 2 3 4];
+    firma_1 = firma_cache_voxel(vertices_firma, caras_firma, ...
+        0.5, 1.5, [-2 -2 -2], [2 2 2]);
+    firma_2 = firma_cache_voxel(vertices_firma, caras_firma, ...
+        0.5, 1.5, [-2 -2 -2], [2 2 2]);
+    vertices_firma(1, 1) = 0.01;
+    firma_3 = firma_cache_voxel(vertices_firma, caras_firma, ...
+        0.5, 1.5, [-2 -2 -2], [2 2 2]);
+    assert(strcmp(firma_1, firma_2) && ~strcmp(firma_1, firma_3), ...
+        'La firma de caché no es estable o no distingue geometrías.');
     fprintf('SELFTEST_OPTIMIZER_METADATA_OK %s | %s\n', clave_1, clave_2);
     return;
 end
@@ -70,6 +93,7 @@ ruta_dataset = data_paths.distribuciones_mat;
 ruta_dataset_corregidas = data_paths.distribuciones_mat_corregidas;
 ruta_distribuciones_stl = data_paths.distribuciones_stl;
 ruta_distribuciones_stl_corregidas = data_paths.distribuciones_stl_corregidas;
+ruta_stl_optimizador = fullfile(data_paths.root, 'stl_optimizador');
 ruta_historial_sesion = data_paths.historial_sesion;
 ruta_historial_tejidos_voxel = data_paths.historial_tejidos_voxel;
 raices_catalogo_distribuciones = struct( ...
@@ -95,7 +119,7 @@ app.profundidad_base_antena_mm  = 26.4;
 %% ------------------------------------------------------------------ %%
 %%  FIGURA PRINCIPAL
 %% ------------------------------------------------------------------ %%
-app.fig = uifigure("Name","Optimizador de Distribuciones Térmicas 3D", ...
+app.fig = uifigure("Name","Optimizador 3D", ...
     'Position',[50 50 1250 850], 'CloseRequestFcn', @confirmar_cierre);
 
 gl_main = uigridlayout(app.fig, [2,2]);
@@ -103,7 +127,7 @@ gl_main.RowHeight   = {'1x', 150};
 gl_main.ColumnWidth = {360, '1x'};
 
 %% LOG
-pnl_log = uipanel(gl_main, 'Title','Registro de Eventos (Consola)');
+pnl_log = uipanel(gl_main, 'Title','Registro de eventos');
 pnl_log.Layout.Row    = 2;
 pnl_log.Layout.Column = [1,2];
 gl_log = uigridlayout(pnl_log, [1,1]);
@@ -139,27 +163,32 @@ app.txt_log = uitextarea(gl_log, 'Editable','off', 'FontName','Consolas', ...
 %% ------------------------------------------------------------------ %%
 %%  SIDEBAR
 %% ------------------------------------------------------------------ %%
-pnl_sidebar = uipanel(gl_main, 'Title','Panel de Control', 'Scrollable','on');
+pnl_sidebar = uipanel(gl_main, 'Title','Panel de control', ...
+    'TitlePosition','centertop', 'Scrollable','on');
 pnl_sidebar.Layout.Row    = 1;
 pnl_sidebar.Layout.Column = 1;
 
-gl_sidebar = uigridlayout(pnl_sidebar, [16,1]);
+gl_sidebar = uigridlayout(pnl_sidebar, [17,1]);
 gl_sidebar.RowHeight = {
     22, 22, ...
     22, 170, 30, ...
     15, ...
     22, 22, ...
     22, 22, ...
+    24, ...
     15, ...
     35, 35, 35, 35, ...
     '1x'};
 gl_sidebar.Padding    = [10 10 10 10];
 gl_sidebar.RowSpacing = 4;
 
-uilabel(gl_sidebar, 'Text','Metodo de Voxelizado:', 'FontWeight','bold');
-app.dd_metodo_voxel = uidropdown(gl_sidebar, 'Items',{'mascara','sdf','tsdf'}, 'Value','sdf');
+uilabel(gl_sidebar, 'Text','Voxelizado', 'FontWeight','bold', ...
+    'Tooltip','Representación volumétrica usada para leer cada distribución térmica.');
+app.dd_metodo_voxel = uidropdown(gl_sidebar, 'Items',{'mascara','sdf','tsdf'}, ...
+    'Value','sdf', 'Tooltip','Máscara binaria, campo de distancia SDF o distancia truncada TSDF.');
 
-uilabel(gl_sidebar, 'Text','Filtros detectados en dataset:', 'FontWeight','bold');
+uilabel(gl_sidebar, 'Text','Filtros', 'FontWeight','bold', ...
+    'Tooltip','Metadata usada para limitar las distribuciones candidatas de la optimización.');
 gl_filtros = uigridlayout(gl_sidebar, [2,2], 'Padding',[0 0 0 0], ...
     'RowSpacing',4, 'ColumnSpacing',6);
 gl_filtros.RowHeight = {26, '1x'};
@@ -168,38 +197,68 @@ app.dd_filtro_categoria = uidropdown(gl_filtros, ...
     'Items', {'Origen', 'Tipo', 'Antenas', 'Caso', 'Potencia', ...
         'Fecha', 'Tiempo', 'Prueba', 'Zonas'}, ...
     'Value', 'Tipo', ...
+    'Tooltip', 'Categoría de metadata cuyos valores se muestran para filtrar candidatos.', ...
     'ValueChangedFcn', @(~,~) actualizar_listas_filtros());
 app.dd_filtro_categoria.Layout.Column = [1 2];
 app.lst_filtros_disponibles = uilistbox(gl_filtros, ...
-    'Items', {'(sin dataset)'});
+    'Items', {'(sin dataset)'}, ...
+    'Tooltip', 'Valores disponibles en el catálogo para la categoría seleccionada.');
 app.lst_filtros_activos = uilistbox(gl_filtros, ...
-    'Items', {'(sin filtros activos)'});
+    'Items', {'(sin filtros activos)'}, ...
+    'Tooltip', 'Valores de metadata que limitarán las distribuciones candidatas.');
 
 
 gl_btn_sel = uigridlayout(gl_sidebar, [1,3], 'Padding',[0 0 0 0], 'ColumnSpacing',5);
-uibutton(gl_btn_sel, 'Text','Agregar', 'ButtonPushedFcn', @(~,~) agregar_filtro_activo());
-uibutton(gl_btn_sel, 'Text','Remover', 'ButtonPushedFcn', @(~,~) remover_filtro_activo());
-uibutton(gl_btn_sel, 'Text','Limpiar', 'ButtonPushedFcn', @(~,~) limpiar_filtros_activos());
+uibutton(gl_btn_sel, 'Text','Agregar', 'Tooltip','Agrega el valor seleccionado al filtro activo.', ...
+    'ButtonPushedFcn', @(~,~) agregar_filtro_activo());
+uibutton(gl_btn_sel, 'Text','Remover', 'Tooltip','Remueve el valor seleccionado del filtro activo.', ...
+    'ButtonPushedFcn', @(~,~) remover_filtro_activo());
+uibutton(gl_btn_sel, 'Text','Limpiar', 'Tooltip','Elimina todos los filtros activos.', ...
+    'ButtonPushedFcn', @(~,~) limpiar_filtros_activos());
 
 uilabel(gl_sidebar, 'Text','');
 
-uilabel(gl_sidebar, 'Text','Resolucion tumor fina (mm):', 'FontWeight','bold');
-app.edt_res_fina   = uieditfield(gl_sidebar, 'text', 'Value','0.5');
-uilabel(gl_sidebar, 'Text','Resolucion tumor gruesa (mm):', 'FontWeight','bold');
-app.edt_res_gruesa = uieditfield(gl_sidebar, 'text', 'Value','1.5');
+uilabel(gl_sidebar, 'Text','Resolución fina (mm)', 'FontWeight','bold', ...
+    'Tooltip','Paso espacial fino usado en la evaluación final del tumor.');
+app.edt_res_fina = uieditfield(gl_sidebar, 'text', 'Value','0.5', ...
+    'Tooltip','Tamaño de voxel fino del tumor, en milímetros.');
+uilabel(gl_sidebar, 'Text','Resolución gruesa (mm)', 'FontWeight','bold', ...
+    'Tooltip','Paso espacial reducido usado durante la búsqueda para disminuir el costo.');
+app.edt_res_gruesa = uieditfield(gl_sidebar, 'text', 'Value','1.5', ...
+    'Tooltip','Tamaño de voxel grueso del tumor, en milímetros.');
+
+gl_estadisticas = uigridlayout(gl_sidebar, [1,3], ...
+    'Padding',[0 0 0 0], 'ColumnSpacing',5);
+gl_estadisticas.ColumnWidth = {'1x', 55, 58};
+app.chk_estadisticas = uicheckbox(gl_estadisticas, ...
+    'Text','Registrar métricas', ...
+    'Value',false, ...
+    'Tooltip',['Añade la traza detallada del PSO al historial MAT. ' ...
+        'No ejecuta corridas adicionales.']);
+uilabel(gl_estadisticas, 'Text','Corridas', ...
+    'HorizontalAlignment','right', ...
+    'Tooltip','Número de ejecuciones completas del optimizador.');
+app.spn_corridas = uispinner(gl_estadisticas, ...
+    'Limits',[1 1000], 'Step',1, 'Value',1, ...
+    'ValueDisplayFormat','%.0f', ...
+    'Tooltip','Cada corrida se guarda como una entrada independiente del historial.');
 
 uilabel(gl_sidebar, 'Text','');
 
-uibutton(gl_sidebar, 'Text','1. Cargar Tumor (STL)', ...
+uibutton(gl_sidebar, 'Text','1. Cargar STL', ...
+    'Tooltip','Carga la geometría del tumor desde datasets/stl_optimizador.', ...
     'BackgroundColor',[0.25 0.33 0.4], 'FontColor','w', ...
     'ButtonPushedFcn', @cargar_tumor);
 uibutton(gl_sidebar, 'Text','2. Calibrar Acceso STL', ...
+    'Tooltip','Define el eje y la profundidad permitidos para introducir las antenas.', ...
     'BackgroundColor',[0.25 0.33 0.4], 'FontColor','w', ...
     'ButtonPushedFcn', @calibrar_acceso);
-uibutton(gl_sidebar, 'Text','3. Calcular Optimo (PSO)', ...
+uibutton(gl_sidebar, 'Text','3. Calcular Óptimo', ...
+    'Tooltip','Ejecuta PSO con las distribuciones que cumplen los filtros seleccionados.', ...
     'BackgroundColor',[0.25 0.4 0.25], 'FontColor','w', 'FontWeight','bold', ...
     'ButtonPushedFcn', @realizar_optimizacion);
 uibutton(gl_sidebar, 'Text','4. Exportar Reporte PDF', ...
+    'Tooltip','Guarda los parámetros, métricas y figuras de la mejor solución encontrada.', ...
     'BackgroundColor',[0.4 0.25 0.25], 'FontColor','w', ...
     'ButtonPushedFcn', @exportar_pdf);
 
@@ -215,7 +274,7 @@ gl_display.ColumnSpacing = 6;
 gl_display.Padding       = [0 0 0 0];
 
 % ── Columna 1: Vista 3D + botones de vista predeterminada ─────────────
-pnl_3d = uipanel(gl_display, 'Title','Vista 3D');
+pnl_3d = uipanel(gl_display, 'Title','Vista 3D', 'TitlePosition','centertop');
 gl_3d  = uigridlayout(pnl_3d, [2,1]);
 gl_3d.RowHeight  = {'1x', 34};
 gl_3d.Padding    = [0 0 0 0];
@@ -265,20 +324,21 @@ gl_col2.RowHeight  = {'1x', '1x'};
 gl_col2.Padding    = [0 0 0 0];
 gl_col2.RowSpacing = 6;
 
-pnl_conv = uipanel(gl_col2, 'Title','Convergencia PSO');
+pnl_conv = uipanel(gl_col2, 'Title','Convergencia PSO', 'TitlePosition','centertop');
 gl_conv  = uigridlayout(pnl_conv, [1,1]);
 app.ax_conv = uiaxes(gl_conv);
 grid(app.ax_conv,'on');
 xlabel(app.ax_conv,'Iteración'); ylabel(app.ax_conv,'Fitness');
 title(app.ax_conv,'Evolución PSO');
 
-pnl_res = uipanel(gl_col2, 'Title','Resultados de Optimización');
+pnl_res = uipanel(gl_col2, 'Title','Resultados de Optimización', 'TitlePosition','centertop');
 gl_res  = uigridlayout(pnl_res, [1,1]);
 app.txt_resultados = uitextarea(gl_res, 'Editable','off', 'FontSize',12, ...
     'FontName','Consolas', 'Value','Esperando optimización...');
 
 % ── Columna 3: Historial de sesión ────────────────────────────────────
-pnl_hist = uipanel(gl_display, 'Title','Optimizaciones de la Sesión');
+pnl_hist = uipanel(gl_display, 'Title','Optimizaciones de la Sesión', ...
+    'TitlePosition','centertop');
 gl_hist  = uigridlayout(pnl_hist, [3,1]);
 gl_hist.RowHeight = {'1x', 30, 30};
 gl_hist.Padding   = [4 4 4 4];
@@ -439,7 +499,7 @@ actualizar_catalogo_filtros();
 
     function actualizar_listas_filtros()
         campo = campo_filtro_actual();
-        if isempty(app.catalogo_dataset_cache.metadatos)
+        if isempty(app.catalogo_dataset_cache.metadatos) || strcmp(campo, 'origenes')
             disponibles = app.filtros_catalogo.(campo);
         else
             disponibles = valores_filtro_compatibles( ...
@@ -468,8 +528,18 @@ actualizar_catalogo_filtros();
             registrar_mensaje('No hay filtros disponibles para agregar en esta categoria.');
             return;
         end
-        app.filtros_activos.(campo) = agregar_valor_filtro(app.filtros_activos.(campo), valor);
-        app.filtros_activos.(campo) = ordenar_valores_filtro(app.filtros_activos.(campo));
+        if strcmp(campo, 'origenes')
+            [app.filtros_activos, cambio_origen] = cambiar_origen_filtros( ...
+                app.filtros_activos, valor);
+            if cambio_origen
+                registrar_mensaje('Origen cambiado; filtros dependientes reiniciados.');
+            end
+        else
+            app.filtros_activos.(campo) = agregar_valor_filtro( ...
+                app.filtros_activos.(campo), valor);
+            app.filtros_activos.(campo) = ordenar_valores_filtro( ...
+                app.filtros_activos.(campo));
+        end
         actualizar_listas_filtros();
         registrar_mensaje(sprintf('Filtro activo agregado [%s]: %s', app.dd_filtro_categoria.Value, char(valor)));
     end
@@ -534,7 +604,7 @@ actualizar_catalogo_filtros();
     function cargar_tumor(~,~)
         insertar_separacion_log();
         limpiar_eje_3d('Cargando modelo...');
-        [file, path] = uigetfile('*.stl');
+        [file, path] = uigetfile(fullfile(ruta_stl_optimizador, '*.stl'), 'Cargar STL');
         if isequal(file, 0), registrar_mensaje('Carga cancelada.'); return; end
         [app.vertices_tumor, app.caras_tumor] = lector_stl(fullfile(path, file));
         registrar_mensaje(sprintf('STL cargado: %s', file));
@@ -708,6 +778,32 @@ actualizar_catalogo_filtros();
     %  3. Calcular Óptimo (PSO)
     % ---------------------------------------------------------------- %
     function realizar_optimizacion(~,~)
+        try
+            numero_corridas = max(1, round(app.spn_corridas.Value));
+            app.spn_corridas.Value = numero_corridas;
+            completadas = 0;
+            for indice_corrida = 1:numero_corridas
+                contador_previo = app.contador_corridas;
+                registrar_mensaje(sprintf('Iniciando corrida %d de %d.', ...
+                    indice_corrida, numero_corridas));
+                cancelada = realizar_optimizacion_impl(indice_corrida, numero_corridas);
+                if app.contador_corridas > contador_previo
+                    completadas = completadas + 1;
+                end
+                if cancelada || app.contador_corridas == contador_previo
+                    break;
+                end
+            end
+            registrar_mensaje(sprintf('Lote finalizado: %d de %d corridas completadas.', ...
+                completadas, numero_corridas));
+        catch ME
+            registrar_mensaje(sprintf('ERROR al iniciar la optimización: %s', ME.message));
+            uialert(app.fig, ME.message, 'No se pudo iniciar la optimización');
+        end
+    end
+
+    function cancelada = realizar_optimizacion_impl(indice_corrida, numero_corridas)
+        cancelada = false;
         enableDefaultInteractivity(app.ax);
         if ~isfield(app,'vertices_tumor_reorientado')
             registrar_mensaje('ERROR: Carga y centra el tumor primero.'); return;
@@ -727,6 +823,20 @@ actualizar_catalogo_filtros();
             registrar_mensaje('ERROR: las resoluciones fina y gruesa deben ser positivas.');
             return;
         end
+
+        registrar_estadisticas = logical(app.chk_estadisticas.Value);
+        estado_rng_inicio = [];
+        if registrar_estadisticas
+            estado_rng_inicio = rng;
+            registrar_mensaje('Registro estadístico activado para esta corrida.');
+        end
+
+        progDlg = uiprogressdlg(app.fig, ...
+            'Title',sprintf('Corrida %d de %d', indice_corrida, numero_corridas), ...
+            'Message','Preparando catálogo de distribuciones...', ...
+            'Cancelable','on', 'Indeterminate','on');
+        limpieza_progreso = onCleanup(@() cerrar_dialogo_seguro(progDlg));
+        drawnow;
 
         [carpetas_dataset, metadatos_carpetas] = obtener_catalogo_distribuciones();
         if isempty(carpetas_dataset)
@@ -762,28 +872,36 @@ actualizar_catalogo_filtros();
             return;
         end
 
-        archivos_filtrados = struct([]);
-        metadatos_filtrados = crear_metadatos_archivo(0);
+        archivos_por_carpeta = cell(numel(carpetas_filtradas), 1);
+        metadatos_por_carpeta = cell(numel(carpetas_filtradas), 1);
         for idx_carpeta = 1:numel(carpetas_filtradas)
             ruta_carpeta = fullfile( ...
                 carpetas_filtradas(idx_carpeta).folder, carpetas_filtradas(idx_carpeta).name);
             archivos_carpeta = dir(fullfile( ...
                 ruta_carpeta, sprintf('*_%s_res*.mat', metodo_voxel)));
+            if isempty(archivos_carpeta), continue; end
+            metadatos_carpeta = repmat( ...
+                metadatos_carpetas(idx_carpeta), numel(archivos_carpeta), 1);
             for idx_archivo = 1:numel(archivos_carpeta)
-                meta_archivo = metadatos_carpetas(idx_carpeta);
                 [~, nombre, ~] = fileparts(archivos_carpeta(idx_archivo).name);
-                meta_archivo.resolucion = extraer_resolucion_nombre_mat(nombre, metodo_voxel);
-                if isfinite(meta_archivo.resolucion)
-                    meta_archivo.resolucion_texto = sprintf('%.2f mm', meta_archivo.resolucion);
+                metadatos_carpeta(idx_archivo).resolucion = ...
+                    extraer_resolucion_nombre_mat(nombre, metodo_voxel);
+                if isfinite(metadatos_carpeta(idx_archivo).resolucion)
+                    metadatos_carpeta(idx_archivo).resolucion_texto = sprintf( ...
+                        '%.2f mm', metadatos_carpeta(idx_archivo).resolucion);
                 else
-                    meta_archivo.resolucion_texto = 'sin_resolucion';
+                    metadatos_carpeta(idx_archivo).resolucion_texto = 'sin_resolucion';
                 end
-                meta_archivo.ruta_relativa = fullfile( ...
-                    meta_archivo.ruta_relativa, archivos_carpeta(idx_archivo).name);
-                archivos_filtrados(end + 1) = archivos_carpeta(idx_archivo); %#ok<AGROW>
-                metadatos_filtrados(end + 1) = meta_archivo; %#ok<AGROW>
+                metadatos_carpeta(idx_archivo).ruta_relativa = fullfile( ...
+                    metadatos_carpetas(idx_carpeta).ruta_relativa, ...
+                    archivos_carpeta(idx_archivo).name);
             end
+            archivos_por_carpeta{idx_carpeta} = archivos_carpeta(:);
+            metadatos_por_carpeta{idx_carpeta} = metadatos_carpeta;
         end
+        carpetas_con_archivos = ~cellfun(@isempty, archivos_por_carpeta);
+        archivos_filtrados = vertcat(archivos_por_carpeta{carpetas_con_archivos});
+        metadatos_filtrados = vertcat(metadatos_por_carpeta{carpetas_con_archivos});
         if isempty(archivos_filtrados)
             registrar_mensaje(sprintf( ...
                 'ERROR: Las carpetas filtradas no contienen archivos *_%s_res*.mat.', ...
@@ -805,26 +923,8 @@ actualizar_catalogo_filtros();
                     meta.caso, meta.potencia, meta.fecha, meta.tiempo, ...
                     meta.prueba, meta.zonas, nombre_base}, '|');
             end
-            claves_unicas = {};
-            grupos = zeros(numel(claves), 1);
-            for idx_clave = 1:numel(claves)
-                posicion = find(strcmp(claves_unicas, claves{idx_clave}), 1);
-                if isempty(posicion)
-                    claves_unicas{end + 1} = claves{idx_clave}; %#ok<AGROW>
-                    posicion = numel(claves_unicas);
-                end
-                grupos(idx_clave) = posicion;
-            end
-            indices_sel = zeros(numel(claves_unicas), 1);
-            for idx_grupo = 1:numel(claves_unicas)
-                candidatos = find(grupos == idx_grupo);
-                res_candidatas = resoluciones(candidatos);
-                distancia = abs(res_candidatas - resolucion_fina);
-                distancia(~isfinite(distancia)) = inf;
-                [~, orden] = sortrows([distancia(:), res_candidatas(:)], [1 2]);
-                indices_sel(idx_grupo) = candidatos(orden(1));
-            end
-            indices_sel = sort(indices_sel);
+            indices_sel = seleccionar_indices_resolucion( ...
+                claves, resoluciones, resolucion_fina);
             n_res_omitidas = numel(archivos_filtrados) - numel(indices_sel);
             archivos_filtrados = archivos_filtrados(indices_sel);
             metadatos_filtrados = metadatos_filtrados(indices_sel);
@@ -839,9 +939,12 @@ actualizar_catalogo_filtros();
             numel(carpetas_dataset), numel(carpetas_filtradas), ...
             metodo_voxel, numel(archivos_filtrados)));
 
-        progDlg = uiprogressdlg(app.fig, 'Title','Calculando...', ...
-            'Message','Iniciando...', 'Cancelable','on');
-        tic;
+        progDlg.Indeterminate = 'off';
+        progDlg.Value = 0;
+        progDlg.Message = sprintf('Preparación completa: %d distribuciones.', ...
+            numel(archivos_filtrados));
+        drawnow;
+        reloj_total = tic;
 
         min_tumor = min(app.vertices_tumor_reorientado);
         max_tumor = max(app.vertices_tumor_reorientado);
@@ -853,7 +956,19 @@ actualizar_catalogo_filtros();
 
         % Radio máximo de gotas
         radio_max = 0;
+        paso_progreso = max(1, floor(numel(archivos_filtrados) / 100));
         for i = 1:length(archivos_filtrados)
+            if i == 1 || mod(i, paso_progreso) == 0 || i == numel(archivos_filtrados)
+                progDlg.Value = 0.1 * i / numel(archivos_filtrados);
+                progDlg.Message = sprintf('Leyendo extensiones MAT: %d/%d', ...
+                    i, numel(archivos_filtrados));
+                drawnow limitrate;
+                if progDlg.CancelRequested
+                    registrar_mensaje('Optimización cancelada durante la preparación.');
+                    cancelada = true;
+                    return;
+                end
+            end
             dist_i = load(fullfile( ...
                 archivos_filtrados(i).folder, ...
                 archivos_filtrados(i).name), ...
@@ -878,17 +993,30 @@ actualizar_catalogo_filtros();
 
         % ── Voxelización con caché global ────────────────────────────
         archivo_cache_voxel = ruta_historial_tejidos_voxel;
-        tumor_hash  = sum(app.vertices_tumor_reorientado(:)) * 1e12;
-        llave_original = sprintf('tumor_%.1f_%.1f_%.1f_%.4f', ...
-            resolucion_fina, resolucion_gruesa, radio_max, tumor_hash);
-        llave_var = matlab.lang.makeValidName(llave_original);
+        llave_var = firma_cache_voxel(app.vertices_tumor_reorientado, ...
+            app.caras_tumor, resolucion_fina, resolucion_gruesa, minGrid, maxGrid);
 
         existe_en_cache = false;
+        datos_cache = struct();
         if isfile(archivo_cache_voxel)
             try
                 vars_cache = whos('-file', archivo_cache_voxel);
                 if ismember(llave_var, {vars_cache.name})
-                    existe_en_cache = true;
+                    contenido_cache = load(archivo_cache_voxel, llave_var);
+                    candidato = contenido_cache.(llave_var);
+                    campos_cache = {'grid_fino', 'mask_fina', ...
+                        'grid_grueso', 'mask_gruesa'};
+                    existe_en_cache = isstruct(candidato) && ...
+                        all(isfield(candidato, campos_cache)) && ...
+                        size(candidato.grid_fino, 2) == 3 && ...
+                        numel(candidato.mask_fina) == size(candidato.grid_fino, 1) && ...
+                        size(candidato.grid_grueso, 2) == 3 && ...
+                        numel(candidato.mask_gruesa) == size(candidato.grid_grueso, 1);
+                    if existe_en_cache
+                        datos_cache = candidato;
+                    else
+                        registrar_mensaje('AVISO: entrada de caché incompleta; se recalculará.');
+                    end
                 end
             catch
                 registrar_mensaje('AVISO: no se pudo leer caché, se recalculará.');
@@ -897,11 +1025,10 @@ actualizar_catalogo_filtros();
 
         if existe_en_cache
             progDlg.Message = 'Cargando voxelización cacheada...';
-            cd = load(archivo_cache_voxel, llave_var);
-            grid_fino   = cd.(llave_var).grid_fino;
-            mask_fina   = cd.(llave_var).mask_fina;
-            grid_grueso = cd.(llave_var).grid_grueso;
-            mask_gruesa = cd.(llave_var).mask_gruesa;
+            grid_fino   = datos_cache.grid_fino;
+            mask_fina   = datos_cache.mask_fina;
+            grid_grueso = datos_cache.grid_grueso;
+            mask_gruesa = datos_cache.mask_gruesa;
             registrar_mensaje('Voxelización cargada desde caché.');
         else
             progDlg.Message = 'Voxelizando tumor (rejilla fina)...';
@@ -967,14 +1094,36 @@ actualizar_catalogo_filtros();
         historia_mejor_f1 = [];
         historia_mejor_f2 = [];
         historia_fitness  = [];
+        traza_actual      = crear_traza_pso_vacia();
+        traza_mejor_f1    = crear_traza_pso_vacia();
+        traza_mejor_f2    = crear_traza_pso_vacia();
+        reloj_iteracion   = [];
 
         function stop = guardar_historial_pso(valores_optimos, estado_pso)
             stop = false;
             if progDlg.CancelRequested, stop = true; return; end
-            if strcmp(estado_pso,'iter')
-                historia_fitness(end+1,1) = valores_optimos.bestfval;
-            elseif strcmp(estado_pso,'init')
+            if strcmp(estado_pso,'init')
                 historia_fitness = [];
+                if registrar_estadisticas
+                    traza_actual = crear_traza_pso_vacia();
+                    reloj_iteracion = tic;
+                end
+            elseif strcmp(estado_pso,'iter')
+                historia_fitness(end+1,1) = valores_optimos.bestfval;
+                if registrar_estadisticas
+                    tiempo_iteracion = NaN;
+                    if ~isempty(reloj_iteracion)
+                        tiempo_iteracion = toc(reloj_iteracion);
+                    end
+                    reloj_iteracion = tic;
+                    traza_actual.iteracion(end+1,1) = valores_optimos.iteration;
+                    traza_actual.mejor_fitness(end+1,1) = valores_optimos.bestfval;
+                    traza_actual.fitness_medio(end+1,1) = valores_optimos.meanfval;
+                    traza_actual.evaluaciones(end+1,1) = valores_optimos.funccount;
+                    traza_actual.estancamiento(end+1,1) = valores_optimos.stalliterations;
+                    traza_actual.tiempo_iteracion_s(end+1,1) = tiempo_iteracion;
+                    traza_actual.mejor_posicion(end+1,:) = valores_optimos.bestx(:).';
+                end
             end
         end
 
@@ -986,10 +1135,6 @@ actualizar_catalogo_filtros();
             'escala_espacial',  max(norm(max_tumor - min_tumor), eps), ...
             'escala_fitness',   1000);
         vol_tumor_grueso = sum(mask_gruesa) * resolucion_gruesa^3;
-        registrar_mensaje(sprintf(['Fitness normalizado: %.0f*(-cobertura + %.2f*fuga ' ...
-            '+ %.2f*centroide + %.2f*profundidad).'], ...
-            criterio_fitness.escala_fitness, criterio_fitness.peso_fuga, ...
-            criterio_fitness.peso_centroide, criterio_fitness.peso_profundidad));
 
         for idx = 1:length(archivos_filtrados)
             archivo_actual = archivos_filtrados(idx);
@@ -1014,6 +1159,8 @@ actualizar_catalogo_filtros();
 
             progDlg.Message = sprintf('Procesando %d/%d: %s', ...
                 idx, length(archivos_filtrados), nombre_distribucion);
+            progDlg.Value = 0.1 + 0.9 * (idx - 1) / numel(archivos_filtrados);
+            drawnow limitrate;
 
             funcion_fitness = @(pos) fitness_unico(pos, grid_grueso, mask_gruesa, ...
                 datos, metodo_voxel, resolucion_gruesa, app.ejes_a_rotar, ...
@@ -1035,12 +1182,17 @@ actualizar_catalogo_filtros();
             [mejor_pos_f1, mejor_fit_f1] = particleswarm( ...
                 funcion_fitness, 5, limite_inferior, limite_superior, pso_cfg_1);
             historia_fase_1 = historia_fitness;
+            traza_fase_1 = traza_actual;
 
             registrar_mensaje(sprintf('F1: fitness=%.4f | pos=[%.1f %.1f %.1f] | ang=[%.1f° %.1f°]', ...
                 mejor_fit_f1, mejor_pos_f1(1), mejor_pos_f1(2), mejor_pos_f1(3), ...
                 rad2deg(mejor_pos_f1(4)), rad2deg(mejor_pos_f1(5))));
 
-            if progDlg.CancelRequested, registrar_mensaje('Optimización cancelada.'); break; end
+            if progDlg.CancelRequested
+                registrar_mensaje('Optimización cancelada.');
+                cancelada = true;
+                break;
+            end
 
             % FASE 2: explotación local
             rango   = limite_superior - limite_inferior;
@@ -1062,12 +1214,17 @@ actualizar_catalogo_filtros();
             [mejor_pos_f2, mejor_fit_f2] = particleswarm( ...
                 funcion_fitness, 5, lb_f2, ub_f2, pso_cfg_2);
             historia_fase_2 = historia_fitness;
+            traza_fase_2 = traza_actual;
 
             registrar_mensaje(sprintf('F2: fitness=%.4f (mejora=%.4f) | ang=[%.1f° %.1f°]', ...
                 mejor_fit_f2, mejor_fit_f1 - mejor_fit_f2, ...
                 rad2deg(mejor_pos_f2(4)), rad2deg(mejor_pos_f2(5))));
 
-            if progDlg.CancelRequested, registrar_mensaje('Optimización cancelada.'); break; end
+            if progDlg.CancelRequested
+                registrar_mensaje('Optimización cancelada.');
+                cancelada = true;
+                break;
+            end
 
             % Evaluación final con grid FINO
             [vol_interior, vol_dist, vol_exterior] = calcular_interseccion_volumen( ...
@@ -1134,11 +1291,19 @@ actualizar_catalogo_filtros();
                 historia_mejor    = [historia_fase_1; historia_fase_2];
                 historia_mejor_f1 = historia_fase_1;
                 historia_mejor_f2 = historia_fase_2;
+                if registrar_estadisticas
+                    traza_mejor_f1 = traza_fase_1;
+                    traza_mejor_f2 = traza_fase_2;
+                end
                 registrar_mensaje(sprintf('  Nuevo mejor global por fitness fino: %.5f', fitness_fino));
             end
         end
 
         close(progDlg);
+        clear limpieza_progreso;
+        if cancelada
+            return;
+        end
         if isempty(app.parametros_optimizacion_final)
             registrar_mensaje('Sin resultado válido. Verifica filtros o dataset.'); return;
         end
@@ -1172,7 +1337,7 @@ actualizar_catalogo_filtros();
             volumen_transformado, caras_stl, grafico_optimo, ...
             'Mejor configuración encontrada', eye(3));
 
-        tiempo_total = toc;
+        tiempo_total = toc(reloj_total);
         registrar_mensaje(sprintf('Optimización completada en %.1f s.', tiempo_total));
 
         mostrar_resultados_panel(parametros_optimizados, tiempo_total, false, -1, '');
@@ -1195,6 +1360,39 @@ actualizar_catalogo_filtros();
         corrida.caras_tumor    = app.caras_tumor;
         corrida.ejes_a_rotar   = app.ejes_a_rotar;
         corrida.es_importada   = false;
+        corrida.incluir_estadisticas = registrar_estadisticas;
+        if registrar_estadisticas
+            rutas_candidatas = cell(numel(metadatos_filtrados), 1);
+            for idx_ruta = 1:numel(metadatos_filtrados)
+                rutas_candidatas{idx_ruta} = metadatos_filtrados(idx_ruta).ruta_relativa;
+            end
+            id_estadistico = sprintf('%s-%04d', ...
+                char(datetime('now', 'Format','yyyyMMdd''T''HHmmssSSS')), ...
+                app.contador_corridas);
+            configuracion_pso = struct( ...
+                'fase_1', struct('tamano_enjambre',80, 'iteraciones_maximas',40, ...
+                    'estancamiento_maximo',15, 'tolerancia',1e-4), ...
+                'fase_2', struct('tamano_enjambre',60, 'iteraciones_maximas',100, ...
+                    'estancamiento_maximo',15, 'tolerancia',1e-5));
+            corrida.estadisticas_pso = struct( ...
+                'version_esquema',       1, ...
+                'id_estadistico',        id_estadistico, ...
+                'indice_corrida_lote',   indice_corrida, ...
+                'numero_corridas_lote',  numero_corridas, ...
+                'rng_inicio',            estado_rng_inicio, ...
+                'rng_fin',               rng, ...
+                'firma_geometria',       llave_var, ...
+                'filtros_activos',       filtros_activos, ...
+                'rutas_candidatas',      {rutas_candidatas}, ...
+                'numero_candidatos',     numel(rutas_candidatas), ...
+                'metodo_voxel',          metodo_voxel, ...
+                'resolucion_fina_mm',    resolucion_fina, ...
+                'resolucion_gruesa_mm',  resolucion_gruesa, ...
+                'criterio_fitness',      criterio_fitness, ...
+                'configuracion_pso',     configuracion_pso, ...
+                'traza_fase_1',          traza_mejor_f1, ...
+                'traza_fase_2',          traza_mejor_f2);
+        end
         app.historial_sesion{end+1} = corrida;
 
         hs = app.historial_sesion;
@@ -1573,8 +1771,6 @@ actualizar_catalogo_filtros();
             [0 11.55 0; 10 -5.77 0; -10 -5.77 0], ...
             [-10 -10 0; 10 -10 0; -10 10 0; 10 10 0]};
         mapa_antenas = containers.Map(claves, valores);
-        registrar_mensaje(['Coordenadas de antenas hardcodeadas: XY nominal del arreglo y z local=0. ' ...
-            'La profundidad fisica base se reporta por separado como 26.4 mm.']);
     end
 
     function profundidad_stl_mm = calcular_profundidad_stl(posicion_antena_global)
@@ -1765,6 +1961,58 @@ actualizar_catalogo_filtros();
 
 end
 
+function llave = firma_cache_voxel(vertices, caras, resolucion_fina, ...
+        resolucion_gruesa, min_grid, max_grid)
+escala = 1e6;
+dimensiones = int64([size(vertices), size(caras)]);
+vertices_q = int64(round(double(vertices(:)) * escala));
+caras_q = int64(caras(:));
+parametros_q = int64(round(double([resolucion_fina, resolucion_gruesa, ...
+    min_grid(:)', max_grid(:)']) * escala));
+digestor = java.security.MessageDigest.getInstance('SHA-256');
+digestor.update(typecast(dimensiones(:), 'uint8'));
+digestor.update(typecast(vertices_q, 'uint8'));
+digestor.update(typecast(caras_q, 'uint8'));
+digestor.update(typecast(parametros_q(:), 'uint8'));
+resumen = typecast(digestor.digest(), 'uint8');
+hexadecimal = lower(reshape(dec2hex(resumen, 2).', 1, []));
+llave = ['voxel_v2_' hexadecimal(1:32)];
+end
+
+function indices = seleccionar_indices_resolucion(claves, resoluciones, objetivo)
+n = numel(claves);
+if n == 0
+    indices = zeros(0, 1);
+    return;
+end
+[~, ~, grupos] = unique(claves(:));
+resoluciones = resoluciones(:);
+distancias = abs(resoluciones - objetivo);
+distancias(~isfinite(distancias)) = inf;
+resoluciones_orden = resoluciones;
+resoluciones_orden(~isfinite(resoluciones_orden)) = inf;
+tabla = sortrows([(1:n)', grupos, distancias, resoluciones_orden], [2 3 4 1]);
+[~, primeros] = unique(tabla(:, 2), 'first');
+indices = sort(tabla(primeros, 1));
+end
+
+function cerrar_dialogo_seguro(dialogo)
+if ~isempty(dialogo) && isvalid(dialogo)
+    close(dialogo);
+end
+end
+
+function traza = crear_traza_pso_vacia()
+traza = struct( ...
+    'iteracion', zeros(0,1), ...
+    'mejor_fitness', zeros(0,1), ...
+    'fitness_medio', zeros(0,1), ...
+    'evaluaciones', zeros(0,1), ...
+    'estancamiento', zeros(0,1), ...
+    'tiempo_iteracion_s', zeros(0,1), ...
+    'mejor_posicion', zeros(0,5));
+end
+
 function metadatos = crear_metadatos_archivo(n)
 plantilla = struct( ...
     'es_valido', false, ...
@@ -1806,6 +2054,16 @@ filtros = struct( ...
     'pruebas', {{}}, ...
     'zonas', {{}}, ...
     'origenes', {{}});
+end
+
+function [filtros, cambio] = cambiar_origen_filtros(filtros, origen)
+origen = char(origen);
+cambio = ~isempty(filtros.origenes) && ...
+    ~(isscalar(filtros.origenes) && strcmpi(filtros.origenes{1}, origen));
+if cambio
+    filtros = crear_filtros_vacios();
+end
+filtros.origenes = {origen};
 end
 
 function valores = valores_filtro_compatibles(metadatos, filtros_activos, campo_excluido)
