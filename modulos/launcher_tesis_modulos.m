@@ -14,10 +14,9 @@
     modulos = tesis_auxiliares('modulos_catalogo');
     estado = struct();
     estado.modulo_activo = 1;
-    estado.estado_modulo = gobjects(numel(modulos), 1);
-    estado.detalle_modulo = gobjects(numel(modulos), 1);
+    estado.boton_modulo = gobjects(numel(modulos), 1);
 
-    fig = uifigure('Name', 'Launcher Tesis - Flujo Termico 3D', ...
+    fig = uifigure('Name', 'Lanzador', ...
         'Position', theme.layout.launcherPosition, ...
         'Color', theme.colors.bg, ...
         'CloseRequestFcn', @confirmar_cierre_launcher);
@@ -34,41 +33,32 @@
     header_panel.Layout.Row = 1;
     header_panel.Layout.Column = 1;
     tesis_auxiliares('tema_ui', 'card', header_panel);
-    header_grid = uigridlayout(header_panel, [1, 3]);
-    header_grid.ColumnWidth = {'1x', 200, 180};
+    header_grid = uigridlayout(header_panel, [1, 1]);
+    header_grid.ColumnWidth = {'1x'};
     header_grid.Padding = [14 8 14 8];
-    header_grid.ColumnSpacing = 10;
     titulo = uilabel(header_grid, ...
-        'Text', 'Flujo integrado de simulacion, procesamiento y verificacion', ...
-        'HorizontalAlignment', 'left');
+        'Text', 'Trabajo Terminal', ...
+        'HorizontalAlignment', 'center');
     tesis_auxiliares('tema_ui', 'label', titulo, 'title');
-    btn_root = uibutton(header_grid, 'Text', 'Abrir carpeta del proyecto', ...
-        'ButtonPushedFcn', @(~, ~) abrir_root());
-    tesis_auxiliares('tema_ui', 'button', btn_root, 'secondary');
-    btn_refresh = uibutton(header_grid, 'Text', 'Verificar modulos', ...
-        'ButtonPushedFcn', @(~, ~) verificar_modulos());
-    tesis_auxiliares('tema_ui', 'button', btn_refresh, 'primary');
+    titulo.FontSize = theme.fonts.titleSize + 4;
+    titulo.FontWeight = 'bold';
+    titulo.FontColor = [0.20 0.78 0.82];
 
-    modules_panel = uipanel(gl, 'Title', 'Modulos disponibles');
-    modules_panel.Layout.Row = 2;
-    modules_panel.Layout.Column = 1;
-    tesis_auxiliares('tema_ui', 'panel', modules_panel);
-    activar_scroll(modules_panel);
     n_modulos = numel(modulos);
-    ncols = min(3, max(1, n_modulos));
-    nrows = max(1, ceil(n_modulos / ncols));
-    modules_grid = uigridlayout(modules_panel, [nrows, ncols]);
-    modules_grid.Padding = [10 10 10 10];
+    modules_grid = uigridlayout(gl, [n_modulos, 1]);
+    modules_grid.Layout.Row = 2;
+    modules_grid.Layout.Column = 1;
+    modules_grid.Padding = [0 0 0 0];
     modules_grid.RowSpacing = 10;
     modules_grid.ColumnSpacing = 10;
-    modules_grid.RowHeight = repmat({'1x'}, 1, nrows);
-    modules_grid.ColumnWidth = repmat({'1x'}, 1, ncols);
+    modules_grid.RowHeight = repmat({'1x'}, 1, n_modulos);
+    modules_grid.ColumnWidth = {'1x'};
     activar_scroll(modules_grid);
     for i = 1:n_modulos
-        crear_tarjeta_modulo(modules_grid, i);
+        crear_boton_modulo(modules_grid, i);
     end
 
-    log_panel = uipanel(gl, 'Title', 'Consola de eventos');
+    log_panel = uipanel(gl, 'Title', 'Registro de eventos');
     log_panel.Layout.Row = 3;
     log_panel.Layout.Column = 1;
     tesis_auxiliares('tema_ui', 'panel', log_panel);
@@ -84,38 +74,17 @@
     verificar_modulos();
     registrar_evento('Launcher iniciado desde: %s', root_proyecto);
 
-    function crear_tarjeta_modulo(parent, idx)
+    function crear_boton_modulo(parent, idx)
         modulo = modulos(idx);
-        card = uipanel(parent, 'Title', sprintf('%02d', modulo.orden));
-        tesis_auxiliares('tema_ui', 'card', card);
-        activar_scroll(card);
-
-        grid = uigridlayout(card, [6, 1]);
-        grid.Padding = [10 8 10 8];
-        grid.RowSpacing = 5;
-        grid.RowHeight = {24, 36, '1x', 22, 30, 20};
-        activar_scroll(grid);
-
-        titulo = uilabel(grid, 'Text', modulo.nombre, 'WordWrap', 'on');
-        tesis_auxiliares('tema_ui', 'label', titulo, 'section');
-
-        subtitulo = uilabel(grid, 'Text', modulo.funcion, 'WordWrap', 'on');
-        tesis_auxiliares('tema_ui', 'label', subtitulo, 'muted');
-
-        descripcion = uilabel(grid, 'Text', modulo.descripcion, 'WordWrap', 'on');
-        tesis_auxiliares('tema_ui', 'label', descripcion, 'normal');
-
-        estado_lbl = uilabel(grid, 'Text', 'No verificado');
-        tesis_auxiliares('tema_ui', 'label', estado_lbl, 'status');
-        estado.estado_modulo(idx) = estado_lbl;
-
-        btn = uibutton(grid, 'Text', 'Ejecutar modulo', ...
+        btn = uibutton(parent, ...
+            'Text', sprintf('%02d  %s', modulo.orden, modulo.nombre), ...
+            'Tooltip', modulo.descripcion, ...
             'ButtonPushedFcn', @(~, ~) ejecutar_modulo(idx));
+        btn.Layout.Row = idx;
+        btn.Layout.Column = 1;
+        btn.FontSize = theme.fonts.sectionSize;
         tesis_auxiliares('tema_ui', 'button', btn, 'success');
-
-        detalle = uilabel(grid, 'Text', '', 'WordWrap', 'on');
-        tesis_auxiliares('tema_ui', 'label', detalle, 'muted');
-        estado.detalle_modulo(idx) = detalle;
+        estado.boton_modulo(idx) = btn;
     end
 
     function ejecutar_modulo(idx)
@@ -125,15 +94,15 @@
 
         ruta = which(modulo.funcion);
         if isempty(ruta)
-            registrar_evento('ERROR: no se encontro %s en el path.', modulo.funcion);
-            uialert(fig, sprintf('No se encontro el modulo:\n%s', modulo.funcion), ...
+            registrar_evento('ERROR: no se encontro el modulo %s.', modulo.nombre);
+            uialert(fig, sprintf('No se encontro el modulo:\n%s', modulo.nombre), ...
                 'Modulo no disponible');
             return;
         end
 
         estado.txt_log.Value = [repmat({''}, 5, 1); estado.txt_log.Value(:)];
         drawnow limitrate;
-        registrar_evento('Abriendo %s...', modulo.funcion);
+        registrar_evento('Abriendo %s...', modulo.nombre);
         figuras_antes = obtener_figuras_abiertas();
 
         try
@@ -147,7 +116,7 @@
             figuras_nuevas = detectar_figuras_nuevas(figuras_antes);
             if isempty(figuras_nuevas)
                 abrir_launcher_seguro();
-                error('El modulo %s no abrio una ventana detectable.', modulo.funcion);
+                error('El modulo %s no abrio una ventana detectable.', modulo.nombre);
             end
             instalar_retorno_launcher(figuras_nuevas, modulo.nombre);
         catch ME
@@ -229,7 +198,7 @@
         try
             tesis_auxiliares('configurar_paths', root_proyecto);
             launcher_existente = findall(groot, 'Type', 'figure', ...
-                'Name', 'Launcher Tesis - Flujo Termico 3D');
+                'Name', 'Lanzador');
             if isempty(launcher_existente)
                 launcher_tesis_modulos();
             else
@@ -244,7 +213,7 @@
 
     function advertir_error_lanzamiento(ME, nombre_corto)
         launcher = findall(groot, 'Type', 'figure', ...
-            'Name', 'Launcher Tesis - Flujo Termico 3D');
+            'Name', 'Lanzador');
         if ~isempty(launcher)
             try
                 uialert(launcher(1), ME.message, sprintf('Error en %s', nombre_corto));
@@ -260,25 +229,15 @@
         for k = 1:numel(modulos)
             ruta = which(modulos(k).funcion);
             if isempty(ruta)
-                estado.estado_modulo(k).Text = 'No encontrado';
-                estado.estado_modulo(k).FontColor = theme.colors.danger;
-                estado.detalle_modulo(k).Text = 'Revise nombre o ubicacion.';
+                estado.boton_modulo(k).Enable = 'off';
+                estado.boton_modulo(k).Tooltip = sprintf('%s\nModulo no disponible.', ...
+                    modulos(k).descripcion);
             else
-                estado.estado_modulo(k).Text = 'Disponible';
-                estado.estado_modulo(k).FontColor = theme.colors.success;
-                [~, archivo, ext] = fileparts(ruta);
-                estado.detalle_modulo(k).Text = [archivo ext];
+                estado.boton_modulo(k).Enable = 'on';
+                estado.boton_modulo(k).Tooltip = modulos(k).descripcion;
             end
         end
         registrar_evento('Verificacion de modulos completada.');
-    end
-
-    function abrir_root()
-        if ispc
-            winopen(root_proyecto);
-        else
-            registrar_evento('Root del proyecto: %s', root_proyecto);
-        end
     end
 
     function registrar_evento(formato, varargin)

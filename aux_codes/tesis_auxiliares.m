@@ -9,6 +9,7 @@
 %   tesis_auxiliares('asegurar_dataset_paths', root)
 %   tesis_auxiliares('dataset_masivo_reciente', root_o_paths)
 %   tesis_auxiliares('metadata_ruta', ruta, struct_opcional)
+%   tesis_auxiliares('planos_termicos_centrales', puntos_xyz, temperatura)
 %   tesis_auxiliares('modulos_catalogo')
 %   tesis_auxiliares('tema_ui', ...)
 %   tesis_auxiliares('crear_dashboard_modulo', ...)
@@ -40,6 +41,12 @@
         case {"metadata_ruta", "metadata_dataset"}
             [varargout{1:nargout}] = metadata_ruta_impl(varargin{:});
 
+        case {"planos_termicos_centrales", "cortes_termicos_centrales"}
+            [varargout{1:nargout}] = planos_termicos_centrales_impl(varargin{:});
+
+        case "selftest_planos_termicos"
+            selftest_planos_termicos_impl();
+
         case {"modulos_catalogo", "tesis_modulos_catalogo"}
             [varargout{1:nargout}] = tesis_modulos_catalogo_impl();
 
@@ -61,6 +68,97 @@
             error('tesis_auxiliares:accion_desconocida', ...
                 'Accion auxiliar no reconocida: %s', accion);
     end
+end
+
+function planos = planos_termicos_centrales_impl(puntos, temperatura)
+    puntos = double(puntos);
+    temperatura = double(temperatura(:));
+    if size(puntos, 2) ~= 3 || size(puntos, 1) ~= numel(temperatura)
+        error('Los puntos deben ser N x 3 y coincidir con N temperaturas.');
+    end
+    validos = all(isfinite(puntos), 2) & isfinite(temperatura);
+    puntos = puntos(validos, :);
+    temperatura = temperatura(validos);
+    if size(puntos, 1) < 8
+        error('Se requieren al menos ocho puntos termicos validos.');
+    end
+
+    [x, ~, ix] = unique(puntos(:, 1), 'sorted');
+    [y, ~, iy] = unique(puntos(:, 2), 'sorted');
+    [z, ~, iz] = unique(puntos(:, 3), 'sorted');
+    dimensiones = [numel(x), numel(y), numel(z)];
+    n_grilla = prod(double(dimensiones));
+    if n_grilla > max(2e6, 4 * size(puntos, 1))
+        error(['Los puntos no forman una malla cartesiana parcial; ', ...
+            'no se puede obtener un corte central sin reconstruccion volumetrica.']);
+    end
+
+    indices = sub2ind(dimensiones, ix, iy, iz);
+    valores = accumarray(indices, temperatura, [n_grilla, 1], @mean, NaN);
+    volumen = reshape(valores, dimensiones);
+    centro = (min(puntos, [], 1) + max(puntos, [], 1)) ./ 2;
+
+    planos = struct( ...
+        'x', x(:), 'y', y(:), 'z', z(:), ...
+        'centro', centro, ...
+        'xy', interpolar_corte_central_impl(volumen, z, centro(3), 3).', ...
+        'xz', interpolar_corte_central_impl(volumen, y, centro(2), 2).', ...
+        'yz', interpolar_corte_central_impl(volumen, x, centro(1), 1).');
+    temperaturas_planos = [planos.xy(:); planos.xz(:); planos.yz(:)];
+    temperaturas_planos = temperaturas_planos(isfinite(temperaturas_planos));
+    if isempty(temperaturas_planos)
+        planos.limites_C = [];
+    else
+        limites = [min(temperaturas_planos), max(temperaturas_planos)];
+        if limites(1) == limites(2)
+            margen = max(1, abs(limites(1)) * 0.01);
+            limites = limites + [-margen, margen];
+        end
+        planos.limites_C = limites;
+    end
+end
+
+function corte = interpolar_corte_central_impl(volumen, eje, centro, dimension)
+    superior = find(eje >= centro, 1, 'first');
+    inferior = find(eje <= centro, 1, 'last');
+    if isempty(inferior), inferior = 1; end
+    if isempty(superior), superior = numel(eje); end
+    if inferior == superior
+        peso = 0;
+    else
+        peso = (centro - eje(inferior)) / (eje(superior) - eje(inferior));
+    end
+    switch dimension
+        case 1
+            a = squeeze(volumen(inferior, :, :));
+            b = squeeze(volumen(superior, :, :));
+        case 2
+            a = squeeze(volumen(:, inferior, :));
+            b = squeeze(volumen(:, superior, :));
+        otherwise
+            a = squeeze(volumen(:, :, inferior));
+            b = squeeze(volumen(:, :, superior));
+    end
+    corte = (1 - peso) .* a + peso .* b;
+    solo_a = isfinite(a) & ~isfinite(b);
+    solo_b = ~isfinite(a) & isfinite(b);
+    corte(solo_a) = a(solo_a);
+    corte(solo_b) = b(solo_b);
+end
+
+function selftest_planos_termicos_impl()
+    x = [-1, 1]; y = [-2, 2]; z = [0, 2];
+    [X, Y, Z] = ndgrid(x, y, z);
+    puntos = [X(:), Y(:), Z(:)];
+    temperatura = X(:) + 2 .* Y(:) + 3 .* Z(:);
+    p = planos_termicos_centrales_impl(puntos, temperatura);
+    [Xxy, Yxy] = meshgrid(x, y);
+    [Xxz, Zxz] = meshgrid(x, z);
+    [Yyz, Zyz] = meshgrid(y, z);
+    assert(max(abs(p.xy(:) - (Xxy(:) + 2 .* Yxy(:) + 3))) < 1e-12);
+    assert(max(abs(p.xz(:) - (Xxz(:) + 3 .* Zxz(:)))) < 1e-12);
+    assert(max(abs(p.yz(:) - (2 .* Yyz(:) + 3 .* Zyz(:)))) < 1e-12);
+    fprintf('SELFTEST_PLANOS_TERMICOS_OK\n');
 end
 
 function meta = metadata_ruta_impl(ruta, fuente)
@@ -451,15 +549,15 @@ function modulos = tesis_modulos_catalogo_impl()
 
     modulos(end + 1) = crear_modulo_catalogo(1, ...
         'COMSOL', ...
-        'Interaccion con COMSOL', ...
+        'Interacción con COMSOL', ...
         'modulo_interaccion_comsol', ...
-        'Genera modelos COMSOL, completa simulaciones faltantes y extrae datasets termicos masivos con sondas y full_field; el postprocesamiento STL/MAT vive en Procesamiento.');
+        'Genera modelos de COMSOL, completa simulaciones faltantes y extrae en archivos MAT un dataset termico por solucion, incluyendo sondas y puntos de calor en el espacio.');
 
     modulos(end + 1) = crear_modulo_catalogo(2, ...
         'Procesamiento', ...
-        'Modulo Procesamiento de Datos', ...
+        'Procesamiento de Datos', ...
         'modulo_procesamiento_datos', ...
-        'Convierte MAT masivos a STL/TXT, voxeliza STL a MAT, calcula correlaciones/volumen 4D y exporta datasets corregidos listos para optimizacion.');
+        'Convierte los datasets a STL y archivos TXT, voxeliza los STL, calcula las correcciones termicas y exporta los datasets corregidos.');
 
     modulos(end + 1) = crear_modulo_catalogo(3, ...
         'Visualizador', ...
@@ -475,7 +573,7 @@ function modulos = tesis_modulos_catalogo_impl()
 
     modulos(end + 1) = crear_modulo_catalogo(5, ...
         'Verificacion', ...
-        'Verificacion experimental AlphaShape', ...
+        'Verificación experimental', ...
         'Interfaz_Ablacion_AlphaShape', ...
         'Segmenta imagenes experimentales y reconstruye geometria de ablacion 3D.');
 end
