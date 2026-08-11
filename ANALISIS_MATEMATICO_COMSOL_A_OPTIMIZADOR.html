@@ -1,0 +1,3453 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Análisis matemático integral: de COMSOL al optimizador tridimensional</title>
+<script>
+window.MathJax={tex:{inlineMath:[["\\(","\\)"]],displayMath:[["\\[","\\]"]],tags:"ams"},options:{skipHtmlTags:["script","noscript","style","textarea","pre","code"]}};
+</script>
+<script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script>
+<style>
+:root{color-scheme:light;--ink:#172033;--muted:#526074;--line:#d8dee9;--paper:#fff;--soft:#f5f7fa;--accent:#155eef}
+*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--soft);color:var(--ink);font:16px/1.65 system-ui,-apple-system,"Segoe UI",sans-serif}main{max-width:1180px;margin:0 auto;padding:42px 56px 80px;background:var(--paper);box-shadow:0 0 30px #17203312}h1,h2,h3,h4{line-height:1.25;scroll-margin-top:20px}h1{font-size:2.25rem;margin-top:0}h2{font-size:1.65rem;border-bottom:1px solid var(--line);padding-bottom:.35rem;margin-top:2.5rem}h3{font-size:1.25rem;margin-top:2rem}a{color:var(--accent)}code{font-family:"Cascadia Code",Consolas,monospace;font-size:.9em;background:#eef2f7;padding:.12em .3em;border-radius:4px}pre{overflow:auto;background:#111827;color:#e5e7eb;padding:1rem;border-radius:8px}pre code{background:none;padding:0}blockquote{margin:1.2rem 0;padding:.7rem 1rem;border-left:4px solid var(--accent);background:#f3f7ff;color:#26344d}table{border-collapse:collapse;width:100%;display:block;overflow:auto;margin:1rem 0 1.5rem}th,td{border:1px solid var(--line);padding:.5rem .65rem;text-align:left;vertical-align:top}th{background:#edf2f7;position:sticky;top:0}tr:nth-child(even) td{background:#fafbfc}.math-display{display:block;overflow-x:auto;text-align:center;margin:1rem 0;padding:.15rem}.math-inline{white-space:nowrap}#toc{background:#f7f9fc;border:1px solid var(--line);border-radius:8px;padding:1rem 1.25rem;margin:1.5rem 0 2rem}#toc summary{font-weight:700;cursor:pointer}#toc ol{columns:2;column-gap:2rem;padding-left:1.4rem}#toc li{break-inside:avoid;margin:.2rem 0}#toc a{text-decoration:none}.render-note{font-size:.92rem;color:var(--muted)}@media(max-width:760px){main{padding:24px 18px}h1{font-size:1.75rem}#toc ol{columns:1}}@media print{body{background:#fff;font-size:10pt}main{max-width:none;padding:0;box-shadow:none}#toc{display:none}a{color:inherit;text-decoration:none}pre,blockquote{break-inside:avoid}h2,h3{break-after:avoid}table{display:table;font-size:8pt}.math-display{overflow:visible}}
+</style>
+</head>
+<body>
+<main>
+<p class="render-note">Versión HTML generada desde <code>ANALISIS_MATEMATICO_COMSOL_A_OPTIMIZADOR.md</code>. Las fórmulas se renderizan con MathJax 3.</p>
+<details id="toc" open><summary>Contenido</summary><ol></ol></details><h1>Análisis matemático integral: de COMSOL al optimizador tridimensional</h1>
+<blockquote>
+<p><strong>Estado del documento:</strong> reconstrucción técnica del código activo revisada el 2 de agosto de 2026.<br><strong>Alcance:</strong> módulos 1 a 4 del flujo principal, desde la generación/extracción de COMSOL hasta la selección geométrica mediante PSO.<br><strong>Exclusión solicitada:</strong> no se analiza <code>modulos/Interfaz_Ablacion_AlphaShape.m</code>, que corresponde a la última etapa independiente de verificación. Sí se analiza el uso interno de <code>alphaShape</code> en el preprocesamiento porque forma parte de la cadena que alimenta al optimizador.<br><strong>Código guía previo:</strong> <code>DOCUMENTACION_TECNICA_MODULOS.md</code>.</p>
+</blockquote>
+<h2>1. Propósito, criterio de lectura y etiquetas de trazabilidad</h2>
+<p>Este documento no describe únicamente la intención física del proyecto. Reconstruye la operación matemática que ejecuta el código, incluidos los cambios de unidades, umbrales, interpolaciones, extrapolaciones, discretizaciones, aproximaciones geométricas y funciones objetivo. La distinción es esencial: una formulación puede ser físicamente razonable en abstracto y, sin embargo, estar implementada con una aproximación adicional que modifica su significado numérico.</p>
+<p>Se emplean cuatro etiquetas:</p>
+<ul>
+<li><strong>[IMPLEMENTADO]</strong>: operación identificable directamente en el código activo.</li>
+<li><strong>[INTERPRETACIÓN]</strong>: consecuencia matemática deducida de una operación implementada.</li>
+<li><strong>[REFERENCIA]</strong>: formulación o práctica respaldada por documentación o literatura externa.</li>
+<li><strong>[NO IMPLEMENTADO]</strong>: método relevante que no participa en los resultados actuales.</li>
+</ul>
+<p>La cadena analizada es:</p>
+<pre><code class="language-text">configuración de casos y antenas
+    → Maxwell armónico a 2.45 GHz
+    → fuente térmica electromagnética
+    → ecuación bio-térmica transitoria
+    → extracción temporal, espacial y de sondas
+    → nube térmica / campo completo
+    → superficie alpha / voxelización / SDF-TSDF
+    → correlación simulación–experimento
+    → corrección y extrapolación espacio-temporal
+    → transformación rígida del volumen de ablación
+    → intersección voxelizada con el tumor
+    → minimización mediante enjambre de partículas
+</code></pre>
+<h3>1.1 Archivos matemáticamente relevantes</h3>
+<table>
+<thead>
+<tr>
+<th>Etapa</th>
+<th>Archivo principal</th>
+<th>Funciones o regiones determinantes</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Generación y extracción COMSOL</td>
+<td><code>modulos/modulo_interaccion_comsol.m</code></td>
+<td>generador integrado, creación de geometría, materiales, física, mallado, solver, criterio de carbonización y extractor</td>
+</tr>
+<tr>
+<td>Preprocesamiento y corrección</td>
+<td><code>modulos/modulo_procesamiento_datos.m</code></td>
+<td>MAT→STL, STL→MAT, correlación, corrección térmica, volumen 4D, extrapolaciones y exportador</td>
+</tr>
+<tr>
+<td>Punto dentro de poliedro</td>
+<td><code>aux_codes/inpolyhedron.m</code></td>
+<td>clasificación por rayo vertical y faceta visible más próxima</td>
+</tr>
+<tr>
+<td>Visualización de artefactos</td>
+<td><code>modulos/modulo_manejador_visual_datos.m</code></td>
+<td>lectura de datasets/correcciones/campos ya guardados y representación de puntos, curvas y planos; no corrige ni reconstruye volúmenes</td>
+</tr>
+<tr>
+<td>Optimización</td>
+<td><code>modulos/optimizador_3d_final.m</code></td>
+<td>calibración, transformaciones, intersecciones, métricas y PSO</td>
+</tr>
+</tbody></table>
+<p>Las interfaces gráficas, nombres de archivos y filtros de metadatos sólo se estudian cuando cambian el conjunto matemático de datos que llega a una operación.</p>
+<h3>1.2 Contrato de independencia y comunicación entre módulos</h3>
+<p>Los módulos no se comunican mediante estado vivo, ventanas simultáneamente abiertas ni propagación de eventos. La reactividad exigida es una reactividad <strong>por artefactos persistentes</strong>:</p>
+<ol>
+<li><code>modulo_interaccion_comsol.m</code> genera o extrae el dataset COMSOL original;</li>
+<li><code>modulo_procesamiento_datos.m</code> lee ese dataset, genera correcciones, datasets corregidos, STL y voxeles MAT;</li>
+<li><code>modulo_manejador_visual_datos.m</code> sólo lee los archivos generados y no vuelve a aplicar correcciones, interpolaciones espaciales ni voxelización;</li>
+<li><code>optimizador_3d_final.m</code> lee exclusivamente las distribuciones voxelizadas que correspondan a sus filtros de metadatos.</li>
+</ol>
+<p>Compartir un formato, metadatos o una función auxiliar no equivale a acoplar módulos. El requisito es que cada archivo de entrada sea autocontenido y que cada módulo pueda cerrarse antes de abrir el siguiente. Tampoco se crean scripts <code>.m</code> auxiliares para lógica usada por un único módulo: la corrección canónica, SSA y validación topológica se mantienen como funciones locales únicas del procesador.</p>
+<h2>2. Notación, unidades y convenciones</h2>
+<h3>2.1 Símbolos físicos</h3>
+<table>
+<thead>
+<tr>
+<th>Símbolo</th>
+<th>Significado</th>
+<th>Unidad</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><span class=math-inline>\(\mathbf E(\mathbf x)\)</span></td>
+<td>fasor del campo eléctrico</td>
+<td>V/m</td>
+</tr>
+<tr>
+<td><span class=math-inline>\(f\)</span>, <span class=math-inline>\(\omega=2\pi f\)</span></td>
+<td>frecuencia y frecuencia angular</td>
+<td>Hz, rad/s</td>
+</tr>
+<tr>
+<td><span class=math-inline>\(\varepsilon_0,\varepsilon_r\)</span></td>
+<td>permitividad del vacío y relativa</td>
+<td>F/m, adimensional</td>
+</tr>
+<tr>
+<td><span class=math-inline>\(\mu_0,\mu_r\)</span></td>
+<td>permeabilidad del vacío y relativa</td>
+<td>H/m, adimensional</td>
+</tr>
+<tr>
+<td><span class=math-inline>\(\sigma\)</span></td>
+<td>conductividad eléctrica</td>
+<td>S/m</td>
+</tr>
+<tr>
+<td><span class=math-inline>\(Q_{\mathrm{em}}\)</span></td>
+<td>potencia electromagnética disipada por unidad de volumen</td>
+<td>W/m³</td>
+</tr>
+<tr>
+<td><span class=math-inline>\(T(\mathbf x,t)\)</span></td>
+<td>temperatura del tejido</td>
+<td>K internamente en COMSOL; °C en salidas MATLAB</td>
+</tr>
+<tr>
+<td><span class=math-inline>\(\rho,C_p,k\)</span></td>
+<td>densidad, calor específico y conductividad térmica</td>
+<td>kg/m³, J/(kg·K), W/(m·K)</td>
+</tr>
+<tr>
+<td><span class=math-inline>\(\rho_b,C_{p,b},\omega_b,T_b\)</span></td>
+<td>propiedades de sangre, perfusión y temperatura arterial</td>
+<td>kg/m³, J/(kg·K), s⁻¹, K</td>
+</tr>
+<tr>
+<td><span class=math-inline>\(Q_{\mathrm{met}}\)</span></td>
+<td>generación metabólica</td>
+<td>W/m³</td>
+</tr>
+</tbody></table>
+<h3>2.2 Símbolos geométricos y numéricos</h3>
+<table>
+<thead>
+<tr>
+<th>Símbolo</th>
+<th>Significado</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><span class=math-inline>\(\mathcal T\)</span></td>
+<td>volumen voxelizado del tumor</td>
+</tr>
+<tr>
+<td><span class=math-inline>\(\mathcal D(\mathbf p)\)</span></td>
+<td>distribución de ablación transformada por el diseño <span class=math-inline>\(\mathbf p\)</span></td>
+</tr>
+<tr>
+<td><span class=math-inline>\(h\)</span></td>
+<td>resolución espacial del voxel</td>
+</tr>
+<tr>
+<td><span class=math-inline>\(V_{\mathrm{vox}}=h_xh_yh_z\)</span></td>
+<td>volumen de un voxel</td>
+</tr>
+<tr>
+<td><span class=math-inline>\(\mathbf p=(t_x,t_y,t_z,r_1,r_2)\)</span></td>
+<td>vector de decisión del optimizador</td>
+</tr>
+<tr>
+<td><span class=math-inline>\(R\)</span></td>
+<td>matriz de rotación</td>
+</tr>
+<tr>
+<td><span class=math-inline>\(T_{\mathrm{abl}}\)</span></td>
+<td>umbral térmico utilizado para segmentar la región “ablacionada”</td>
+</tr>
+<tr>
+<td><span class=math-inline>\(T_{\mathrm{carbon}}\)</span></td>
+<td>umbral de carbonización configurado</td>
+</tr>
+<tr>
+<td><span class=math-inline>\(N_t\)</span></td>
+<td>número de instantes</td>
+</tr>
+<tr>
+<td><span class=math-inline>\(N_q\)</span></td>
+<td>número de puntos o voxeles de consulta</td>
+</tr>
+</tbody></table>
+<h3>2.3 Conversiones efectivas</h3>
+<ol>
+<li><strong>Geometría COMSOL:</strong> <code>geom1.lengthUnit(&#39;mm&#39;)</code> fija milímetros como unidad geométrica. Por eso los cilindros usan directamente 50, 45, 30 y 18. COMSOL convierte estas longitudes a SI al ensamblar las ecuaciones.</li>
+<li><strong>Antenas importadas:</strong> se aplica un factor de escala de <span class=math-inline>\(1000\)</span>, coherente con convertir coordenadas fuente expresadas en metros a los valores numéricos de una geometría de trabajo en milímetros. La interpretación debe verificarse contra las unidades originales de cada <code>.mphbin</code>.</li>
+<li><strong>Extractor:</strong> las coordenadas se multiplican por <span class=math-inline>\(1000\)</span> para guardarse en milímetros.</li>
+<li><strong>Tiempo:</strong> COMSOL devuelve segundos; el dataset térmico usa minutos.</li>
+<li><strong>Temperatura:</strong> el criterio heurístico del extractor interpreta una serie como Kelvin si todos sus valores finitos son no negativos y el mínimo supera <span class=math-inline>\(200\)</span>; en ese caso resta <span class=math-inline>\(273.15\)</span>.</li>
+<li><strong>Voxelización y optimización:</strong> distancias en milímetros y volúmenes en mm³.</li>
+</ol>
+<h2>3. Barrido paramétrico y geometría del modelo COMSOL</h2>
+<h3>3.1 Espacio discreto de experimentos</h3>
+<p><strong>[IMPLEMENTADO]</strong> Cada simulación queda determinada por</p>
+<p><span class=math-display>\[
+\theta=
+\left(
+c,\ a,\ n_a,\ P_{\mathrm{in}},\ t_f,\Delta t
+\right),
+\]</span></p>
+<p>donde:</p>
+<ul>
+<li><span class=math-inline>\(c\in\{0,1,\ldots,8\}\)</span> es el caso de propiedades;</li>
+<li><span class=math-inline>\(a\in\{\text{Doble\_slot},\text{Monopolo},\text{Un\_slot}\}\)</span> es el tipo de antena;</li>
+<li><span class=math-inline>\(n_a\in\{1,2,3,4\}\)</span>;</li>
+<li><span class=math-inline>\(P_{\mathrm{in}}\)</span> es la potencia por antena;</li>
+<li><span class=math-inline>\(t_f\)</span> es la duración;</li>
+<li><span class=math-inline>\(\Delta t\)</span> es el paso de salida temporal.</li>
+</ul>
+<p>La potencia nominal total se calcula exactamente como</p>
+<p><span class=math-display>\[
+P_{\mathrm{tot}}=n_aP_{\mathrm{in}}.
+\]</span></p>
+<p>El generador rechaza configuraciones con</p>
+<p><span class=math-display>\[
+P_{\mathrm{tot}}&gt;
+\begin{cases}
+100\ \mathrm W, &amp; n_a\leq 3,\\
+120\ \mathrm W, &amp; n_a=4.
+\end{cases}
+\]</span></p>
+<p>Este límite es un filtro de factibilidad del barrido, no una restricción electromagnética dentro de las ecuaciones.</p>
+<p>Los valores predeterminados visibles de la interfaz son casos <span class=math-inline>\(0\)</span> a <span class=math-inline>\(8\)</span>, potencias de <span class=math-inline>\(5\)</span> a <span class=math-inline>\(100\)</span> W en pasos de <span class=math-inline>\(5\)</span> W, <span class=math-inline>\(20\)</span> min y una a cuatro antenas. La ruta interna de ejecución incompleta adopta un subconjunto más pequeño: caso <span class=math-inline>\(0\)</span>, <span class=math-inline>\(30\)</span> W, antena monopolo, <span class=math-inline>\(20\)</span> min y paso de <span class=math-inline>\(1\)</span> min. Por tanto, la reproducibilidad requiere registrar la configuración realmente enviada, no sólo los valores predeterminados de la interfaz.</p>
+<h3>3.2 Posiciones de antenas</h3>
+<p>Se usa una separación característica</p>
+<p><span class=math-display>\[
+d=20\ \mathrm{mm}.
+\]</span></p>
+<p>Las posiciones transversales <span class=math-inline>\((x_i,y_i)\)</span> son:</p>
+<h4>Una antena</h4>
+<p><span class=math-display>\[
+(x_1,y_1)=(0,0).
+\]</span></p>
+<h4>Dos antenas</h4>
+<p><span class=math-display>\[
+(x_1,y_1)=\left(-\frac d2,0\right),\qquad
+(x_2,y_2)=\left(\frac d2,0\right).
+\]</span></p>
+<p>La distancia entre ellas es <span class=math-inline>\(d\)</span>.</p>
+<h4>Tres antenas</h4>
+<p>El radio circunscrito se fija como</p>
+<p><span class=math-display>\[
+R_\triangle=\frac d{\sqrt 3}.
+\]</span></p>
+<p>Las posiciones son</p>
+<p><span class=math-display>\[
+\begin{aligned}
+(x_1,y_1)&amp;=(0,R_\triangle),\\
+(x_2,y_2)&amp;=\left(\frac d2,-\frac{R_\triangle}{2}\right),\\
+(x_3,y_3)&amp;=\left(-\frac d2,-\frac{R_\triangle}{2}\right).
+\end{aligned}
+\]</span></p>
+<p>La distancia entre cualquier par es</p>
+<p><span class=math-display>\[
+\sqrt{d^2/4+\left(3R_\triangle/2\right)^2}=d,
+\]</span></p>
+<p>por lo que forman un triángulo equilátero.</p>
+<h4>Cuatro antenas</h4>
+<p><span class=math-display>\[
+(x_i,y_i)\in
+\left\{
+\left(-\frac d2,-\frac d2\right),
+\left(\frac d2,-\frac d2\right),
+\left(-\frac d2,\frac d2\right),
+\left(\frac d2,\frac d2\right)
+\right\}.
+\]</span></p>
+<p>Son los vértices de un cuadrado de lado <span class=math-inline>\(d\)</span>; su diagonal mide <span class=math-inline>\(d\sqrt2\)</span>.</p>
+<h3>3.3 Dominios de tejido</h3>
+<p><strong>[IMPLEMENTADO]</strong> La anatomía sintética se construye mediante cilindros coaxiales:</p>
+<table>
+<thead>
+<tr>
+<th>Tejido</th>
+<th align="right">Radio</th>
+<th align="right">Altura</th>
+<th align="right">Intervalo axial</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Hueso</td>
+<td align="right">50 mm</td>
+<td align="right">45 mm</td>
+<td align="right"><span class=math-inline>\(z\in[0,45]\)</span> mm</td>
+</tr>
+<tr>
+<td>Músculo</td>
+<td align="right">50 mm</td>
+<td align="right">30 mm</td>
+<td align="right"><span class=math-inline>\(z\in[45,75]\)</span> mm</td>
+</tr>
+<tr>
+<td>Grasa</td>
+<td align="right">50 mm</td>
+<td align="right">18 mm</td>
+<td align="right"><span class=math-inline>\(z\in[75,93]\)</span> mm</td>
+</tr>
+</tbody></table>
+<p>Los catéteres son cilindros de altura <span class=math-inline>\(130\)</span> mm que parten de <span class=math-inline>\(z=18.6\)</span> mm. Su radio depende del tipo de antena y se aproxima en el código a <span class=math-inline>\(1.395\)</span>–<span class=math-inline>\(1.4\)</span> mm. Se sustraen de los tejidos mediante operaciones booleanas. Cada antena importada se escala, rota <span class=math-inline>\(90^\circ\)</span> alrededor del eje <span class=math-inline>\(x\)</span>, se traslada a <span class=math-inline>\((x_i,y_i)\)</span> y recibe una traslación axial cercana a <span class=math-inline>\(19\)</span>–<span class=math-inline>\(19.2\)</span> mm según el tipo.</p>
+<p><strong>[INTERPRETACIÓN]</strong> El modelo es estratificado y homogéneo dentro de cada dominio salvo por la dependencia térmica de propiedades. No representa cortical y trabecular por separado, vasos discretos, tumor con material propio, anisotropía ni interfaces irregulares derivadas de imágenes.</p>
+<h2>4. Problema electromagnético</h2>
+<h3>4.1 Ecuación armónica</h3>
+<p>El módulo activa <code>ElectromagneticWaves</code> a</p>
+<p><span class=math-display>\[
+f=2.45\ \mathrm{GHz},\qquad \omega=2\pi f,\qquad
+k_0=\omega\sqrt{\mu_0\varepsilon_0}.
+\]</span></p>
+<p>En un medio lineal, isótropo y conductor, la forma vectorial compatible con la interfaz de ondas electromagnéticas es</p>
+<p><span class=math-display>\[
+\nabla\times
+\left(\mu_r^{-1}\nabla\times\mathbf E\right)
+-k_0^2
+\left(
+\varepsilon_r-\frac{\mathrm j\sigma}{\omega\varepsilon_0}
+\right)\mathbf E
+=\mathbf 0.
+\tag{1}
+\]</span></p>
+<p>La conductividad se incorpora como parte de una permitividad compleja efectiva:</p>
+<p><span class=math-display>\[
+\widetilde{\varepsilon}_r
+=
+\varepsilon_r-\mathrm j\frac{\sigma}{\omega\varepsilon_0}.
+\]</span></p>
+<p>El signo de la parte imaginaria depende de la convención temporal <span class=math-inline>\(e^{+\mathrm j\omega t}\)</span> o <span class=math-inline>\(e^{-\mathrm j\omega t}\)</span>; la interfaz de COMSOL mantiene internamente una convención consistente. La ecuación (1) expresa la estructura matemática, pero no debe mezclarse manualmente con una convención de fasor distinta.</p>
+<p>La formulación débil que resuelve el método de elementos finitos se obtiene multiplicando por una función de prueba vectorial <span class=math-inline>\(\mathbf W\)</span>, integrando en el volumen <span class=math-inline>\(\Omega\)</span> e integrando por partes el término rotacional:</p>
+<p><span class=math-display>\[
+\begin{aligned}
+\int_\Omega
+&amp;\left[
+(\nabla\times\mathbf W)\cdot
+\mu_r^{-1}(\nabla\times\mathbf E)
+-k_0^2\mathbf W\cdot\widetilde{\varepsilon}_r\mathbf E
+\right]\,d\Omega\\
+&amp;-
+\int_{\partial\Omega}
+\mathbf W\cdot
+\left[
+\mathbf n\times
+\mu_r^{-1}(\nabla\times\mathbf E)
+\right]\,d\Gamma
+=0.
+\end{aligned}
+\tag{2}
+\]</span></p>
+<p>Esta misma separación entre campo armónico y calentamiento transitorio aparece en una implementación FEM abierta publicada en 2023, que usa Gmsh/GetDP como alternativa a COMSOL (<a href="https://doi.org/10.3390/math11122654">Bošković et al., 2023</a>).</p>
+<h3>4.2 Puertos y fronteras</h3>
+<p>Cada antena recibe un puerto coaxial con potencia incidente</p>
+<p><span class=math-display>\[
+P_{\mathrm{in},i}=P_{\mathrm{in}}.
+\]</span></p>
+<p>Todos los puertos se activan, pero el código no asigna una fase individual. Por tanto, la relación de fase queda en el valor predeterminado de COMSOL; si éste es cero, la excitación multiantena es coherente y en fase. En general:</p>
+<p><span class=math-display>\[
+\mathbf E_{\mathrm{tot}}
+=
+\sum_{i=1}^{n_a}\mathbf E_i e^{\mathrm j\phi_i},
+\]</span></p>
+<p><span class=math-display>\[
+\lVert\mathbf E_{\mathrm{tot}}\rVert^2
+=
+\sum_i\lVert\mathbf E_i\rVert^2
++2\sum_{i&lt;j}
+\operatorname{Re}
+\left[
+\mathbf E_i\cdot\mathbf E_j^\ast
+e^{\mathrm j(\phi_i-\phi_j)}
+\right].
+\]</span></p>
+<p>Los términos cruzados muestran que sumar potencias de entrada no equivale a sumar mapas térmicos de antenas aisladas. La fase predeterminada debe registrarse desde el <code>.mph</code> para reproducir arreglos múltiples.</p>
+<p>La suma de potencias impuestas es <span class=math-inline>\(n_aP_{\mathrm{in}}\)</span>, pero la potencia absorbida en el tejido no tiene por qué igualar esa suma: existen interferencia, reflexión, pérdidas en otros dominios y flujo saliente. El código no calcula explícitamente un balance integral de potencia</p>
+<p><span class=math-display>\[
+\sum_iP_{\mathrm{in},i}
+\stackrel{?}{=}
+P_{\mathrm{ref}}+
+\int_\Omega Q_{\mathrm{em}}\,d\Omega+
+P_{\mathrm{out}},
+\]</span></p>
+<p>por lo que este balance debe considerarse una prueba de verificación pendiente.</p>
+<p>Las fronteras exteriores y las fronteras seleccionadas de los catéteres reciben una condición de dispersión. Su finalidad es aproximar una frontera abierta y reducir reflexiones espurias en el truncamiento del dominio.</p>
+<h3>4.3 Potencia electromagnética disipada</h3>
+<p>Para un fasor de amplitud pico en un conductor óhmico isotrópico, la disipación media temporal es</p>
+<p><span class=math-display>\[
+Q_{\mathrm{em}}
+=
+\frac12\operatorname{Re}
+\left(\mathbf J\cdot\mathbf E^\ast\right)
+=
+\frac12\sigma\lVert\mathbf E\rVert^2.
+\tag{3}
+\]</span></p>
+<p>Si el fasor se expresa en RMS, desaparece el factor <span class=math-inline>\(1/2\)</span>. <strong>[IMPLEMENTADO]</strong> El código no reconstruye (3) manualmente: el acoplamiento <code>ElectromagneticHeating</code> entrega la densidad de pérdida calculada por COMSOL a la física térmica. Por ello debe respetarse la convención interna del software y no aplicarse otro factor <span class=math-inline>\(1/2\)</span> durante el posprocesamiento.</p>
+<p>La tasa de absorción específica puede definirse como</p>
+<p><span class=math-display>\[
+\mathrm{SAR}=\frac{Q_{\mathrm{em}}}{\rho}
+\quad[\mathrm{W/kg}],
+\tag{4}
+\]</span></p>
+<p>aunque el dataset de salida actual prioriza <span class=math-inline>\(T\)</span>, no SAR.</p>
+<p>La documentación oficial del ejemplo de calentamiento tumoral de COMSOL presenta precisamente campo electromagnético, fuente resistiva, SAR y ecuación bio-térmica acoplada (<a href="https://doc.comsol.com/6.3/doc/com.comsol.help.models.rf.microwave_cancer_therapy/microwave_cancer_therapy.html">COMSOL 6.3, <em>Microwave Heating of a Cancer Tumor</em></a>).</p>
+<h2>5. Problema bio-térmico</h2>
+<h3>5.1 Ecuación de Pennes implementada</h3>
+<p>En cada dominio biológico se resuelve</p>
+<p><span class=math-display>\[
+\rho C_p\frac{\partial T}{\partial t}
+=
+\nabla\cdot(k\nabla T)
++\rho_bC_{p,b}\omega_b(T_b-T)
++Q_{\mathrm{met}}
++Q_{\mathrm{em}}.
+\tag{5}
+\]</span></p>
+<p>Los términos son:</p>
+<ol>
+<li><span class=math-inline>\(\rho C_p\partial T/\partial t\)</span>: almacenamiento de energía.</li>
+<li><span class=math-inline>\(\nabla\cdot(k\nabla T)\)</span>: difusión térmica; si <span class=math-inline>\(k=k(T)\)</span>, entonces</li>
+</ol>
+<p><span class=math-display>\[
+   \nabla\cdot(k(T)\nabla T)
+   =
+   k(T)\nabla^2T+
+   \frac{dk}{dT}\lVert\nabla T\rVert^2.
+   \]</span></p>
+<p>   El segundo término aparece implícitamente en la formulación no lineal y no debe omitirse al interpretar <span class=math-inline>\(k(T)\)</span>.</p>
+<ol start="3">
+<li><span class=math-inline>\(\rho_bC_{p,b}\omega_b(T_b-T)\)</span>: sumidero o fuente por perfusión. Para <span class=math-inline>\(T&gt;T_b\)</span> es negativo y retira calor.</li>
+<li><span class=math-inline>\(Q_{\mathrm{met}}\)</span>: metabolismo.</li>
+<li><span class=math-inline>\(Q_{\mathrm{em}}\)</span>: calentamiento por microondas.</li>
+</ol>
+<p>La condición inicial es</p>
+<p><span class=math-display>\[
+T(\mathbf x,0)=T_b=37^\circ\mathrm C=310.15\ \mathrm K.
+\tag{6}
+\]</span></p>
+<p>El código no crea una condición térmica exterior explícita. En las fronteras sin otra condición actúa la condición predeterminada de aislamiento de la interfaz:</p>
+<p><span class=math-display>\[
+-\mathbf n\cdot k\nabla T=0.
+\tag{7}
+\]</span></p>
+<p>Esto impide pérdida convectiva o radiativa hacia un ambiente externo. En una geometría truncada, (7) puede aumentar la temperatura si la frontera está demasiado cerca de la zona calentada; debe verificarse independencia respecto del tamaño del dominio.</p>
+<h3>5.2 Constantes nominales</h3>
+<table>
+<thead>
+<tr>
+<th>Magnitud</th>
+<th align="right">Sangre</th>
+<th align="right">Hueso</th>
+<th align="right">Músculo</th>
+<th align="right">Grasa</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><span class=math-inline>\(\rho\)</span> (kg/m³)</td>
+<td align="right">1050</td>
+<td align="right">1908</td>
+<td align="right">1090</td>
+<td align="right">911</td>
+</tr>
+<tr>
+<td><span class=math-inline>\(C_p\)</span> (J/(kg·K))</td>
+<td align="right">3639</td>
+<td align="right">1313</td>
+<td align="right">3421</td>
+<td align="right">2348</td>
+</tr>
+<tr>
+<td><span class=math-inline>\(k\)</span> (W/(m·K))</td>
+<td align="right">—</td>
+<td align="right">0.31</td>
+<td align="right">0.49</td>
+<td align="right">0.21</td>
+</tr>
+<tr>
+<td><span class=math-inline>\(\omega_b\)</span> (s⁻¹)</td>
+<td align="right">—</td>
+<td align="right">0.000526</td>
+<td align="right"><span class=math-inline>\(6.47\times10^{-4}\)</span></td>
+<td align="right"><span class=math-inline>\(5.77\times10^{-4}\)</span></td>
+</tr>
+<tr>
+<td><span class=math-inline>\(Q_{\mathrm{met}}\)</span> (W/m³)</td>
+<td align="right">—</td>
+<td align="right">368.3</td>
+<td align="right">716</td>
+<td align="right">3.9</td>
+</tr>
+<tr>
+<td><span class=math-inline>\(\varepsilon_r\)</span></td>
+<td align="right">—</td>
+<td align="right">18.5</td>
+<td align="right">52.7</td>
+<td align="right">10.8</td>
+</tr>
+<tr>
+<td><span class=math-inline>\(\sigma\)</span> (S/m)</td>
+<td align="right">—</td>
+<td align="right">0.805</td>
+<td align="right">1.74</td>
+<td align="right">0.268</td>
+</tr>
+</tbody></table>
+<p>También se crean parámetros de piel, pero no existe un dominio geométrico de piel. Por tanto, esos valores no participan en la solución actual.</p>
+<p>El PTFE se define con <span class=math-inline>\(\rho=2200\)</span> kg/m³, <span class=math-inline>\(C_p=1050\)</span> J/(kg·K), <span class=math-inline>\(k=0.24\)</span> W/(m·K), <span class=math-inline>\(\varepsilon_r=2.1\)</span> y <span class=math-inline>\(\sigma=0\)</span>; el catéter usa <span class=math-inline>\(\varepsilon_r=2.6\)</span>. Las propiedades térmicas sólo influyen si el dominio correspondiente está incluido en la física térmica.</p>
+<h3>5.3 Propiedades tabuladas dependientes de temperatura</h3>
+<p><strong>[IMPLEMENTADO]</strong> El generador carga <code>datasets/DatosTejidos.mat</code>, variable <code>DatasetTejidos</code>, con 60 tablas. Las tablas no se convierten en una ecuación exponencial o lineal analítica. Se registran en COMSOL como funciones de interpolación:</p>
+<p><span class=math-display>\[
+p(T)=\mathcal I_{\mathrm{pc}}[
+(T_1,p_1),\ldots,(T_m,p_m)
+],
+\tag{8}
+\]</span></p>
+<p>donde <span class=math-inline>\(\mathcal I_{\mathrm{pc}}\)</span> es interpolación cúbica por tramos y la extrapolación fuera del rango es constante:</p>
+<p><span class=math-display>\[
+p(T)=
+\begin{cases}
+p(T_1),&amp;T&lt;T_1,\\
+\mathcal I_{\mathrm{pc}}(T),&amp;T_1\le T\le T_m,\\
+p(T_m),&amp;T&gt;T_m.
+\end{cases}
+\tag{9}
+\]</span></p>
+<p>Si una tabla tiene tres columnas se usan la primera y la tercera; si tiene dos, se usan ambas. La primera columna se declara en K. Los nombres <code>exp</code> y <code>lineal</code> describen la procedencia de los datos, pero la evaluación numérica efectiva siempre es la interpolación (8). No es correcto sustituirla, sin los datos originales, por <span class=math-inline>\(p_0e^{aT}\)</span> o <span class=math-inline>\(p_0+bT\)</span>.</p>
+<h3>5.4 Mapeo de casos</h3>
+<p>El caso <span class=math-inline>\(0\)</span> usa constantes nominales. Los casos <span class=math-inline>\(1\)</span>–<span class=math-inline>\(8\)</span> seleccionan:</p>
+<table>
+<thead>
+<tr>
+<th align="right">Caso</th>
+<th>Conductividad eléctrica</th>
+<th>Conductividad térmica</th>
+<th>Perfusión</th>
+<th>Metabolismo</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="right">0</td>
+<td>constante</td>
+<td>constante</td>
+<td>constante</td>
+<td>constante</td>
+</tr>
+<tr>
+<td align="right">1</td>
+<td><code>exp_1.5_2</code></td>
+<td><code>lineal_+1.5</code></td>
+<td>familia 1</td>
+<td>exponencial</td>
+</tr>
+<tr>
+<td align="right">2</td>
+<td><code>exp_1.5_4</code></td>
+<td><code>lineal_-1.5</code></td>
+<td>familia 2</td>
+<td>exponencial</td>
+</tr>
+<tr>
+<td align="right">3</td>
+<td><code>exp_2_2</code></td>
+<td><code>lineal_+1.5</code></td>
+<td>familia 3</td>
+<td>exponencial</td>
+</tr>
+<tr>
+<td align="right">4</td>
+<td><code>exp_2_4</code></td>
+<td><code>lineal_-1.5</code></td>
+<td>familia 4</td>
+<td>exponencial</td>
+</tr>
+<tr>
+<td align="right">5</td>
+<td><code>lineal_1.5_2</code></td>
+<td><code>lineal_+1.5</code></td>
+<td>familia 1</td>
+<td>lineal</td>
+</tr>
+<tr>
+<td align="right">6</td>
+<td><code>lineal_1.5_4</code></td>
+<td><code>lineal_-1.5</code></td>
+<td>familia 2</td>
+<td>lineal</td>
+</tr>
+<tr>
+<td align="right">7</td>
+<td><code>lineal_2_2</code></td>
+<td><code>lineal_+1.5</code></td>
+<td>familia 3</td>
+<td>lineal</td>
+</tr>
+<tr>
+<td align="right">8</td>
+<td><code>lineal_2_4</code></td>
+<td><code>lineal_-1.5</code></td>
+<td>familia 4</td>
+<td>lineal</td>
+</tr>
+</tbody></table>
+<p>Para músculo y grasa se asignan las tablas correspondientes de <span class=math-inline>\(\sigma(T)\)</span>, <span class=math-inline>\(k(T)\)</span>, <span class=math-inline>\(\omega_b(T)\)</span> y <span class=math-inline>\(Q_{\mathrm{met}}(T)\)</span>. Para hueso se asignan <span class=math-inline>\(\sigma(T)\)</span>, <span class=math-inline>\(k(T)\)</span> y <span class=math-inline>\(Q_{\mathrm{met}}(T)\)</span>, pero la perfusión permanece constante porque el dataset no incluye curvas de perfusión ósea.</p>
+<h3>5.5 Hallazgo de acoplamiento electromagnético–térmico</h3>
+<p>La secuencia resuelve primero el campo electromagnético en frecuencia y después la transferencia térmica en el tiempo. En forma operatorial:</p>
+<p><span class=math-display>\[
+\mathbf E_0
+=
+\mathcal M\!\left[
+\sigma(T_0),\varepsilon_r,P_{\mathrm{in}}
+\right],
+\qquad
+Q_{\mathrm{em},0}
+=\mathcal Q(\mathbf E_0,\sigma(T_0)),
+\tag{10}
+\]</span></p>
+<p>y luego</p>
+<p><span class=math-display>\[
+T(t)
+=
+\mathcal H\!\left[
+Q_{\mathrm{em},0},
+k(T),\omega_b(T),Q_{\mathrm{met}}(T)
+\right].
+\tag{11}
+\]</span></p>
+<p>Para una realimentación electromagnética completa sería necesario resolver</p>
+<p><span class=math-display>\[
+\mathbf E(t)
+=
+\mathcal M[\sigma(T(t)),\varepsilon_r(T(t)),P_{\mathrm{in}}],
+\qquad
+Q_{\mathrm{em}}(t)
+=
+\mathcal Q(\mathbf E(t),\sigma(T(t)))
+\tag{12}
+\]</span></p>
+<p>durante el transitorio o mediante una estrategia iterada.</p>
+<p><strong>[HALLAZGO]</strong> La documentación de COMSOL indica que la solución secuencial de una vía es más rápida, pero válida como acoplamiento de una vía cuando las propiedades electromagnéticas no dependen de la temperatura. El código sí define <span class=math-inline>\(\sigma(T)\)</span> en los casos <span class=math-inline>\(1\)</span>–<span class=math-inline>\(8\)</span>. En consecuencia, si el paso transitorio mantiene inactiva la física electromagnética —comportamiento propio de la secuencia de una vía—, las variaciones de <span class=math-inline>\(\sigma(T)\)</span> no recalculan <span class=math-inline>\(\mathbf E\)</span> ni <span class=math-inline>\(Q_{\mathrm{em}}\)</span>: sólo se evalúan para el paso de frecuencia, esencialmente alrededor de <span class=math-inline>\(T_0\)</span>. En cambio, <span class=math-inline>\(k(T)\)</span>, <span class=math-inline>\(\omega_b(T)\)</span> y <span class=math-inline>\(Q_{\mathrm{met}}(T)\)</span> sí pertenecen a la ecuación térmica y pueden modificar directamente el transitorio.</p>
+<p>Este punto debe verificarse en un modelo <code>.mph</code> guardado inspeccionando la activación de físicas de cada paso. No debe afirmarse que existe acoplamiento bidireccional hasta demostrar que (12) se resuelve.</p>
+<h3>5.6 Alcance térmico: criterio por umbral, sin modelo de daño</h3>
+<p>El archivo de parámetros conserva constantes históricas de daño para grasa. Su presencia no activa un modelo matemático ni autoriza trasladar parámetros de RFA a MWA. En el alcance vigente:</p>
+<ul>
+<li><strong>[NO IMPLEMENTADO]</strong> no se crea una característica <code>Thermal Damage</code>;</li>
+<li><strong>[NO IMPLEMENTADO]</strong> no se integra el daño de Arrhenius;</li>
+<li><strong>[NO IMPLEMENTADO]</strong> no se calcula CEM43;</li>
+<li><strong>[IMPLEMENTADO]</strong> la clasificación térmica es exclusivamente <span class=math-inline>\(T(\mathbf x,t)\ge T_{\mathrm{abl}}\)</span>.</li>
+</ul>
+<p>Arrhenius y CEM43 quedan fuera del alcance y no se presentan como métodos necesarios para MWA. En particular, el parámetro <span class=math-inline>\(A\)</span> depende del tejido, del modelo cinético y de la calibración experimental; no debe reutilizarse por analogía entre modalidades. Todas las menciones posteriores a “ablación” significan <strong>región geométrica por umbral térmico</strong>, no necrosis, daño acumulado ni dosis clínica.</p>
+<h2>6. Discretización, solución y criterio de terminación</h2>
+<h3>6.1 Malla</h3>
+<p>En los tejidos se usan aproximadamente:</p>
+<p><span class=math-display>\[
+h_{\max}=5\ \mathrm{mm},\quad
+h_{\min}=0.3\ \mathrm{mm},\quad
+g=1.4,\quad
+c=0.4,\quad
+n=0.7,
+\]</span></p>
+<p>donde <span class=math-inline>\(g\)</span> es crecimiento máximo, <span class=math-inline>\(c\)</span> resolución de curvatura y <span class=math-inline>\(n\)</span> resolución de regiones estrechas.</p>
+<p>En las antenas:</p>
+<p><span class=math-display>\[
+h_{\max}=4.56\ \mathrm{mm},\quad
+h_{\min}=0.12\ \mathrm{mm},\quad
+g=1.35,\quad
+c=0.3,\quad
+n=0.85.
+\]</span></p>
+<p>La malla convierte las formulaciones débiles en sistemas algebraicos. Para Maxwell:</p>
+<p><span class=math-display>\[
+\mathbf K_{\mathrm{em}}\mathbf e=\mathbf b,
+\tag{15}
+\]</span></p>
+<p>con coeficientes complejos. Para calor, tras una discretización espacial:</p>
+<p><span class=math-display>\[
+\mathbf M(T)\dot{\mathbf t}
++\mathbf K_T(T)\mathbf t
+=
+\mathbf f_T(T,Q_{\mathrm{em}}).
+\tag{16}
+\]</span></p>
+<p>No se encuentra un estudio sistemático de convergencia respecto de <span class=math-inline>\(h\)</span>. Por tanto, los tamaños anteriores son parámetros de producción, no una demostración de independencia de malla. Una verificación mínima exige refinar sucesivamente y observar, por ejemplo,</p>
+<p><span class=math-display>\[
+\epsilon_h^{(j)}
+=
+\frac{\left|V_{\mathrm{abl}}^{(j)}-V_{\mathrm{abl}}^{(j-1)}\right|}
+{V_{\mathrm{abl}}^{(j)}}.
+\tag{17}
+\]</span></p>
+<h3>6.2 Paso de frecuencia</h3>
+<p>El solver estacionario usa tolerancia relativa aproximada de <span class=math-inline>\(10^{-2}\)</span>, GMRES con reinicio 300 y precondicionamiento multinivel/SOR; PARDISO resuelve el nivel grueso del multigrid. En términos de residuo:</p>
+<p><span class=math-display>\[
+\frac{\|\mathbf b-\mathbf K_{\mathrm{em}}\mathbf e_k\|}
+{\|\mathbf b\|}
+\leq \varepsilon_{\mathrm{em}}.
+\tag{18}
+\]</span></p>
+<p>Una tolerancia de solver no equivale al error físico del campo; sólo limita el error algebraico según la norma y el escalamiento internos.</p>
+<h3>6.3 Paso transitorio</h3>
+<p>Los tiempos solicitados son</p>
+<p><span class=math-display>\[
+t_j=j\Delta t,\qquad
+j=0,1,\ldots,\left\lfloor\frac{t_f}{\Delta t}\right\rfloor,
+\tag{19}
+\]</span></p>
+<p>medidos en minutos en la configuración y convertidos por COMSOL según la unidad del estudio. Se emplea un método implícito de orden máximo 2, solución totalmente acoplada, Jacobiano reutilizado, amortiguamiento <span class=math-inline>\(0.9\)</span>, aceleración de Anderson de dimensión 5 y mezcla <span class=math-inline>\(0.9\)</span>, con GMRES reinicio 50, hasta 10 000 iteraciones y AMG en ciclo V. El factor de tolerancia absoluta es <span class=math-inline>\(10^{-3}\)</span>.</p>
+<p>El orden máximo 2 limita el esquema temporal a una familia tipo BDF de bajo orden. La lista (19) son tiempos de salida; el integrador puede tomar pasos internos distintos para satisfacer tolerancias.</p>
+<h3>6.4 Criterio de carbonización del generador</h3>
+<p>Los umbrales de terminación son:</p>
+<p><span class=math-display>\[
+T_c(c)=
+\begin{cases}
+500^\circ\mathrm C,&amp;c=0,\\
+120^\circ\mathrm C,&amp;c=1,\ldots,8.
+\end{cases}
+\tag{20}
+\]</span></p>
+<p>El algoritmo:</p>
+<ol>
+<li>convierte los tiempos de solución a minutos;</li>
+<li>localiza el tiempo más cercano a <span class=math-inline>\(1\)</span> min;</li>
+<li>sólo acepta esa referencia si la diferencia es <span class=math-inline>\(\leq0.51\)</span> min;</li>
+<li>para cada tiempo desde esa referencia calcula</li>
+</ol>
+<p><span class=math-display>\[
+   T_{\max,j}=\max_{\mathbf x\in\Omega}T(\mathbf x,t_j);
+   \]</span></p>
+<ol start="5">
+<li>declara carbonización únicamente si</li>
+</ol>
+<p><span class=math-display>\[
+   T_{\max,j}&gt;T_c
+   \quad\text{para todos los }j\geq j_{1\mathrm{min}}.
+   \tag{21}
+   \]</span></p>
+<p>Si cualquier máximo no es finito, el criterio devuelve falso. La desigualdad es estricta. El criterio no detecta un único sobrecalentamiento transitorio: exige que todos los máximos posteriores superen el umbral.</p>
+<p><strong>[INTERPRETACIÓN]</strong> (21) no es cinética de carbonización. Es una regla lógica de persistencia basada en el máximo global, incapaz de cuantificar volumen carbonizado, duración local o daño acumulado.</p>
+<h2>7. Extracción COMSOL → dataset térmico</h2>
+<h3>7.1 Selección temporal</h3>
+<p>Los tiempos de la solución se recuperan en segundos y se dividen por 60. Si la escala parece incoherente, el extractor aplica heurísticas: valores máximos mayores que 5000 se dividen por 1000; valores mayores que 60 se interpretan como segundos; otros se multiplican por 60 en la ruta de respaldo. Estas heurísticas hacen tolerante la lectura, pero introducen ambigüedad dimensional si los metadatos de COMSOL no están disponibles.</p>
+<p>Para cada tiempo pedido <span class=math-inline>\(\widehat t_k\)</span>, se selecciona</p>
+<p><span class=math-display>\[
+j_k=\arg\min_j|t_j-\widehat t_k|.
+\tag{22}
+\]</span></p>
+<p>Después se eliminan índices repetidos. En MATLAB, <code>unique</code> ordena de forma ascendente salvo que se especifique lo contrario; el resultado temporal puede quedar reordenado aunque la lista solicitada no lo estuviera.</p>
+<h3>7.2 Sondas</h3>
+<p>Las posiciones nominales axiales son</p>
+<p><span class=math-display>\[
+z_s\in\{18.6,25.2,31.8,38.4\}\ \mathrm{mm}.
+\tag{23}
+\]</span></p>
+<p>Para una antena se activa un desplazamiento transversal predeterminado:</p>
+<p><span class=math-display>\[
+x_s=y_s=1\ \mathrm{mm}.
+\tag{24}
+\]</span></p>
+<p>Primero se usa interpolación de COMSOL en la coordenada de la sonda. Si falla, se calculan distancias euclidianas a los nodos:</p>
+<p><span class=math-display>\[
+d_i=\|\mathbf x_i-\mathbf x_s\|_2,
+\tag{25}
+\]</span></p>
+<p>se examinan los 250 más próximos y se selecciona el que maximiza el número de temperaturas finitas; en empate se elige el de menor <span class=math-inline>\(d_i\)</span>. Esta regla optimiza disponibilidad de la serie, no exactitud espacial.</p>
+<h3>7.3 Malla regular de extracción</h3>
+<p>Con resolución lineal <span class=math-inline>\(n\)</span> —predeterminado <span class=math-inline>\(n=60\)</span>— se forma</p>
+<p><span class=math-display>\[
+x_i=x_{\min}+\frac{i-1}{n-1}(x_{\max}-x_{\min}),
+\]</span></p>
+<p><span class=math-display>\[
+y_j=y_{\min}+\frac{j-1}{n-1}(y_{\max}-y_{\min}),
+\]</span></p>
+<p><span class=math-display>\[
+z_k=z_{\min}+\frac{k-1}{n-1}(z_{\max}-z_{\min}).
+\tag{26}
+\]</span></p>
+<p>El número bruto de puntos es <span class=math-inline>\(n^3\)</span>; para <span class=math-inline>\(n=60\)</span>,</p>
+<p><span class=math-display>\[
+60^3=216\,000.
+\]</span></p>
+<p>El filtro cilíndrico opcional de hueso conserva</p>
+<p><span class=math-display>\[
+\sqrt{x^2+y^2}\leq50\ \mathrm{mm},
+\qquad
+0\leq z\leq45\ \mathrm{mm}.
+\tag{27}
+\]</span></p>
+<p>En cada <span class=math-inline>\(t_j\)</span>, <code>mphinterp</code> evalúa <span class=math-inline>\(T(\mathbf x_q,t_j)\)</span>. El campo completo conserva valores finitos y <code>NaN</code>, mientras que la nube de cada instantánea conserva sólo</p>
+<p><span class=math-display>\[
+\mathcal P_j
+=
+\{\mathbf x_q:T(\mathbf x_q,t_j)\geq T_{\mathrm{abl}}\}.
+\tag{28}
+\]</span></p>
+<p>El conteo de carbonización de la instantánea usa</p>
+<p><span class=math-display>\[
+N_{\mathrm{carbon},j}
+=
+\#\{\mathbf x_q:T(\mathbf x_q,t_j)\geq T_{\mathrm{carbon}}\}.
+\tag{29}
+\]</span></p>
+<p>Obsérvese la diferencia: el generador usa <span class=math-inline>\(&gt;\)</span> en (21); el extractor usa <span class=math-inline>\(\geq\)</span> en (28)–(29).</p>
+<h3>7.4 Umbrales predeterminados y significado del dataset</h3>
+<p>El extractor usa por defecto</p>
+<p><span class=math-display>\[
+T_{\mathrm{abl}}=55^\circ\mathrm C,\qquad
+T_{\mathrm{carbon}}=300^\circ\mathrm C.
+\tag{30}
+\]</span></p>
+<p>Estos valores son independientes del límite <span class=math-inline>\(120/500^\circ\mathrm C\)</span> del generador. El dataset contiene:</p>
+<ul>
+<li>tiempos;</li>
+<li>nubes ya truncadas por <span class=math-inline>\(T_{\mathrm{abl}}\)</span>;</li>
+<li>campo completo, cuando se guarda;</li>
+<li>sondas;</li>
+<li>umbrales y metadatos.</li>
+</ul>
+<p><strong>[INTERPRETACIÓN]</strong> La nube de instantáneas no es una muestra imparcial del campo térmico: es una muestra condicionada por <span class=math-inline>\(T\geq T_{\mathrm{abl}}\)</span>. Cualquier interpolación posterior basada sólo en esas nubes desconoce explícitamente la región fría y puede extrapolar desde la frontera caliente.</p>
+<p>La matriz del campo completo se convierte a precisión <code>single</code>. Esto reduce aproximadamente a la mitad la memoria frente a <code>double</code>, pero introduce redondeo de unos siete dígitos decimales significativos.</p>
+<h3>7.5 Inventario de umbrales no equivalentes</h3>
+<table>
+<thead>
+<tr>
+<th>Etapa</th>
+<th align="right">Umbral predeterminado</th>
+<th>Operación</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Generador, caso 0</td>
+<td align="right">500 °C</td>
+<td>exceso persistente del máximo, desigualdad <span class=math-inline>\(&gt;\)</span></td>
+</tr>
+<tr>
+<td>Generador, casos 1–8</td>
+<td align="right">120 °C</td>
+<td>exceso persistente del máximo, desigualdad <span class=math-inline>\(&gt;\)</span></td>
+</tr>
+<tr>
+<td>Extractor, ablación</td>
+<td align="right">55 °C</td>
+<td>conserva puntos con <span class=math-inline>\(T\geq55\)</span></td>
+</tr>
+<tr>
+<td>Extractor, carbonización</td>
+<td align="right">300 °C</td>
+<td>cuenta puntos con <span class=math-inline>\(T\geq300\)</span></td>
+</tr>
+<tr>
+<td>MAT→STL</td>
+<td align="right">55 °C</td>
+<td>límite inferior</td>
+</tr>
+<tr>
+<td>MAT→STL, caso 0</td>
+<td align="right">500 °C</td>
+<td>límite superior</td>
+</tr>
+<tr>
+<td>MAT→STL, casos 1–8</td>
+<td align="right">120 °C</td>
+<td>límite superior</td>
+</tr>
+<tr>
+<td>Campo 4D</td>
+<td align="right">60 °C</td>
+<td>valor inicial de la interfaz para volumen</td>
+</tr>
+<tr>
+<td>Manejador visual, puntos térmicos</td>
+<td align="right">55 °C</td>
+<td>filtro estrictamente visual; no calcula volumen</td>
+</tr>
+</tbody></table>
+<p>En consecuencia, “volumen de ablación” puede significar <span class=math-inline>\(V_{55}\)</span> o <span class=math-inline>\(V_{60}\)</span> según la ruta. Debe almacenarse el umbral junto a cualquier volumen y no comparar ambos sin recalcularlos sobre el mismo campo.</p>
+<h2>8. Preprocesamiento geométrico: campo térmico → STL → volumen voxelizado</h2>
+<h3>8.1 Filtrado térmico previo a la superficie</h3>
+<p>Para cada instantánea se seleccionan puntos cuya temperatura satisface</p>
+<p><span class=math-display>\[
+T_{\min}\leq T_i\leq T_{\max}.
+\tag{31}
+\]</span></p>
+<p>Los valores predeterminados son <span class=math-inline>\(T_{\min}=55^\circ\mathrm C\)</span> y</p>
+<p><span class=math-display>\[
+T_{\max}=
+\begin{cases}
+500^\circ\mathrm C,&amp;c=0,\\
+120^\circ\mathrm C,&amp;c&gt;0.
+\end{cases}
+\tag{32}
+\]</span></p>
+<p>El límite superior efectivo se decide usando el mayor valor entre la temperatura máxima finita y el metadato almacenado <code>T_max_C</code>. Un error en ese metadato puede, por tanto, cambiar qué instantantes se procesan.</p>
+<h4>8.1.1 Corte por exceso sostenido</h4>
+<p>Sea</p>
+<p><span class=math-display>\[
+b_j=\mathbb 1[T_{\max,j}&gt;T_{\max}].
+\]</span></p>
+<p>El código evalúa desde el final un producto acumulado:</p>
+<p><span class=math-display>\[
+s_j=\prod_{\ell=j}^{N_t}b_\ell.
+\tag{33}
+\]</span></p>
+<p>El primer <span class=math-inline>\(j\)</span> con <span class=math-inline>\(s_j=1\)</span> inicia un tramo en el que todos los máximos restantes exceden el límite; desde allí se descartan las instantáneas. Un exceso aislado seguido de enfriamiento no produce el corte. Esta regla es análoga al criterio persistente del generador, pero usa el umbral de preprocesamiento.</p>
+<p>Se exigen al menos cuatro puntos filtrados. Cuatro puntos son necesarios para un tetraedro, pero no suficientes si son coplanares o casi degenerados. El código no prueba rango afín:</p>
+<p><span class=math-display>\[
+\operatorname{rank}
+\left(
+\begin{bmatrix}
+(\mathbf p_2-\mathbf p_1)^\top\\
+(\mathbf p_3-\mathbf p_1)^\top\\
+(\mathbf p_4-\mathbf p_1)^\top
+\end{bmatrix}
+\right)=3.
+\tag{34}
+\]</span></p>
+<p>Una falla posterior de <code>alphaShape</code> puede deberse a esta degeneración.</p>
+<h3>8.2 Reconstrucción mediante <code>alphaShape</code></h3>
+<p>La forma alfa es un subcomplejo de la triangulación de Delaunay controlado por un radio <span class=math-inline>\(\alpha\)</span>. Intuitivamente, tetraedros asociados a esferas circunscritas demasiado grandes quedan excluidos; <span class=math-inline>\(\alpha\)</span> pequeño preserva detalle y puede fragmentar, mientras que <span class=math-inline>\(\alpha\)</span> grande converge hacia la envolvente convexa.</p>
+<p>Si el usuario no fija <span class=math-inline>\(\alpha&gt;0\)</span>, el código calcula</p>
+<p><span class=math-display>\[
+\boldsymbol\ell
+=
+(\ell_x,\ell_y,\ell_z)
+=
+\max_i\mathbf p_i-\min_i\mathbf p_i,
+\tag{35}
+\]</span></p>
+<p><span class=math-display>\[
+h_{\mathrm{est}}
+=
+\left(
+\frac{(\ell_x+\varepsilon)(\ell_y+\varepsilon)(\ell_z+\varepsilon)}
+{N_p}
+\right)^{1/3},
+\tag{36}
+\]</span></p>
+<p><span class=math-display>\[
+\alpha
+=
+\max(2.0,\;2.2h_{\mathrm{est}}).
+\tag{37}
+\]</span></p>
+<p>Todas las magnitudes están en las unidades de los puntos, normalmente mm. La fórmula (36) estima un espaciamiento volumétrico bajo una hipótesis de muestreo aproximadamente uniforme. Para una nube superficial o truncada térmicamente esta hipótesis no es exacta.</p>
+<p>Se exige:</p>
+<p><span class=math-display>\[
+\texttt{numRegions}=1,
+\qquad
+N_{\mathrm{facetas}}\geq4.
+\tag{38}
+\]</span></p>
+<p>Así se rechazan formas desconectadas, aunque una ablación real producida por múltiples antenas podría tener más de una componente. <code>alphaShape</code> es el operador documentado por MathWorks para construir polígonos o poliedros a partir de nubes 2D/3D (<a href="https://www.mathworks.com/help/matlab/ref/alphashape.html">documentación oficial</a>).</p>
+<h3>8.3 Suavizado Laplaciano de la malla</h3>
+<p>En cada iteración <span class=math-inline>\(k\)</span>, para cada vértice <span class=math-inline>\(i\)</span> se obtiene el conjunto de vecinos de una arista <span class=math-inline>\(\mathcal N(i)\)</span> y se actualiza sincrónicamente:</p>
+<p><span class=math-display>\[
+\mathbf v_i^{(k+1)}
+=
+\frac1{|\mathcal N(i)|}
+\sum_{j\in\mathcal N(i)}
+\mathbf v_j^{(k)}.
+\tag{39}
+\]</span></p>
+<p>Equivale a un suavizado Laplaciano con <span class=math-inline>\(\lambda=1\)</span>:</p>
+<p><span class=math-display>\[
+\mathbf v_i^{(k+1)}
+=
+\mathbf v_i^{(k)}
++\lambda
+\left(
+\frac1{|\mathcal N(i)|}
+\sum_{j\in\mathcal N(i)}\mathbf v_j^{(k)}
+-\mathbf v_i^{(k)}
+\right),
+\quad\lambda=1.
+\tag{40}
+\]</span></p>
+<p>El valor predeterminado de la ruta STL es cuatro iteraciones; el procesamiento masivo usa normalmente una. No hay vértices fijos, corrección de volumen, preservación de curvatura ni suavizado Taubin. Por ello, (39) desplaza los vértices hacia medias locales y suele contraer el volumen.</p>
+<p>La implementación busca las facetas incidentes recorriendo la lista de triángulos para cada vértice. Su costo directo es</p>
+<p><span class=math-display>\[
+\mathcal O(N_{\mathrm{iter}}N_VN_F),
+\tag{41}
+\]</span></p>
+<p>en lugar de <span class=math-inline>\(\mathcal O(N_{\mathrm{iter}}(N_V+N_F))\)</span> si se construyera una lista de adyacencia una sola vez.</p>
+<h3>8.4 Lectura STL y centrado</h3>
+<p>La ruta inversa lee STL binario, concatena los tres vértices de cada triángulo y elimina duplicados conservando el primer orden. El centro usado es la media aritmética de vértices únicos:</p>
+<p><span class=math-display>\[
+\mathbf c_V=\frac1{N_V}\sum_{i=1}^{N_V}\mathbf v_i.
+\tag{42}
+\]</span></p>
+<p>Los vértices se centran mediante</p>
+<p><span class=math-display>\[
+\widetilde{\mathbf v}_i=\mathbf v_i-\mathbf c_V.
+\tag{43}
+\]</span></p>
+<p><strong>[INTERPRETACIÓN]</strong> <span class=math-inline>\(\mathbf c_V\)</span> no es el centroide de volumen. Una malla con densidad de triangulación no uniforme pondera excesivamente las zonas con más vértices. El centroide volumétrico correcto requeriría integrar tetraedros orientados o voxelizar primero.</p>
+<h3>8.5 Rejilla voxel</h3>
+<p>Para resolución <span class=math-inline>\(h\)</span>, cada eje se genera como</p>
+<p><span class=math-display>\[
+x_i=x_{\min}+(i-1)h,
+\quad
+x_i\leq x_{\max}+h,
+\tag{44}
+\]</span></p>
+<p>y análogamente para <span class=math-inline>\(y,z\)</span>. El término <span class=math-inline>\(+h\)</span> garantiza una capa capaz de cubrir el extremo superior. La rejilla tiene</p>
+<p><span class=math-display>\[
+N_q=N_xN_yN_z
+\tag{45}
+\]</span></p>
+<p>puntos. A resolución isotrópica:</p>
+<p><span class=math-display>\[
+V_{\mathrm{vox}}=h^3.
+\tag{46}
+\]</span></p>
+<p>El número de voxeles escala como <span class=math-inline>\(h^{-3}\)</span>; dividir <span class=math-inline>\(h\)</span> por dos multiplica aproximadamente por ocho memoria y tiempo.</p>
+<p>Las exclusiones históricas por combinación de potencia, número de antenas y tiempo fueron eliminadas. Su intención era rechazar manualmente regiones desconectadas, toroidales o irregulares, pero una etiqueta experimental no demuestra ninguna de esas propiedades.</p>
+<p>Ahora cada STL debe satisfacer simultáneamente:</p>
+<p><span class=math-display>\[
+n_{\mathrm{componentes}}=1,
+\qquad
+n_e(e)=2\quad\forall e,
+\]</span></p>
+<p>donde <span class=math-inline>\(n_e(e)\)</span> es el número de caras incidentes en la arista no orientada <span class=math-inline>\(e\)</span>. La primera condición exige conectividad; la segunda exige una superficie triangular cerrada y 2-manifold. Además se calcula</p>
+<p><span class=math-display>\[
+\chi=|V|-|E|+|F|,
+\qquad
+g=\frac{2-\chi}{2},
+\]</span></p>
+<p>y se acepta sólo <span class=math-inline>\(g=0\)</span>. Así se rechazan toros y superficies con asas/agujeros topológicos. Finalmente, el volumen orientado debe ser positivo en magnitud:</p>
+<p><span class=math-display>\[
+V_{\mathrm{malla}}
+=
+\left|
+\frac16\sum_{(i,j,k)\in F}
+\mathbf v_i\cdot(\mathbf v_j\times\mathbf v_k)
+\right|&gt;0.
+\]</span></p>
+<p>El mismo contrato se aplica después del suavizado, antes de escribir STL, y al leer STL antes de voxelizar. La firma de checkpoint <code>stl_preprocess_v3_topologia</code> obliga a reevaluar archivos producidos con reglas anteriores. Este filtro resuelve conectividad, hermeticidad, manifold y género; no demuestra ausencia de auto-intersecciones geométricas, que permanece como limitación.</p>
+<h3>8.6 Clasificación punto–poliedro con <code>inpolyhedron</code></h3>
+<h4>8.6.1 Supuestos</h4>
+<p>El algoritmo presupone:</p>
+<ol>
+<li>superficie triangular cerrada;</li>
+<li>ausencia de auto-intersecciones relevantes;</li>
+<li>orientación exterior consistente de las normales;</li>
+<li>consulta mediante rayos paralelos al eje <span class=math-inline>\(z\)</span>.</li>
+</ol>
+<p>La procedencia del algoritmo corresponde a <code>inpolyhedron</code> de Sven Holcombe (<a href="https://www.mathworks.com/matlabcentral/fileexchange/37856-inpolyhedron-are-points-inside-a-triangulated-volume">MathWorks File Exchange</a>); el archivo activo contiene adaptaciones y su encabezado vigente especifica normales hacia fuera.</p>
+<h4>8.6.2 Normales y descarte de caras verticales</h4>
+<p>Para una faceta <span class=math-inline>\(f=(\mathbf v_1,\mathbf v_2,\mathbf v_3)\)</span>:</p>
+<p><span class=math-display>\[
+\mathbf n_f
+=
+\frac{(\mathbf v_2-\mathbf v_1)\times(\mathbf v_3-\mathbf v_1)}
+{\|(\mathbf v_2-\mathbf v_1)\times(\mathbf v_3-\mathbf v_1)\|}.
+\tag{47}
+\]</span></p>
+<p>Un rayo vertical no cruza transversalmente una faceta con <span class=math-inline>\(n_{f,z}=0\)</span>; esas facetas se ignoran para la prueba. La clasificación depende, por tanto, de las tapas o caras no verticales que intersecta el rayo.</p>
+<h4>8.6.3 Partición del plano <span class=math-inline>\(xy\)</span></h4>
+<p>Para evitar probar todas las <span class=math-inline>\(N_F\)</span> facetas contra todos los <span class=math-inline>\(N_q\)</span> puntos, las cajas delimitadoras de las proyecciones triangulares se asignan a una rejilla <span class=math-inline>\(G_x\times G_y\)</span>. El tamaño automático <span class=math-inline>\(G\)</span> se obtiene de</p>
+<p><span class=math-display>\[
+\begin{aligned}
+G^\ast={}&amp;-47+12.83x+20.89y+0.7578x^2-6.511xy-2.586y^2\\
+&amp;-0.1802x^3+0.2085x^2y+0.7521xy^2+0.09984y^3\\
+&amp;+0.005815x^4+0.007775x^3y-0.02129x^2y^2-0.02309xy^3,
+\end{aligned}
+\tag{48}
+\]</span></p>
+<p>donde <span class=math-inline>\(x=\log_{10}N_q\)</span>, <span class=math-inline>\(y=\log_{10}N_F\)</span>, seguido de</p>
+<p><span class=math-display>\[
+G=\min(150,\max(1,\lceil G^\ast\rceil)).
+\tag{49}
+\]</span></p>
+<p>Es una heurística de rendimiento; no cambia la geometría ideal si todas las facetas candidatas se asignan correctamente.</p>
+<h4>8.6.4 Punto proyectado dentro del triángulo</h4>
+<p>El algoritmo proyecta la consulta al plano <span class=math-inline>\(xy\)</span> y prueba semiplanos asociados a las aristas. Una formulación equivalente con coordenadas baricéntricas sería</p>
+<p><span class=math-display>\[
+\mathbf q_{xy}
+=
+\lambda_1\mathbf v_{1,xy}
++\lambda_2\mathbf v_{2,xy}
++\lambda_3\mathbf v_{3,xy},
+\qquad
+\lambda_i\geq0,\quad
+\sum_i\lambda_i=1.
+\tag{50}
+\]</span></p>
+<p>El código usa vectores unitarios de arista y desigualdades de productos punto en forma de “V”. En vértices degenerados, los vectores unitarios <code>NaN</code> se tratan como pertenecientes para no abrir huecos numéricos.</p>
+<h4>8.6.5 Distancia vertical firmada</h4>
+<p>Para una consulta <span class=math-inline>\(\mathbf q\)</span> cuya proyección cae en la faceta:</p>
+<p><span class=math-display>\[
+d_f(\mathbf q)
+=
+\frac{\mathbf n_f\cdot(\mathbf q-\mathbf v_1)}
+{|n_{f,z}|}.
+\tag{51}
+\]</span></p>
+<p>El algoritmo conserva la faceta con menor <span class=math-inline>\(|d_f|\)</span>. Si dos facetas equidistantes producen signos opuestos, la contribución se cancela para manejar aristas compartidas. Con normales exteriores, el punto se clasifica dentro si</p>
+<p><span class=math-display>\[
+d_{\min}&lt;\mathrm{tol}.
+\tag{52}
+\]</span></p>
+<p>El valor predeterminado es <span class=math-inline>\(\mathrm{tol}=0\)</span>. Como la distancia se normaliza por <span class=math-inline>\(|n_z|\)</span>, la tolerancia se interpreta principalmente a lo largo del rayo vertical, no como distancia euclidiana exacta a la superficie.</p>
+<h3>8.7 Campo de distancia firmado y truncado</h3>
+<p>Sea <span class=math-inline>\(M(\mathbf q)\in\{0,1\}\)</span> la máscara interior. <code>bwdist</code> calcula una transformada de distancia euclidiana discreta. El código define</p>
+<p><span class=math-display>\[
+D(\mathbf q)
+=
+h\left[
+d(M)(\mathbf q)-d(\neg M)(\mathbf q)
+\right].
+\tag{53}
+\]</span></p>
+<p>Con esta convención:</p>
+<p><span class=math-display>\[
+D&lt;0\quad\text{dentro},\qquad
+D&gt;0\quad\text{fuera}.
+\tag{54}
+\]</span></p>
+<p>El campo truncado es</p>
+<p><span class=math-display>\[
+D_{\mathrm{TSDF}}
+=
+\operatorname{clip}(D,-2h,2h).
+\tag{55}
+\]</span></p>
+<p>No es la distancia exacta a los triángulos: es la distancia euclidiana a la frontera de una máscara muestreada. El error geométrico incluye voxelización, conectividad discreta y posición de la interfaz dentro del voxel. <code>bwdist</code> implementa la transformada de distancia sobre una imagen binaria (<a href="https://www.mathworks.com/help/images/ref/bwdist.html">documentación oficial</a>).</p>
+<h2>9. Correlación simulación–experimento y corrección térmica</h2>
+<h3>9.1 Lectura y eje temporal</h3>
+<p>La primera columna de un archivo experimental se interpreta como tiempo si contiene al menos dos valores finitos y es monótona no decreciente. De lo contrario:</p>
+<p><span class=math-display>\[
+t_i=i-1.
+\tag{56}
+\]</span></p>
+<p>Opcionalmente se convierte segundos a minutos. Tras recortar intervalos, cada serie se traslada a origen:</p>
+<p><span class=math-display>\[
+\widetilde t_i=t_i-t_1.
+\tag{57}
+\]</span></p>
+<p>Se eliminan pares no finitos, se suprimen tiempos duplicados conservando la primera ocurrencia y se ordena.</p>
+<h3>9.2 Sincronización</h3>
+<p>Para una serie experimental y una simulada, el horizonte común es</p>
+<p><span class=math-display>\[
+t_{\max}^{\mathrm{común}}
+=
+\min\left(\max t^{\mathrm{exp}},\max t^{\mathrm{sim}}\right).
+\tag{58}
+\]</span></p>
+<p>Se construyen <span class=math-inline>\(N_c=\max(20,\operatorname{round}N_{\mathrm{solicitado}})\)</span>, normalmente 1000, puntos:</p>
+<p><span class=math-display>\[
+t_k^{c}
+=
+\frac{k-1}{N_c-1}t_{\max}^{\mathrm{común}}.
+\tag{59}
+\]</span></p>
+<p>Ambas curvas se interpolan con PCHIP:</p>
+<p><span class=math-display>\[
+T_k^{e}=\mathcal I_{\mathrm{PCHIP}}(t_k^c),
+\qquad
+T_k^{s}=\mathcal I_{\mathrm{PCHIP}}(t_k^c).
+\tag{60}
+\]</span></p>
+<p>PCHIP es una interpolación cúbica de Hermite que preserva forma y monotonicidad local, es <span class=math-inline>\(C^1\)</span> y evita sobreoscilaciones típicas de un spline cúbico global (<a href="https://www.mathworks.com/help/matlab/ref/pchip.html">MathWorks, <code>pchip</code></a>).</p>
+<h3>9.3 Ajuste polinómico de compatibilidad</h3>
+<p>Se define el error:</p>
+<p><span class=math-display>\[
+\Delta T_k=T_k^s-T_k^e.
+\tag{61}
+\]</span></p>
+<p>Se ajusta por mínimos cuadrados un polinomio</p>
+<p><span class=math-display>\[
+\widehat{\Delta T}(t)
+=
+\sum_{m=0}^{d}a_mt^m,
+\qquad
+d=\min(d_{\mathrm{usuario}},12,N_c-1),
+\tag{62}
+\]</span></p>
+<p>minimizando</p>
+<p><span class=math-display>\[
+\min_{\mathbf a}
+\sum_{k=1}^{N_c}
+\left[
+\Delta T_k-
+\sum_{m=0}^{d}a_m(t_k^c)^m
+\right]^2.
+\tag{63}
+\]</span></p>
+<p>El RMSE es</p>
+<p><span class=math-display>\[
+\mathrm{RMSE}_{\mathrm{poly}}
+=
+\sqrt{\frac1{N_c}
+\sum_k(\Delta T_k-\widehat{\Delta T}_k)^2}.
+\tag{64}
+\]</span></p>
+<p><strong>[IMPLEMENTADO]</strong> Este polinomio se conserva por compatibilidad y diagnóstico, pero no es el modelo principal aplicado al campo térmico.</p>
+<h3>9.4 Modelo aplicado: factor sobre el incremento y offset</h3>
+<p>Se toman las bases</p>
+<p><span class=math-display>\[
+T_0^e=T_1^e,\qquad T_0^s=T_1^s
+\tag{65}
+\]</span></p>
+<p>y los incrementos</p>
+<p><span class=math-display>\[
+\Delta_e(t)=T^e(t)-T_0^e,\qquad
+\Delta_s(t)=T^s(t)-T_0^s.
+\tag{66}
+\]</span></p>
+<p>El umbral de estabilidad es</p>
+<p><span class=math-display>\[
+\delta_s
+=
+\max\left(
+0.5,\;
+0.01\max_t|\Delta_s(t)|
+\right).
+\tag{67}
+\]</span></p>
+<p>Sólo se usan tiempos con <span class=math-inline>\(\Delta_s(t)\geq\delta_s\)</span>. En ellos:</p>
+<p><span class=math-display>\[
+f_{\mathrm{muestra}}(t)
+=
+\operatorname{clip}
+\left(
+\frac{\Delta_e(t)}{\Delta_s(t)},0,1
+\right).
+\tag{68}
+\]</span></p>
+<p>Después se interpola PCHIP, se extrapola y se vuelve a truncar:</p>
+<p><span class=math-display>\[
+f(t)=
+\operatorname{clip}
+\left(
+\mathcal I_{\mathrm{PCHIP}}[
+f_{\mathrm{muestra}}
+](t),0,1
+\right).
+\tag{69}
+\]</span></p>
+<p>Antes del primer tiempo estable se mantiene el primer factor. El desplazamiento basal es</p>
+<p><span class=math-display>\[
+b=T_0^e-T_0^s.
+\tag{70}
+\]</span></p>
+<p>La temperatura corregida de la curva es</p>
+<p><span class=math-display>\[
+T^{\mathrm{corr}}(t)
+=
+T_0^s+b+f(t)\Delta_s(t).
+\tag{71}
+\]</span></p>
+<p>El RMSE aplicado se calcula contra <span class=math-inline>\(T^e\)</span>.</p>
+<p>Consecuencias exactas de (68):</p>
+<ul>
+<li><span class=math-inline>\(f\leq1\)</span>: el modelo puede atenuar el calentamiento simulado, pero no amplificarlo;</li>
+<li>si el experimento calienta más que la simulación, el cociente <span class=math-inline>\(&gt;1\)</span> se satura en 1 y la discrepancia sólo puede compensarse parcialmente con <span class=math-inline>\(b\)</span>;</li>
+<li>incrementos simulados negativos o menores que <span class=math-inline>\(\delta_s\)</span> no se usan para estimar el factor;</li>
+<li>una región de enfriamiento queda fuera del ajuste principal.</li>
+</ul>
+<h3>9.5 Zonas axiales</h3>
+<p>Las profundidades simuladas son</p>
+<p><span class=math-display>\[
+\mathbf z_s=(18.6,25.2,31.8,38.4)\ \mathrm{mm},
+\tag{72}
+\]</span></p>
+<p>y se asocian a profundidades experimentales</p>
+<p><span class=math-display>\[
+\mathbf z_e=(26.4,19.8,13.2,6.6)\ \mathrm{mm}.
+\tag{73}
+\]</span></p>
+<p>El orden opuesto representa una convención axial invertida entre simulación y experimento. Cada par se ajusta de forma independiente.</p>
+<p>Los límites de zona se calculan como puntos medios:</p>
+<p><span class=math-display>\[
+e_i=\frac{z_{s,i}+z_{s,i+1}}2,
+\tag{74}
+\]</span></p>
+<p>de modo que</p>
+<p><span class=math-display>\[
+\mathbf e=(-\infty,21.9,28.5,35.1,+\infty)\ \mathrm{mm}.
+\tag{75}
+\]</span></p>
+<p>Un punto con coordenada <span class=math-inline>\(z\)</span> recibe el factor de su zona. Todas las zonas salvo la última usan intervalo semiabierto; la última incluye el extremo superior.</p>
+<h3>9.6 Intensidad de corrección</h3>
+<p>La temperatura basal es una referencia <strong>espacial</strong> definida para datasets con campo completo:</p>
+<p><span class=math-display>\[
+T_{\mathrm{base},q}=T(\mathbf x_q,t_1),
+\]</span></p>
+<p>donde <span class=math-inline>\(t_1\)</span> es el primer tiempo almacenado por COMSOL. No representa una temperatura corporal universal ni se estima desde el primer punto de una nube filtrada. Es necesaria porque el factor experimental actúa sobre el incremento local <span class=math-inline>\(\Delta T_q(t)=T(\mathbf x_q,t)-T_{\mathrm{base},q}\)</span>. Se usa al previsualizar y exportar un dataset corregido, y al corregir un campo futuro ya pronosticado; no modifica el dataset original. Si sólo existen snapshots umbralizados, la base espacial no puede recuperarse y esa ruta se rechaza.</p>
+<p>En el procesador 4D, una intensidad <span class=math-inline>\(\eta\in[0,1]\)</span> modifica:</p>
+<p><span class=math-display>\[
+f_{\mathrm{ef}}(t)
+=
+1+\eta[f(t)-1],
+\tag{76}
+\]</span></p>
+<p><span class=math-display>\[
+b_{\mathrm{ef}}=\eta b
+\quad\text{si el offset está habilitado}.
+\tag{77}
+\]</span></p>
+<p>Para un campo <span class=math-inline>\(T(\mathbf x,t)\)</span> con base <span class=math-inline>\(T_{\mathrm{base}}(\mathbf x)\)</span>:</p>
+<p><span class=math-display>\[
+T_{\mathrm{corr}}(\mathbf x,t)
+=
+T_{\mathrm{base}}(\mathbf x)
++b_{\mathrm{ef}}
++f_{\mathrm{ef}}(t)
+\left[
+T(\mathbf x,t)-T_{\mathrm{base}}(\mathbf x)
+\right].
+\tag{78}
+\]</span></p>
+<p>Por construcción:</p>
+<p><span class=math-display>\[
+\eta=0\Rightarrow T_{\mathrm{corr}}=T,
+\qquad
+\eta=1\Rightarrow\text{corrección completa}.
+\tag{79}
+\]</span></p>
+<p>Finalmente:</p>
+<p><span class=math-display>\[
+T_{\mathrm{corr}}
+\leftarrow
+\min(T_{\mathrm{corr}},T_{\mathrm{cap}}),
+\tag{80}
+\]</span></p>
+<p>donde el límite es el mínimo entre el valor configurado, <span class=math-inline>\(120^\circ\mathrm C\)</span> y el máximo experimental disponible entre modelo global y zonas.</p>
+<h3>9.7 Consistencia resuelta y alcance del visualizador</h3>
+<p>La previsualización nativa, la corrección del volumen futuro y el exportador llaman una única implementación local de (76)–(80). Por tanto, <span class=math-inline>\(\eta=0\)</span> conserva el campo y el offset también se escala por <span class=math-inline>\(\eta\)</span> en las tres rutas.</p>
+<p>El manejador visual ya no evalúa <span class=math-inline>\(f(t)\)</span>, no aplica offsets y no crea un campo corregido en memoria. Lee el dataset corregido producido por el procesador y representa sus valores almacenados. Las curvas de un archivo de corrección se grafican como contenido del artefacto, no como una nueva transformación del dataset.</p>
+<h2>10. Extrapolación del factor de corrección</h2>
+<h3>10.1 Separación entre corrección nativa y campo futuro</h3>
+<p>Sea <span class=math-inline>\(N_s=21\)</span> el número usual de estados temporales COMSOL. Si una adquisición experimental contiene <span class=math-inline>\(N_e=11\)</span> muestras, no se reconstruye todavía ningún volumen espacial. Sólo se ajusta el factor escalar <span class=math-inline>\(f(t)\)</span> con esas 11 muestras y se evalúa en los 21 tiempos nativos:</p>
+<p><span class=math-display>\[
+\{f(t_j)\}_{j=1}^{21}
+\longrightarrow
+\{T_{\mathrm{corr}}(\mathbf x_q,t_j)\}_{j=1}^{21}.
+\]</span></p>
+<p>Esto permite comparar, sobre el mismo campo COMSOL, una corrección aprendida con 11 muestras contra otra aprendida con 21. La interpolación espacial y el cálculo de volúmenes sólo se ejecutan cuando <span class=math-inline>\(t_{\mathrm{horizonte}}&gt;t_{21}\)</span>. Con menos de ocho muestras o un subespacio SSA degenerado, se usa una tendencia lineal ajustada a las últimas cuatro observaciones.</p>
+<p>En la interfaz activa, el catálogo térmico y la carpeta de salida no son parámetros del usuario: se resuelven respectivamente desde <code>dataset_default</code> —que prioriza <code>datasets_masivos_por_metadata</code> cuando existe— y <code>paths.datasets_corregidos_por_metadata</code>. La previsualización nativa tampoco tiene botón. Se genera automáticamente cuando los filtros de tipo, antenas, caso, potencia, fecha, tiempo experimental, prueba y zona contienen valores específicos, la combinación modelo/dataset es única y la corrección correspondiente fue resuelta sin ambigüedad. El botón físico se conserva únicamente para construir el pronóstico espacial posterior al último tiempo nativo.</p>
+<p>Cambiar resolución espacial, umbral, horizonte o método invalida sólo el pronóstico futuro; la previsualización nativa permanece en memoria porque no depende de una malla 4D. Cambiar la identidad del dataset o dejar incompletos los filtros sí invalida esa previsualización.</p>
+<p>La interfaz obtiene los tiempos mediante <code>tiempos_nativos_ext</code>, una función local del procesador visible para ambos callbacks. Esta separación evita llamar desde la interfaz a auxiliares encapsulados dentro del exportador integrado, que fue la causa del error <code>Undefined function for input arguments</code> en las rutas de previsualización y pronóstico.</p>
+<h3>10.2 SSA clásica: agrupación, promediado diagonal y recurrencia</h3>
+<p>Con al menos ocho muestras válidas se ordena la serie completa, se remuestrea uniformemente y se centra:</p>
+<p><span class=math-display>\[
+   y_i=f_i-\bar f;
+   \]</span></p>
+<p>Se toma</p>
+<p><span class=math-display>\[
+   L
+   =
+   \min\left[
+   80,\;
+   \max\left(4,\left\lfloor\frac n3\right\rfloor\right),\;
+   n-2
+   \right],
+   \quad
+   K=n-L+1;
+   \tag{85}
+   \]</span></p>
+<p>Se forma una matriz de trayectoria Hankel:</p>
+<p><span class=math-display>\[
+   X=
+   \begin{bmatrix}
+   y_1&amp;y_2&amp;\cdots&amp;y_K\\
+   y_2&amp;y_3&amp;\cdots&amp;y_{K+1}\\
+   \vdots&amp;\vdots&amp;\ddots&amp;\vdots\\
+   y_L&amp;y_{L+1}&amp;\cdots&amp;y_n
+   \end{bmatrix};
+   \tag{86}
+   \]</span></p>
+<p>Se calcula</p>
+<p><span class=math-display>\[
+   X=U\Sigma V^\top;
+   \tag{87}
+   \]</span></p>
+<p>Se elige el menor rango <span class=math-inline>\(r\)</span> tal que</p>
+<p><span class=math-display>\[
+   \frac{\sum_{i=1}^r\sigma_i^2}
+   {\sum_i\sigma_i^2}\geq0.99,
+   \tag{88}
+   \]</span></p>
+<p>   limitado por <span class=math-inline>\(1\le r\le\min(8,L-2)\)</span>. Los eigentriples seleccionados se agrupan:</p>
+<p><span class=math-display>\[
+X_r=U_r\Sigma_rV_r^\top.
+\]</span></p>
+<p>La reconstrucción unidimensional aplica promediado diagonal. Para la antidiagonal <span class=math-inline>\(i+j-1=k\)</span>:</p>
+<p><span class=math-display>\[
+\widetilde y_k=
+\frac{1}{n_k}\sum_{i+j-1=k}(X_r)_{ij},
+\qquad
+n_k=\#\{(i,j):i+j-1=k\}.
+\]</span></p>
+<p>Esta etapa hace que la implementación sea SSA clásica completa y no sólo una SVD de la matriz Hankel.</p>
+<p>Con <span class=math-inline>\(U_r\)</span> y su última fila <span class=math-inline>\(\boldsymbol\pi\)</span>, los coeficientes de recurrencia son</p>
+<p><span class=math-display>\[
+\mathbf a
+=
+\frac{U_r(1{:}L-1,:)\boldsymbol\pi^\top}
+{1-\|\boldsymbol\pi\|_2^2}.
+\tag{89}
+\]</span></p>
+<p>Si el denominador es <span class=math-inline>\(\le10^{-8}\)</span>, se usa el modelo constante. La predicción recursiva es</p>
+<p><span class=math-display>\[
+\widehat y_{n+1}
+=
+\mathbf a^\top
+\begin{bmatrix}
+\widetilde y_{n-L+2}-\bar f\\ \vdots\\\widetilde y_n-\bar f
+\end{bmatrix},
+\tag{90}
+\]</span></p>
+<p>con desplazamiento de la ventana en pasos sucesivos.</p>
+<p>La ventana se desplaza sobre la historia reconstruida y centrada. El factor final se limita a <span class=math-inline>\([0,1]\)</span>. El fundamento metodológico es <a href="https://doi.org/10.1002/wics.1487">Golyandina (2020)</a>. Como evidencia biomédica reciente —sin afirmar equivalencia con MWA— existen implementaciones SSA completas para ECG y EEG (<a href="https://doi.org/10.1016/j.cmpb.2019.105304">Mukhopadhyay y Krishnan, 2020</a>; <a href="https://doi.org/10.1016/j.bspc.2021.102647">Maddirala et al., 2021</a>) y pronóstico recurrente SSA en series de salud pública (<a href="https://doi.org/10.3389/fpubh.2021.604093">Abdullah et al., 2021</a>).</p>
+<p>Previsualización y exportación evalúan la misma recurrencia y aplican interpolación lineal entre pasos futuros, por lo que un mismo archivo de corrección, intensidad y tiempo produce el mismo factor.</p>
+<h2>11. Construcción y extrapolación del campo térmico 4D</h2>
+<p>Esta sección sólo se ejecuta para tiempos posteriores al último estado COMSOL. Seleccionar un tiempo dentro de los 21 estados nativos activa la previsualización directa descrita en 10.1 y no llama <code>scatteredInterpolant</code>, no crea una rejilla <span class=math-inline>\(45^3\)</span> y no calcula volúmenes. La separación evita que la exportación de un dataset corregido dependa de una reconstrucción espacial innecesaria.</p>
+<h3>11.1 Fuente espacial</h3>
+<p>Se prefiere <code>full_field</code> si su número de columnas coincide con <span class=math-inline>\(N_t\)</span>. En caso contrario se concatenan nubes de instantáneas. Esta segunda ruta hereda el sesgo de (28).</p>
+<p>La caja espacial se expande 5 % por dimensión. Con valores predeterminados:</p>
+<p><span class=math-display>\[
+N_x=N_y=N_z=45,
+\qquad
+N_q=45^3=91\,125.
+\tag{95}
+\]</span></p>
+<p>Para cada tiempo se crea:</p>
+<p><span class=math-display>\[
+\mathcal F_j(\mathbf x)
+=
+\operatorname{scatteredInterpolant}
+\left[
+\{\mathbf p_i,T_i(t_j)\},
+\text{lineal},
+\text{lineal}
+\right].
+\tag{96}
+\]</span></p>
+<p>La interpolación se apoya en una triangulación de Delaunay y la extrapolación espacial también es lineal. MathWorks advierte que <code>scatteredInterpolant</code> usa Delaunay y puede ser sensible al escalamiento de coordenadas (<a href="https://www.mathworks.com/help/matlab/ref/scatteredinterpolant.html">documentación oficial</a>).</p>
+<p>El campo discretizado es</p>
+<p><span class=math-display>\[
+T_{qj}=\mathcal F_j(\mathbf x_q).
+\tag{97}
+\]</span></p>
+<p>Aunque el código prepara variables de tiempo fino, la interpolación temporal fina está deshabilitada; las columnas de fuente permanecen en los tiempos válidos originales.</p>
+<h3>11.2 Volumen por isoterma</h3>
+<p>Con</p>
+<p><span class=math-display>\[
+V_{\mathrm{vox}}
+=
+\frac{x_{\max}-x_{\min}}{N_x-1}
+\frac{y_{\max}-y_{\min}}{N_y-1}
+\frac{z_{\max}-z_{\min}}{N_z-1},
+\tag{98}
+\]</span></p>
+<p>donde la expresión representa el producto de los tres cocientes, el volumen es</p>
+<p><span class=math-display>\[
+V_{\mathrm{abl}}(t_j)
+=
+V_{\mathrm{vox}}
+\sum_{q=1}^{N_q}
+\mathbb1[
+T_{qj}\text{ finita}
+\land
+T_{qj}\geq T_{\mathrm{abl}}
+].
+\tag{99}
+\]</span></p>
+<p>La cuadratura es una suma de Riemann sobre nodos tratados como voxeles completos. En una frontera oblicua, el error de volumen es de primer orden respecto de la resolución en ausencia de corrección de fracción de celda.</p>
+<h3>11.3 Tiempos extrapolados</h3>
+<p>Los tiempos futuros son minutos enteros:</p>
+<p><span class=math-display>\[
+t_{\mathrm{extra}}
+=
+\{\lfloor t_{\mathrm{fin}}\rfloor+1,\ldots,
+\lfloor t_{\mathrm{horizonte}}\rfloor\}.
+\tag{100}
+\]</span></p>
+<p>Si <span class=math-inline>\(t_{\mathrm{fin}}\)</span> no es entero, el primer salto es menor que un minuto.</p>
+<h3>11.4 Gradiente temporal local</h3>
+<p>Se usan los últimos</p>
+<p><span class=math-display>\[
+k=\min(12,N_t)
+\tag{101}
+\]</span></p>
+<p>instantes. Con <span class=math-inline>\(\tau_i=t_i-t_{\mathrm{fin}}\)</span>, <span class=math-inline>\(a_q=T_q(t_{\mathrm{fin}})\)</span> y</p>
+<p><span class=math-display>\[
+S_{xx}=\sum_i\tau_i^2,
+\tag{102}
+\]</span></p>
+<p>la pendiente restringida a pasar por el último valor es</p>
+<p><span class=math-display>\[
+b_q=\frac{\sum_i[T_q(t_i)-a_q]\tau_i}{S_{xx}}.
+\tag{103}
+\]</span></p>
+<p>La extrapolación es</p>
+<p><span class=math-display>\[
+\widehat T_q^{\mathrm{grad}}(t)
+=
+a_q+b_q(t-t_{\mathrm{fin}}).
+\tag{104}
+\]</span></p>
+<p>El residuo:</p>
+<p><span class=math-display>\[
+\mathrm{RMSE}_q^{\mathrm{grad}}
+=
+\sqrt{
+\frac1k
+\sum_i
+\left[T_q(t_i)-a_q-b_q\tau_i\right]^2
+}.
+\tag{105}
+\]</span></p>
+<p>La banda heurística:</p>
+<p><span class=math-display>\[
+\sigma_q^{\mathrm{grad}}(t)
+=
+\mathrm{RMSE}_q^{\mathrm{grad}}
+\sqrt{1+\frac{(t-t_{\mathrm{fin}})^2}{S_{xx}}}.
+\tag{106}
+\]</span></p>
+<p>No es un intervalo de confianza calibrado: no incluye cuantiles, grados de libertad, ruido heterocedástico ni correlación temporal.</p>
+<h3>11.5 Ajuste cuadrático ponderado llamado “LOWESS”</h3>
+<p>Para cada voxel se ajusta una sola regresión cuadrática al tramo final:</p>
+<p><span class=math-display>\[
+T_q(t_i)
+\approx
+\beta_{0q}+\beta_{1q}\tau_i+\beta_{2q}\tau_i^2.
+\tag{107}
+\]</span></p>
+<p>Con ancho temporal <span class=math-inline>\(s\)</span>:</p>
+<p><span class=math-display>\[
+u_i=\frac{t_i-t_{\mathrm{fin}}}{s},
+\qquad
+w_i=\left[\max(1-|u_i|^3,0)\right]^3.
+\tag{108}
+\]</span></p>
+<p>Definiendo</p>
+<p><span class=math-display>\[
+\Phi=
+\begin{bmatrix}
+1&amp;\tau_1&amp;\tau_1^2\\
+\vdots&amp;\vdots&amp;\vdots\\
+1&amp;\tau_k&amp;\tau_k^2
+\end{bmatrix},
+\quad W=\operatorname{diag}(w_i),
+\tag{109}
+\]</span></p>
+<p>los coeficientes son</p>
+<p><span class=math-display>\[
+\boldsymbol\beta_q
+=
+(\Phi^\top W\Phi+10^{-8}I)^{-1}
+\Phi^\top W\mathbf T_q.
+\tag{110}
+\]</span></p>
+<p>Después se fuerza</p>
+<p><span class=math-display>\[
+\beta_{0q}=T_q(t_{\mathrm{fin}})
+\tag{111}
+\]</span></p>
+<p>para continuidad, y</p>
+<p><span class=math-display>\[
+\widehat T_q^{\mathrm{low}}(t)
+=
+\beta_{0q}+\beta_{1q}\Delta t+\beta_{2q}\Delta t^2.
+\tag{112}
+\]</span></p>
+<p>El nombre “LOWESS” debe interpretarse con cautela. LOWESS clásico realiza regresiones locales móviles para cada punto objetivo; aquí se hace un único ajuste terminal ponderado con pesos tricúbicos y se extrapola. La familia de ponderación es coherente con LOWESS, pero no hay suavizado móvil completo (<a href="https://www.mathworks.com/help/curvefit/smoothing-data.html">MathWorks, <em>Smoothing Data</em></a>).</p>
+<p>La incertidumbre heurística se amplifica linealmente:</p>
+<p><span class=math-display>\[
+\sigma_q^{\mathrm{low}}(t)
+=
+\mathrm{RMSE}_{q,w}
+\left(1+\frac{|t-t_{\mathrm{fin}}|}{s}\right).
+\tag{113}
+\]</span></p>
+<h3>11.6 Reducción de campo mediante POD/SVD y dos pronósticos modales</h3>
+<p>Para la matriz <span class=math-inline>\(T\in\mathbb R^{N_q\times N_t}\)</span>, se calcula la media temporal por voxel:</p>
+<p><span class=math-display>\[
+\mu_q
+=
+\operatorname{mean}_{j,\mathrm{omitnan}}T_{qj}.
+\tag{114}
+\]</span></p>
+<p>Los datos centrados son</p>
+<p><span class=math-display>\[
+X_{qj}=T_{qj}-\mu_q,
+\tag{115}
+\]</span></p>
+<p>y los valores no finitos se sustituyen por cero. Se descompone</p>
+<p><span class=math-display>\[
+X=U\Sigma V^\top.
+\tag{116}
+\]</span></p>
+<p>El rango <span class=math-inline>\(r\)</span> alcanza 99 % de energía:</p>
+<p><span class=math-display>\[
+\frac{\sum_{i=1}^r\sigma_i^2}
+{\sum_i\sigma_i^2}\ge0.99,
+\tag{117}
+\]</span></p>
+<p>pero se fuerza al menos</p>
+<p><span class=math-display>\[
+r\geq\min(3,N_\sigma).
+\tag{118}
+\]</span></p>
+<p>Para un campo físico espacio–tiempo, esta SVD de snapshots se denomina <strong>proper orthogonal decomposition</strong> (POD). Los coeficientes modales son las filas de</p>
+<p><span class=math-display>\[
+A=\Sigma_rV_r^\top\in\mathbb R^{r\times N_t}.
+\]</span></p>
+<p>Se conservan dos pronósticos para comparación académica. En <code>POD/SVD + tendencia modal</code>, cada coeficiente se extrapola con su última diferencia:</p>
+<p><span class=math-display>\[
+\widehat A_i^{\mathrm{lin}}(t)
+= 
+A_i(t_{\mathrm{fin}})
++
+\frac{A_i(t_{\mathrm{fin}})-A_i(t_{N_t-1})}
+{t_{\mathrm{fin}}-t_{N_t-1}}
+(t-t_{\mathrm{fin}}).
+\tag{119}
+\]</span></p>
+<p>En <code>POD/SVD + SSA recurrente</code>, cada fila <span class=math-inline>\(A_i(t_j)\)</span> se ajusta por la SSA completa de la sección 10 y se pronostica recurrentemente:</p>
+<p><span class=math-display>\[
+\widehat A_i^{\mathrm{ssa}}(t)
+=\operatorname{SSAforecast}\left(\{A_i(t_j)\}_{j=1}^{N_t},t\right).
+\]</span></p>
+<p>Las dos reconstrucciones son</p>
+<p><span class=math-display>\[
+\widehat T^{m}(t)
+=
+\boldsymbol\mu
++U_r\widehat{\mathbf A}^{m}(t),
+\qquad m\in\{\mathrm{lin},\mathrm{ssa}\}.
+\tag{120}
+\]</span></p>
+<p>Finalmente se suma el residuo del último snapshot para conservar continuidad con el campo fuente. La POD reduce la dimensión espacial; SSA sólo pronostica los coeficientes temporales. No son nombres intercambiables ni dos ejecuciones de la misma tarea.</p>
+<p>La banda heurística de ambos métodos POD se toma como promedio:</p>
+<p><span class=math-display>\[
+\sigma^{\mathrm{pod}}
+=
+\frac{
+\sigma^{\mathrm{grad}}+\sigma^{\mathrm{low}}
+}{2}.
+\tag{121}
+\]</span></p>
+<p>De nuevo, (121) no tiene interpretación probabilística.</p>
+<p><a href="https://doi.org/10.3390/app10113729">Chen et al. (2020)</a> implementaron POD para reconstrucción rápida de campos de temperatura simulados y experimentales. En una aplicación biomédica más cercana, <a href="https://doi.org/10.1002/mp.15811">VilasBoas-Ribeiro et al. (2022)</a> combinaron POD y filtrado de Kalman para estimación 3D de temperatura mediante termometría MR durante hipertermia; esa evidencia respalda la pertinencia bio-térmica de reducir campos, pero no valida por sí misma el pronóstico SSA ni MWA.</p>
+<h3>11.7 Interpolante 4D y corrección posterior</h3>
+<p>Se concatena el campo fuente con la estrategia extrapolada seleccionada y se crea un <code>griddedInterpolant</code> lineal en <span class=math-inline>\((x,y,z,t)\)</span>, también con extrapolación lineal:</p>
+<p><span class=math-display>\[
+\mathcal G(x,y,z,t)
+\approx T(x,y,z,t).
+\tag{122}
+\]</span></p>
+<p>La corrección (78) se aplica después de extrapolar, usando como base el primer campo fuente por punto espacial. Ese orden significa:</p>
+<p><span class=math-display>\[
+\text{resultado}
+=
+\mathcal C\big(\mathcal E(T)\big),
+\tag{123}
+\]</span></p>
+<p>no <span class=math-inline>\(\mathcal E(\mathcal C(T))\)</span>. Las operaciones no conmutan si el factor extrapolado, el cap o el offset son no lineales.</p>
+<h3>11.8 Particularidad del exportador masivo</h3>
+<p>Para <code>full_field</code>, la base correcta es la primera columna temporal de cada punto:</p>
+<p><span class=math-display>\[
+T_{\mathrm{base},q}=T_{q1}.
+\tag{124}
+\]</span></p>
+<p>La ruta anterior que repetía la temperatura del primer punto de un snapshot fue eliminada. Si falta <code>full_field</code>, el exportador detiene la corrección porque la historia basal por coordenada no es identificable.</p>
+<p>Tras corregir la nube se filtra otra vez:</p>
+<p><span class=math-display>\[
+T_{\mathrm{corr}}\geq T_{\mathrm{abl}}.
+\tag{126}
+\]</span></p>
+<p>Las sondas sí usan su primera muestra temporal como base.</p>
+<h2>12. Matemática del manejador visual</h2>
+<p>Este módulo es estrictamente de lectura. No produce archivos, no aplica la corrección, no construye <code>scatteredInterpolant</code>, no calcula voxeles y no genera la distribución consumida por el optimizador. Sus únicas operaciones numéricas son selección, resumen y submuestreo para dibujar valores ya almacenados.</p>
+<p>Cuando se selecciona un dataset corregido, el visualizador intenta resolver su par sin corrección sin transformar datos. Primero lee <code>partition_meta.ruta_entrada</code>, que constituye la referencia explícita al archivo fuente. Si esa ruta ya no es válida, busca en el catálogo original una entrada no corregida que satisfaga simultáneamente</p>
+<p><span class=math-display>\[
+(m,d,\tau,a,c,P)_{\mathrm{base}}
+=
+(m,d,\tau,a,c,P)_{\mathrm{corregido}},
+\]</span></p>
+<p>donde <span class=math-inline>\(m\)</span> es el modelo, <span class=math-inline>\(d\)</span> el tag del dataset, <span class=math-inline>\(\tau\)</span> el tipo de antena, <span class=math-inline>\(a\)</span> la configuración de antenas, <span class=math-inline>\(c\)</span> el caso y <span class=math-inline>\(P\)</span> la potencia. Fecha, prueba, tiempo experimental, número de zonas y <code>tag_correccion</code> identifican la corrección y por ello no se exigen al archivo base. El selector <strong>Corregido / Simulado-base</strong> cambia entre matrices <code>full_field.T_C</code> ya almacenadas. Si no existe un par verificable, sólo se ofrece el archivo seleccionado; no se estima, invierte ni reaplica la corrección.</p>
+<h3>12.1 Submuestreo determinista</h3>
+<p>Si hay más de <span class=math-inline>\(N_{\max}\)</span> puntos se toman índices aproximadamente equiespaciados:</p>
+<p><span class=math-display>\[
+i_k
+=
+\operatorname{round}
+\left[
+1+\frac{k-1}{N_{\max}-1}(N-1)
+\right],
+\qquad k=1,\ldots,N_{\max}.
+\tag{127}
+\]</span></p>
+<p>No es un muestreo aleatorio ni estratificado por volumen o temperatura. Regiones pequeñas pueden quedar subrepresentadas.</p>
+<p>Para las proyecciones se conservan como máximo 40 000 puntos y para la vista 3D, 50 000. Este submuestreo sólo afecta la figura; nunca se guarda ni se usa para calcular un volumen.</p>
+<h3>12.2 Representación sin reconstrucción</h3>
+<p>El selector temporal elige una columna existente <span class=math-inline>\(T_C(:,j)\)</span>. Los planos XY, XZ y YZ son proyecciones de los puntos guardados coloreadas por <span class=math-inline>\(T_C(:,j)\)</span>; no son cortes de un campo interpolado. La vista 3D representa el subconjunto visual <span class=math-inline>\(T_C(:,j)\ge55^\circ\mathrm C\)</span>. Si el archivo ya contiene un <code>Fgrid</code> exportado, el visualizador puede renderizar ese campo existente, pero no lo reconstruye desde el dataset.</p>
+<h3>12.3 Resúmenes permitidos</h3>
+<p>Para una inspección rápida se muestran <span class=math-inline>\(\min_qT_{qj}\)</span>, <span class=math-inline>\(\operatorname{mean}_qT_{qj}\)</span> y <span class=math-inline>\(\max_qT_{qj}\)</span> de cada columna almacenada. No se convierte el conteo de puntos en milímetros cúbicos. Las curvas de volumen sólo se presentan cuando ya existen dentro de un artefacto 4D exportado por el procesador.</p>
+<h2>13. Optimización geométrica tridimensional</h2>
+<h3>13.1 Calibración del tumor respecto de una superficie de acceso</h3>
+<p>La geometría del tumor y, si existen, tejidos auxiliares se centra transversalmente usando la media de sus vértices y se traslada en <span class=math-inline>\(z\)</span> para que:</p>
+<p><span class=math-display>\[
+z_{\min}=0.
+\tag{134}
+\]</span></p>
+<p>Las extensiones son</p>
+<p><span class=math-display>\[
+\ell_x=x_{\max}-x_{\min},\quad
+\ell_y=y_{\max}-y_{\min},\quad
+\ell_z=z_{\max}-z_{\min}.
+\tag{135}
+\]</span></p>
+<p>Los dos ejes con mayor <span class=math-inline>\(\ell\)</span> son los únicos ejes habilitados para las dos variables angulares del optimizador.</p>
+<p>El usuario selecciona una cara. Se elige el triángulo cuyo centroide</p>
+<p><span class=math-display>\[
+\mathbf c_f=\frac{\mathbf v_1+\mathbf v_2+\mathbf v_3}{3}
+\tag{136}
+\]</span></p>
+<p>minimiza la distancia al punto indicado:</p>
+<p><span class=math-display>\[
+f^\ast=\arg\min_f\|\mathbf c_f-\mathbf p_{\mathrm{clic}}\|_2.
+\tag{137}
+\]</span></p>
+<p>Su normal se calcula por (47). Si</p>
+<p><span class=math-display>\[
+\mathbf n_f\cdot
+\left(
+\mathbf c_f-\overline{\mathbf v}
+\right)&lt;0,
+\tag{138}
+\]</span></p>
+<p>se invierte para apuntar hacia fuera.</p>
+<h3>13.2 Rotación de calibración</h3>
+<p>La normal exterior <span class=math-inline>\(\mathbf n\)</span> se alinea con</p>
+<p><span class=math-display>\[
+\mathbf e_z=(0,0,1)^\top.
+\]</span></p>
+<p>Para el caso general:</p>
+<p><span class=math-display>\[
+\mathbf a=\frac{\mathbf n\times\mathbf e_z}
+{\|\mathbf n\times\mathbf e_z\|},
+\qquad
+\theta=\arccos(\mathbf n\cdot\mathbf e_z).
+\tag{139}
+\]</span></p>
+<p>Con la matriz antisimétrica</p>
+<p><span class=math-display>\[
+K=
+\begin{bmatrix}
+0&amp;-a_z&amp;a_y\\
+a_z&amp;0&amp;-a_x\\
+-a_y&amp;a_x&amp;0
+\end{bmatrix},
+\tag{140}
+\]</span></p>
+<p>Rodrigues da</p>
+<p><span class=math-display>\[
+R_{\mathrm{cal}}
+=I+\sin\theta K+(1-\cos\theta)K^2.
+\tag{141}
+\]</span></p>
+<p>Si las normales ya son paralelas, <span class=math-inline>\(R_{\mathrm{cal}}=I\)</span>. Si son antiparalelas, el código adopta</p>
+<p><span class=math-display>\[
+R_{\mathrm{cal}}=\operatorname{diag}(1,-1,-1),
+\tag{142}
+\]</span></p>
+<p>una rotación de <span class=math-inline>\(\pi\)</span> alrededor de <span class=math-inline>\(x\)</span>. Después se vuelve a desplazar la geometría para que <span class=math-inline>\(z_{\min}=0\)</span>. La altura de acceso es el componente <span class=math-inline>\(z\)</span> del centroide de la cara ya calibrada:</p>
+<p><span class=math-display>\[
+z_{\mathrm{acceso}}=(R_{\mathrm{cal}}\mathbf c_{f^\ast})_z+\Delta z.
+\tag{143}
+\]</span></p>
+<h3>13.3 Rejilla del tumor y puntos de inicio</h3>
+<p>Se determina un radio de margen:</p>
+<p><span class=math-display>\[
+r_{\max}
+=
+\max\left(
+|x_{\mathrm{extremos}}|,
+|y_{\mathrm{extremos}}|,
+|z_{\mathrm{extremos}}|
+\right)+5\ \mathrm{mm},
+\tag{144}
+\]</span></p>
+<p>tomado de los primeros y últimos valores de los ejes de todas las distribuciones. No es un radio euclidiano ni la máxima norma de los vértices.</p>
+<p>La caja del tumor se expande por <span class=math-inline>\(r_{\max}\)</span>, y se crean:</p>
+<ul>
+<li>rejilla fina <span class=math-inline>\(h_f=0.5\)</span> mm;</li>
+<li>rejilla gruesa <span class=math-inline>\(h_c=1.5\)</span> mm.</li>
+</ul>
+<p>Cada rejilla se clasifica con <code>inpolyhedron</code>. El volumen tumoral discreto es</p>
+<p><span class=math-display>\[
+V_{\mathcal T}
+=
+h^3\sum_qM_{\mathcal T}(\mathbf q).
+\tag{145}
+\]</span></p>
+<p>Los centros iniciales “accesibles” son puntos gruesos dentro del tumor y</p>
+<p><span class=math-display>\[
+z\geq z_{\mathrm{acceso}}-2h_c.
+\tag{146}
+\]</span></p>
+<p>Si el conjunto es vacío se usan todos los puntos interiores.</p>
+<p><strong>[HALLAZGO]</strong> (146) sólo construye el enjambre inicial. Las iteraciones posteriores pueden mover la traslación a cualquier punto de la caja delimitadora del tumor; tampoco se impone que el centro permanezca dentro del tumor.</p>
+<h3>13.4 Variable de diseño y límites</h3>
+<p><span class=math-display>\[
+\mathbf p=(t_x,t_y,t_z,r_1,r_2).
+\tag{147}
+\]</span></p>
+<p>Los límites de traslación son los extremos de la caja del tumor. Los angulares:</p>
+<p><span class=math-display>\[
+-15^\circ\leq r_1\leq15^\circ,
+\qquad
+0\leq r_2\leq\pi.
+\tag{148}
+\]</span></p>
+<p>El segundo intervalo es asimétrico y cubre media vuelta; no equivale a <span class=math-inline>\([-90^\circ,90^\circ]\)</span>.</p>
+<p>Las variables <span class=math-inline>\(r_1,r_2\)</span> se asignan a los dos ejes de mayor extensión mediante <code>mapear_ejes</code>; el tercer ángulo se fija a cero. Las matrices elementales son</p>
+<p><span class=math-display>\[
+R_x=
+\begin{bmatrix}
+1&amp;0&amp;0\\
+0&amp;\cos r_x&amp;-\sin r_x\\
+0&amp;\sin r_x&amp;\cos r_x
+\end{bmatrix},
+\tag{149}
+\]</span></p>
+<p><span class=math-display>\[
+R_y=
+\begin{bmatrix}
+\cos r_y&amp;0&amp;\sin r_y\\
+0&amp;1&amp;0\\
+-\sin r_y&amp;0&amp;\cos r_y
+\end{bmatrix},
+\quad
+R_z=
+\begin{bmatrix}
+\cos r_z&amp;-\sin r_z&amp;0\\
+\sin r_z&amp;\cos r_z&amp;0\\
+0&amp;0&amp;1
+\end{bmatrix},
+\tag{150}
+\]</span></p>
+<p>y</p>
+<p><span class=math-display>\[
+R=R_zR_yR_x.
+\tag{151}
+\]</span></p>
+<p>La transformación local→global es</p>
+<p><span class=math-display>\[
+\mathbf q_g=R\mathbf q_\ell+\mathbf t.
+\tag{152}
+\]</span></p>
+<p>La inversa usada para consultar la máscara de la distribución es</p>
+<p><span class=math-display>\[
+\mathbf q_\ell=R^\top(\mathbf q_g-\mathbf t),
+\tag{153}
+\]</span></p>
+<p>válida porque <span class=math-inline>\(R^\top R=I\)</span>.</p>
+<h3>13.5 Evaluación de intersección</h3>
+<p>Se transforman las ocho esquinas de la caja local de la distribución y se crea una caja global alineada con ejes. Sólo los voxeles tumorales dentro de esa caja se consultan; es un prefiltro conservador.</p>
+<p>Para máscara binaria:</p>
+<p><span class=math-display>\[
+\widehat M_{\mathcal D}(\mathbf q_\ell)
+=
+\operatorname{interp3}
+(M_{\mathcal D},\mathbf q_\ell;\text{nearest},0),
+\tag{154}
+\]</span></p>
+<p>y un punto pertenece si</p>
+<p><span class=math-display>\[
+\widehat M_{\mathcal D}&gt;0.5.
+\tag{155}
+\]</span></p>
+<p>Para SDF o TSDF:</p>
+<p><span class=math-display>\[
+\widehat D_{\mathcal D}(\mathbf q_\ell)
+=
+\operatorname{interp3}
+(D_{\mathcal D},\mathbf q_\ell;\text{linear},10^6),
+\tag{156}
+\]</span></p>
+<p>y pertenece si</p>
+<p><span class=math-display>\[
+\widehat D_{\mathcal D}&lt;0.
+\tag{157}
+\]</span></p>
+<p>La interpolación lineal del SDF produce una frontera subvoxel más suave que (155), aunque parte de la distancia aproximada de (53). El volumen de intersección es</p>
+<p><span class=math-display>\[
+V_{\cap}
+=
+h^3
+\sum_{\mathbf q\in\mathcal T}
+\mathbb1[\mathbf q\in\mathcal D(\mathbf p)].
+\tag{158}
+\]</span></p>
+<p>El volumen total de la distribución se cuenta sobre los voxeles de su caja global:</p>
+<p><span class=math-display>\[
+V_{\mathcal D}
+=
+h^3
+\sum_{\mathbf q\in\mathrm{AABB}(\mathcal D)}
+\mathbb1[\mathbf q\in\mathcal D(\mathbf p)].
+\tag{159}
+\]</span></p>
+<p>El volumen exterior se calcula exactamente como</p>
+<p><span class=math-display>\[
+V_{\mathrm{ext}}
+=
+V_{\mathcal D}-V_{\cap}.
+\tag{160}
+\]</span></p>
+<p>Por construcción, los voxeles de intersección son un subconjunto lógico de los voxeles de la distribución, por lo que <span class=math-inline>\(V_{\mathrm{ext}}\geq0\)</span> sin necesitar un truncamiento adicional. Los tres volúmenes usan la misma resolución durante cada evaluación, lo que preserva consistencia discreta.</p>
+<h3>13.6 Métricas de la función objetivo</h3>
+<h4>Cobertura tumoral</h4>
+<p><span class=math-display>\[
+C=\frac{V_{\cap}}{V_{\mathcal T}}.
+\tag{161}
+\]</span></p>
+<h4>Fuga relativa a la distribución</h4>
+<p><span class=math-display>\[
+L=\frac{V_{\mathrm{ext}}}{V_{\mathcal D}}.
+\tag{162}
+\]</span></p>
+<p>Los denominadores son diferentes. <span class=math-inline>\(C\)</span> pregunta qué fracción del tumor se cubre; <span class=math-inline>\(L\)</span> pregunta qué fracción de la ablación cae fuera.</p>
+<h4>Penalización de centrado</h4>
+<p>El origen local de la distribución se transforma en</p>
+<p><span class=math-display>\[
+\mathbf c_{\mathcal D}=R\mathbf0+\mathbf t=\mathbf t.
+\tag{163}
+\]</span></p>
+<p>El centro del tumor vuelve a ser una media de vértices,</p>
+<p><span class=math-display>\[
+\mathbf c_{\mathcal T}
+=
+\frac1{N_V}\sum_i\mathbf v_i,
+\]</span></p>
+<p>no un centroide volumétrico. Con esa referencia y la escala</p>
+<p><span class=math-display>\[
+s_{\mathcal T}
+=
+\|\max\mathbf q_{\mathcal T}-\min\mathbf q_{\mathcal T}\|_2,
+\tag{164}
+\]</span></p>
+<p>la distancia normalizada es</p>
+<p><span class=math-display>\[
+d_c=\frac{\|\mathbf c_{\mathcal D}-\mathbf c_{\mathcal T}\|_2}
+{s_{\mathcal T}}.
+\tag{165}
+\]</span></p>
+<h4>Penalización de profundidad</h4>
+<p><span class=math-display>\[
+d_z
+=
+\frac{
+\max(0,z_{\mathrm{acceso}}-c_{\mathcal D,z})
+}{s_{\mathcal T}}.
+\tag{166}
+\]</span></p>
+<h4>Objetivo</h4>
+<p>Con pesos</p>
+<p><span class=math-display>\[
+w_L=0.15,\qquad w_c=0.02,\qquad w_z=0.05,
+\tag{167}
+\]</span></p>
+<p>la función minimizada es</p>
+<p><span class=math-display>\[
+J(\mathbf p)
+=
+1000
+\left[
+-C
++0.15L
++0.02d_c^2
++0.05d_z^2
+\right].
+\tag{168}
+\]</span></p>
+<p>Si el volumen de distribución es inválido, se devuelve <span class=math-inline>\(10^6\)</span>. El mejor valor teórico sin penalizaciones es <span class=math-inline>\(-1000\)</span>, alcanzable para <span class=math-inline>\(C=1\)</span>, <span class=math-inline>\(L=0\)</span>, <span class=math-inline>\(d_c=d_z=0\)</span>.</p>
+<p><strong>[INTERPRETACIÓN]</strong> La cobertura domina por escala, pero una mejora <span class=math-inline>\(\Delta C=0.01\)</span> reduce <span class=math-inline>\(J\)</span> en 10 unidades; una fuga adicional <span class=math-inline>\(\Delta L=0.01\)</span> aumenta sólo 1.5 unidades. El intercambio local favorece cobertura sobre fuga en una razón <span class=math-inline>\(1:0.15\)</span>.</p>
+<h3>13.7 Enjambre de partículas</h3>
+<p>Se fija:</p>
+<p><span class=math-display>\[
+\operatorname{rng}(1234).
+\tag{169}
+\]</span></p>
+<p>Esto reproduce una secuencia global dada la misma ruta y orden de candidatos. Si cambia el número o el orden de distribuciones, cada archivo puede recibir un segmento distinto de la secuencia aleatoria.</p>
+<p>Para partícula <span class=math-inline>\(i\)</span>, posición <span class=math-inline>\(\mathbf x_i\)</span>, velocidad <span class=math-inline>\(\mathbf v_i\)</span>, mejor personal <span class=math-inline>\(\mathbf p_i\)</span> y mejor vecinal <span class=math-inline>\(\mathbf g_i\)</span>, MATLAB actualiza:</p>
+<p><span class=math-display>\[
+\mathbf v_i^{k+1}
+=
+W\mathbf v_i^k
++y_1\mathbf u_1\odot(\mathbf p_i-\mathbf x_i^k)
++y_2\mathbf u_2\odot(\mathbf g_i-\mathbf x_i^k),
+\tag{170}
+\]</span></p>
+<p><span class=math-display>\[
+\mathbf x_i^{k+1}
+=
+\mathbf x_i^k+\mathbf v_i^{k+1},
+\tag{171}
+\]</span></p>
+<p>donde las componentes de <span class=math-inline>\(\mathbf u_1,\mathbf u_2\)</span> son uniformes en <span class=math-inline>\((0,1)\)</span>. La ecuación y los criterios de parada se documentan oficialmente en <a href="https://www.mathworks.com/help/gads/particle-swarm-options.html">MathWorks, <em>Particle Swarm Options</em></a>.</p>
+<p>El código no cambia estos valores predeterminados de MATLAB:</p>
+<p><span class=math-display>\[
+W\in[0.1,1.1],
+\qquad
+y_1=y_2=1.49,
+\qquad
+\text{fracción mínima de vecinos}=0.25.
+\tag{172}
+\]</span></p>
+<p>No se usa evaluación paralela ni función híbrida.</p>
+<h4>Fase 1: exploración</h4>
+<ul>
+<li>80 partículas;</li>
+<li>máximo 40 iteraciones;</li>
+<li>estancamiento 15;</li>
+<li>tolerancia <span class=math-inline>\(10^{-4}\)</span>.</li>
+</ul>
+<p>Las traslaciones iniciales se toman de los puntos accesibles y los ángulos uniformemente dentro de sus cotas.</p>
+<h4>Fase 2: refinamiento</h4>
+<p>Alrededor del mejor <span class=math-inline>\(\mathbf p_1^\ast\)</span> se crea una caja de radio 10 % del rango global de cada variable:</p>
+<p><span class=math-display>\[
+\ell_j^{(2)}
+=
+\max(\ell_j,\;p_{1,j}^\ast-0.1[u_j-\ell_j]),
+\tag{173}
+\]</span></p>
+<p><span class=math-display>\[
+u_j^{(2)}
+=
+\min(u_j,\;p_{1,j}^\ast+0.1[u_j-\ell_j]).
+\tag{174}
+\]</span></p>
+<p>Se usan:</p>
+<ul>
+<li>60 partículas;</li>
+<li>máximo 100 iteraciones;</li>
+<li>estancamiento 15;</li>
+<li>tolerancia <span class=math-inline>\(10^{-5}\)</span>.</li>
+</ul>
+<p>El enjambre se inicia con el mejor punto y perturbaciones gaussianas:</p>
+<p><span class=math-display>\[
+\mathbf x_i^{(0)}
+=
+\operatorname{clip}
+\left[
+\mathbf p_1^\ast
++0.03(\mathbf u-\boldsymbol\ell)\odot\boldsymbol\xi_i
+\right],
+\quad
+\boldsymbol\xi_i\sim\mathcal N(\mathbf0,I).
+\tag{175}
+\]</span></p>
+<p>Sin parada temprana, el número nominal de evaluaciones por distribución es del orden de</p>
+<p><span class=math-display>\[
+80\cdot40+60\cdot100=9200,
+\tag{176}
+\]</span></p>
+<p>más evaluaciones iniciales y administrativas.</p>
+<p>La revisión sistemática de Sengupta et al. (2022) ofrece contexto actual sobre variantes, convergencia y aplicaciones de PSO (<a href="https://doi.org/10.1007/s11831-021-09694-4">DOI 10.1007/s11831-021-09694-4</a>).</p>
+<h3>13.8 Reevaluación fina y selección</h3>
+<p>El PSO optimiza en la rejilla gruesa. El mejor diseño se reevalúa una vez en la rejilla fina:</p>
+<p><span class=math-display>\[
+J_f(\mathbf p_c^\ast).
+\tag{177}
+\]</span></p>
+<p>No se ejecuta una nueva búsqueda fina:</p>
+<p><span class=math-display>\[
+\mathbf p_f^\ast
+=
+\arg\min_{\mathbf p}J_f(\mathbf p)
+\quad\text{no se calcula}.
+\tag{178}
+\]</span></p>
+<p>Por ello, la posición gruesa que parece mejor puede no ser óptima después de reducir <span class=math-inline>\(h\)</span>. La distribución ganadora se escoge por el fitness fino reevaluado.</p>
+<h3>13.9 Posiciones nominales y profundidad de antenas</h3>
+<p>Las coordenadas locales nominales, en mm, son:</p>
+<p><span class=math-display>\[
+\begin{array}{c|l}
+n_a&amp;\text{coordenadas}\\\hline
+1&amp;(0,0,0)\\
+2&amp;(-10,0,0),(10,0,0)\\
+3&amp;(0,11.55,0),(10,-5.77,0),(-10,-5.77,0)\\
+4&amp;(-10,-10,0),(10,-10,0),(-10,10,0),(10,10,0)
+\end{array}
+\tag{179}
+\]</span></p>
+<p>Se transforman con (152). Para la primera antena:</p>
+<p><span class=math-display>\[
+d_{\mathrm{STL}}
+=
+\max(0,z_{\mathrm{acceso}}-z_{\mathrm{ant},1}),
+\tag{180}
+\]</span></p>
+<p>y se añade una profundidad base de 26.4 mm:</p>
+<p><span class=math-display>\[
+d_{\mathrm{reportada}}
+=
+d_{\mathrm{STL}}+26.4\ \mathrm{mm}.
+\tag{181}
+\]</span></p>
+<p>La penalización (166) usa el centro de la distribución, mientras que el reporte (181) usa la primera antena; no son la misma profundidad.</p>
+<h2>14. Propagación de errores y dependencias</h2>
+<p>La salida final no depende sólo del PSO. Una perturbación en cualquier etapa cambia el conjunto geométrico optimizado:</p>
+<p><span class=math-display>\[
+\delta T
+\to
+\delta\mathcal P
+\to
+\delta\partial\mathcal D
+\to
+\delta M,\delta D
+\to
+\delta V_{\cap}
+\to
+\delta J
+\to
+\delta\mathbf p^\ast.
+\tag{182}
+\]</span></p>
+<p>De manera más explícita:</p>
+<ol>
+<li>un error <span class=math-inline>\(\delta T\)</span> cerca de <span class=math-inline>\(T_{\mathrm{abl}}\)</span> cambia la clasificación si</li>
+</ol>
+<p><span class=math-display>\[
+   |T-T_{\mathrm{abl}}|\le|\delta T|;
+   \]</span></p>
+<ol start="2">
+<li>el cambio de puntos modifica <span class=math-inline>\(\alpha\)</span> mediante (36)–(37);</li>
+<li><code>alphaShape</code> puede cambiar conectividad al cruzar un radio crítico;</li>
+<li>el suavizado desplaza la superficie y contrae volumen;</li>
+<li>la voxelización cuantiza la frontera a escala <span class=math-inline>\(h\)</span>;</li>
+<li>el SDF interpola esa frontera cuantizada;</li>
+<li>las métricas cambian por conteos enteros de voxeles;</li>
+<li>PSO observa una función objetivo por tramos, no suave, y puede cambiar de cuenca.</li>
+</ol>
+<p>No existe actualmente una propagación de incertidumbre estadística o peor caso a través de (182).</p>
+<h2>15. Complejidad computacional y memoria</h2>
+<p>Las expresiones siguientes caracterizan orden asintótico; las constantes, el llenado de matrices dispersas y la geometría pueden dominar en la práctica.</p>
+<table>
+<thead>
+<tr>
+<th>Operación</th>
+<th align="right">Tiempo aproximado</th>
+<th align="right">Memoria aproximada</th>
+<th>Cuello de botella</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>FEM electromagnético iterativo</td>
+<td align="right"><span class=math-inline>\(\mathcal O(k_{\mathrm{em}}\operatorname{nnz}K_{\mathrm{em}})\)</span></td>
+<td align="right"><span class=math-inline>\(\mathcal O(\operatorname{nnz}K_{\mathrm{em}})\)</span> más precondicionador</td>
+<td>DOF, longitud de onda, contraste material</td>
+</tr>
+<tr>
+<td>FEM térmico por paso</td>
+<td align="right"><span class=math-inline>\(\mathcal O(k_T\operatorname{nnz}K_T)\)</span></td>
+<td align="right">matrices, Jacobiano y estados</td>
+<td>no linealidad y número de pasos internos</td>
+</tr>
+<tr>
+<td>PARDISO directo</td>
+<td align="right">dependiente de llenado; entre casi lineal y cúbico en el peor caso</td>
+<td align="right">puede crecer superlinealmente</td>
+<td>fill-in de factorización</td>
+</tr>
+<tr>
+<td>Extracción regular</td>
+<td align="right"><span class=math-inline>\(\mathcal O(N_qN_t)\)</span> evaluaciones</td>
+<td align="right"><span class=math-inline>\(\mathcal O(N_qN_t)\)</span></td>
+<td><code>mphinterp</code> y campo completo</td>
+</tr>
+<tr>
+<td>Forma alfa</td>
+<td align="right">Delaunay esperado cercano a <span class=math-inline>\(\mathcal O(N_p\log N_p)\)</span>, peor caso mayor</td>
+<td align="right">triangulación 3D</td>
+<td>degeneración y densidad</td>
+</tr>
+<tr>
+<td>Suavizado actual</td>
+<td align="right"><span class=math-inline>\(\mathcal O(N_{\mathrm{iter}}N_VN_F)\)</span></td>
+<td align="right"><span class=math-inline>\(\mathcal O(N_V+N_F)\)</span></td>
+<td>búsqueda repetida de vecinos</td>
+</tr>
+<tr>
+<td><code>inpolyhedron</code></td>
+<td align="right">práctico <span class=math-inline>\(\mathcal O(\sum_cN_q(c)N_F(c))\)</span>; peor <span class=math-inline>\(\mathcal O(N_qN_F)\)</span></td>
+<td align="right">listas por celdas</td>
+<td>facetas proyectadas candidatas</td>
+</tr>
+<tr>
+<td>Transformada de distancia</td>
+<td align="right">aproximadamente <span class=math-inline>\(\mathcal O(N_q)\)</span></td>
+<td align="right">varias matrices <span class=math-inline>\(N_q\)</span></td>
+<td>tamaño de rejilla</td>
+</tr>
+<tr>
+<td>Correlación</td>
+<td align="right"><span class=math-inline>\(\mathcal O(N_c)\)</span>; <code>polyfit</code> <span class=math-inline>\(\mathcal O(N_cd^2+d^3)\)</span></td>
+<td align="right"><span class=math-inline>\(\mathcal O(N_c)\)</span></td>
+<td>número de pares de sondas</td>
+</tr>
+<tr>
+<td>SSA del factor o de un coeficiente modal</td>
+<td align="right"><span class=math-inline>\(\mathcal O(\min(L^2K,LK^2)+LK)\)</span></td>
+<td align="right"><span class=math-inline>\(\mathcal O(LK)\)</span></td>
+<td>SVD de la matriz Hankel y promediado diagonal</td>
+</tr>
+<tr>
+<td>Interpolación espacial</td>
+<td align="right">triangulación esperada <span class=math-inline>\(\mathcal O(N_p\log N_p)\)</span> + consultas</td>
+<td align="right">Delaunay + <span class=math-inline>\(N_q\)</span></td>
+<td>reconstrucción por tiempo</td>
+</tr>
+<tr>
+<td>POD mediante SVD del campo, <span class=math-inline>\(N_q\gg N_t\)</span></td>
+<td align="right"><span class=math-inline>\(\mathcal O(N_qN_t^2)\)</span></td>
+<td align="right"><span class=math-inline>\(\mathcal O(N_qN_t)\)</span></td>
+<td>matriz espacial-temporal</td>
+</tr>
+<tr>
+<td>Evaluación de fitness</td>
+<td align="right">proporcional a voxeles de la AABB transformada</td>
+<td align="right">máscara/SDF y rejilla</td>
+<td>se repite miles de veces</td>
+</tr>
+<tr>
+<td>PSO por distribución</td>
+<td align="right"><span class=math-inline>\(\mathcal O(N_{\mathrm{eval}}C_J)\)</span></td>
+<td align="right">enjambre + rejillas</td>
+<td><span class=math-inline>\(N_{\mathrm{eval}}\lesssim9200+\)</span></td>
+</tr>
+<tr>
+<td>Isosuperficie de un artefacto 4D ya exportado</td>
+<td align="right"><span class=math-inline>\(\mathcal O(N_xN_yN_z)\)</span></td>
+<td align="right">campo gridded y triángulos</td>
+<td>sólo lectura; el visualizador no reconstruye el campo</td>
+</tr>
+</tbody></table>
+<h3>15.1 Escalamiento del extractor</h3>
+<p>Para <span class=math-inline>\(n=60\)</span> y <span class=math-inline>\(N_t=21\)</span>:</p>
+<p><span class=math-display>\[
+N_qN_t=216\,000\cdot21=4\,536\,000
+\tag{183}
+\]</span></p>
+<p>temperaturas antes del filtro cilíndrico. En <code>single</code> ocupan sólo los valores:</p>
+<p><span class=math-display>\[
+4\,536\,000\cdot4\ \mathrm{bytes}
+\approx17.3\ \mathrm{MiB},
+\tag{184}
+\]</span></p>
+<p>sin contar coordenadas, estructuras MATLAB ni copias temporales.</p>
+<h3>15.2 Escalamiento de rejilla del optimizador</h3>
+<p>Para una caja de dimensiones <span class=math-inline>\(L_x,L_y,L_z\)</span>:</p>
+<p><span class=math-display>\[
+N_q(h)
+\approx
+\frac{L_xL_yL_z}{h^3}.
+\tag{185}
+\]</span></p>
+<p>El cociente fina/gruesa es:</p>
+<p><span class=math-display>\[
+\frac{N_q(0.5)}{N_q(1.5)}
+\approx
+\left(\frac{1.5}{0.5}\right)^3=27.
+\tag{186}
+\]</span></p>
+<p>Esto explica por qué el PSO se ejecuta sobre <span class=math-inline>\(1.5\)</span> mm y sólo se reevalúa a <span class=math-inline>\(0.5\)</span> mm.</p>
+<h2>16. Verificación matemática reproducible</h2>
+<p>Las siguientes pruebas se derivan directamente de las ecuaciones implementadas.</p>
+<h3>16.1 Electromagnetismo</h3>
+<ol>
+<li><strong>Balance de potencia:</strong> integrar <span class=math-inline>\(Q_{\mathrm{em}}\)</span> y comparar con potencia incidente menos reflejada/saliente.</li>
+<li><strong>Convergencia de malla:</strong> refinar antena y tejido y medir cambio relativo de SAR máximo, <span class=math-inline>\(T_{\max}\)</span> y volumen <span class=math-inline>\(T\ge55^\circ\mathrm C\)</span>.</li>
+<li><strong>Acoplamiento:</strong> comparar un caso <span class=math-inline>\(\sigma(T)\)</span> secuencial con una solución que actualice Maxwell y cuantificar</li>
+</ol>
+<p><span class=math-display>\[
+   \epsilon_Q(t)
+   =
+   \frac{\|Q_{\mathrm{em}}(t)-Q_{\mathrm{em},0}\|_2}
+   {\|Q_{\mathrm{em}}(t)\|_2}.
+   \tag{187}
+   \]</span></p>
+<h3>16.2 Térmica</h3>
+<ol>
+<li>Con <span class=math-inline>\(P_{\mathrm{in}}=0\)</span>, <span class=math-inline>\(T_0=T_b\)</span> y parámetros constantes, debe permanecer <span class=math-inline>\(T=T_b\)</span>.</li>
+<li>Con <span class=math-inline>\(\omega_b=Q_{\mathrm{met}}=Q_{\mathrm{em}}=0\)</span> y fronteras aisladas, la energía térmica integral debe conservarse.</li>
+<li>Con fuente constante en un dominio simétrico y materiales homogéneos, la solución debe respetar la simetría.</li>
+<li>Realizar análisis de sensibilidad del umbral <span class=math-inline>\(T_{\mathrm{abl}}\)</span> sin reinterpretarlo como daño acumulado.</li>
+</ol>
+<h3>16.3 Geometría</h3>
+<ol>
+<li>Para una esfera analítica de radio <span class=math-inline>\(R\)</span>:</li>
+</ol>
+<p><span class=math-display>\[
+   V_{\mathrm{exacto}}=\frac43\pi R^3.
+   \]</span></p>
+<p>   Evaluar error de <code>alphaShape</code>, suavizado, máscara y SDF por separado.
+2. Verificar signos:</p>
+<p><span class=math-display>\[
+   D(\mathbf0)&lt;0,\qquad
+   D(\mathbf q_{\mathrm{lejano}})&gt;0.
+   \]</span></p>
+<ol start="3">
+<li>Invertir deliberadamente todas las caras y comprobar que <code>inpolyhedron</code> detecta la inconsistencia.</li>
+<li>Medir contracción:</li>
+</ol>
+<p><span class=math-display>\[
+   \epsilon_{\mathrm{smooth}}
+   =
+   \frac{V_{\mathrm{antes}}-V_{\mathrm{después}}}
+   {V_{\mathrm{antes}}}.
+   \tag{188}
+   \]</span></p>
+<h3>16.4 Corrección</h3>
+<ol>
+<li>Identidad:</li>
+</ol>
+<p><span class=math-display>\[
+   \eta=0\Rightarrow T_{\mathrm{corr}}=T.
+   \]</span></p>
+<ol start="2">
+<li>Si <span class=math-inline>\(T^e=T^s\)</span>, debe obtenerse <span class=math-inline>\(f=1\)</span>, <span class=math-inline>\(b=0\)</span>, RMSE <span class=math-inline>\(=0\)</span>.</li>
+<li>Si <span class=math-inline>\(T^e-T_0^e=2(T^s-T_0^s)\)</span>, el factor se satura en 1; esta prueba confirma que no hay amplificación.</li>
+<li>Evaluar el mismo tiempo no múltiplo de <span class=math-inline>\(\Delta t\)</span> en previsualización y exportación; los factores deben coincidir.</li>
+<li>Verificar que un dataset sin <code>full_field</code> se rechaza en vez de inventar una base espacial.</li>
+</ol>
+<h3>16.5 Optimización</h3>
+<ol>
+<li>Distribución idéntica al tumor: <span class=math-inline>\(C=1,L=0\)</span>.</li>
+<li>Distribución completamente fuera: <span class=math-inline>\(C=0,L=1\)</span>, si <span class=math-inline>\(V_{\mathcal D}&gt;0\)</span>.</li>
+<li>Verificar <span class=math-inline>\(R^\top R=I\)</span> y recuperación local→global→local.</li>
+<li>Comparar máscara, SDF y TSDF a varias resoluciones.</li>
+<li>Ejecutar optimización fina alrededor de <span class=math-inline>\(\mathbf p_c^\ast\)</span> para medir la pérdida por (178).</li>
+<li>Cambiar el orden de candidatos con la misma semilla para cuantificar dependencia de la secuencia RNG.</li>
+</ol>
+<h2>17. Limitaciones y hallazgos priorizados</h2>
+<h3>Prioridad alta: significado físico</h3>
+<ol>
+<li><strong>Acoplamiento de una vía con <span class=math-inline>\(\sigma(T)\)</span>:</strong> la fuente EM puede quedar fijada al paso de frecuencia; las curvas de conductividad eléctrica no necesariamente realimentan el campo.</li>
+<li><strong>Alcance por isoterma:</strong> <span class=math-inline>\(T\ge55^\circ\mathrm C\)</span> es el criterio operativo adoptado y no debe describirse como lesión, necrosis, Arrhenius o CEM43.</li>
+<li><strong>Validación limitada:</strong> el ajuste por sondas no valida toda la distribución 3D, y la revisión sistemática de 2023 encontró que sólo 2 de 16 estudios MWA incluidos usaban validación in vivo (<a href="https://doi.org/10.3390/cancers15235684">van Erp et al., 2023</a>).</li>
+<li><strong>Fronteras térmicas aisladas:</strong> no se modelan convección exterior, enfriamiento del aplicador ni vasos discretos.</li>
+<li><strong>Anatomía idealizada:</strong> tres cilindros homogéneos, sin tumor físico diferenciado.</li>
+</ol>
+<h3>Prioridad alta: consistencia de datos</h3>
+<ol>
+<li>La reproducibilidad exige conservar juntos dataset, corrección y metadatos de adquisición.</li>
+<li>La corrección requiere <code>full_field</code>; los snapshots aislados no contienen una base temporal por coordenada.</li>
+<li>Una corrección inferida con 11 muestras y otra con 21 deben compararse sobre los mismos 21 tiempos COMSOL.</li>
+<li>Los pronósticos mayores a 21 tiempos son estimaciones y deben distinguirse de estados simulados.</li>
+<li>El ajuste polinómico se muestra/guarda pero no genera el campo corregido.</li>
+</ol>
+<h3>Prioridad media: geometría</h3>
+<ol>
+<li>El suavizado Laplaciano contrae la malla.</li>
+<li>La forma alfa depende de una heurística de espaciamiento y exige una sola región.</li>
+<li>El centro de la STL es media de vértices, no centroide de volumen.</li>
+<li>SDF/TSDF son distancias a máscara voxelizada.</li>
+<li>Se comprueban conectividad, hermeticidad, manifold y género cero; todavía no se detectan todas las auto-intersecciones ni se exige orientación coherente de cada cara.</li>
+</ol>
+<h3>Prioridad media: optimización</h3>
+<ol>
+<li>Los puntos accesibles sólo restringen la inicialización.</li>
+<li>No hay restricción dura de trayectoria, colisión, estructuras críticas, margen terapéutico o centro dentro del tumor.</li>
+<li>Sólo se optimizan dos rotaciones, con cotas angulares asimétricas.</li>
+<li>La distribución es rígida y precomputada: el optimizador no modifica potencia, tiempo o interacción térmica con la anatomía del paciente.</li>
+<li>No se reoptimiza en la rejilla fina.</li>
+<li>La función objetivo es voxelizada, no suave, y sus pesos no están calibrados clínicamente.</li>
+<li>La clave de caché basada en una suma de vértices es débil: geometrías distintas pueden compartir suma.</li>
+<li>La profundidad penalizada y la profundidad reportada usan referencias distintas.</li>
+</ol>
+<h2>18. Literatura e implementaciones recientes aplicables</h2>
+<p>El criterio fue priorizar publicaciones de 2020 en adelante, artículos revisados por pares, validaciones experimentales y documentación oficial. Para métodos matemáticos se exigen dos capas: fundamento algorítmico y evidencia de aplicación médica, biomédica, biológica o bioingenieril. Una aplicación biomédica demuestra pertinencia del método, no validación automática para MWA. La búsqueda se actualizó hasta el <strong>1 de agosto de 2026</strong>.</p>
+<table>
+<thead>
+<tr>
+<th align="right">Año</th>
+<th>Fuente</th>
+<th>Implementación o aporte</th>
+<th>Relación directa con este repositorio</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="right">2020</td>
+<td>Tehrani et al., <a href="https://doi.org/10.1371/journal.pone.0233219">PLoS ONE</a></td>
+<td>Modelo computacional MWA para tumores de varias formas y tamaños, con Maxwell, bioheat y propiedades dependientes de temperatura</td>
+<td>Respalda el flujo EM→Pennes y permite comparar la idealización geométrica</td>
+</tr>
+<tr>
+<td align="right">2020</td>
+<td>Faridi et al., <a href="https://doi.org/10.1002/mp.14318">Medical Physics</a></td>
+<td>Validación 3D mediante termometría MR, 13 experimentos y propiedades térmicas dependientes de <span class=math-inline>\(T\)</span>; DSC medio 0.95 y error térmico relativo 5–8.5 %</td>
+<td>Referencia fuerte para diseñar validación de campo, no para añadir métricas de daño</td>
+</tr>
+<tr>
+<td align="right">2020</td>
+<td>Golyandina, <a href="https://doi.org/10.1002/wics.1487">WIREs Computational Statistics</a></td>
+<td>Revisión moderna de SSA como análisis de series y señales</td>
+<td>Sustenta trayectoria Hankel, SVD, agrupación, promediado diagonal y pronóstico recurrente</td>
+</tr>
+<tr>
+<td align="right">2020</td>
+<td>Mukhopadhyay y Krishnan, <a href="https://doi.org/10.1016/j.cmpb.2019.105304">Computer Methods and Programs in Biomedicine</a></td>
+<td>SSA completa para denoising de ECG</td>
+<td>Evidencia biomédica de reconstrucción SSA preservando estructura fisiológica; no valida pronóstico térmico</td>
+</tr>
+<tr>
+<td align="right">2020</td>
+<td>Chen et al., <a href="https://doi.org/10.3390/app10113729">Applied Sciences</a></td>
+<td>Reconstrucción rápida de campos de temperatura simulados y experimentales mediante POD</td>
+<td>Sustenta reducir campos térmicos por POD/SVD antes del pronóstico modal</td>
+</tr>
+<tr>
+<td align="right">2021</td>
+<td>Maddirala et al., <a href="https://doi.org/10.1016/j.bspc.2021.102647">Biomedical Signal Processing and Control</a></td>
+<td>SSA y variación total para retirar artefactos de movimiento en EEG</td>
+<td>Segunda implementación reciente de SSA sobre bioseñales</td>
+</tr>
+<tr>
+<td align="right">2021</td>
+<td>Abdullah et al., <a href="https://doi.org/10.3389/fpubh.2021.604093">Frontiers in Public Health</a></td>
+<td>Pronóstico recurrente SSA en una serie sanitaria corta</td>
+<td>Evidencia de RF-SSA; su variable objetivo no es temperatura</td>
+</tr>
+<tr>
+<td align="right">2022</td>
+<td>VilasBoas-Ribeiro et al., <a href="https://doi.org/10.1002/mp.15811">Medical Physics</a></td>
+<td>POD–Kalman para estimación 3D de temperatura con termometría MR en hipertermia y pacientes</td>
+<td>Aplicación médico-biotérmica directa de reducción POD para monitoreo térmico 3D</td>
+</tr>
+<tr>
+<td align="right">2021</td>
+<td>Chen et al., <a href="https://doi.org/10.3390/app11178271">Applied Sciences</a></td>
+<td>Evaluación numérica de MWA en músculo, grasa y hueso</td>
+<td>Es la comparación temática más cercana a los tres dominios del modelo</td>
+</tr>
+<tr>
+<td align="right">2021</td>
+<td>Trujillo-Romero et al., <a href="https://doi.org/10.3390/electronics10070761">Electronics</a></td>
+<td>Antena doble ranura a 2.45 GHz, FEM COMSOL y validación experimental en hueso porcino</td>
+<td>Apoya el tipo de antena, tejido óseo y necesidad de validar profundidad/temperatura</td>
+</tr>
+<tr>
+<td align="right">2021</td>
+<td>Segura Félix et al., <a href="https://doi.org/10.1155/2021/8858822">BioMed Research International</a></td>
+<td>Modelo FEM y validación de antena coaxial doble ranura en fantoma/tejido mamario</td>
+<td>Ejemplo de comparación temperatura, lesión y adaptación de antena</td>
+</tr>
+<tr>
+<td align="right">2021</td>
+<td>Radmilović-Radjenović et al., <a href="https://doi.org/10.3390/cancers13143500">Cancers</a></td>
+<td>FEM de MWA para cáncer pulmonar</td>
+<td>Ejemplo reciente de Maxwell–bioheat en otro tejido y evaluación paramétrica</td>
+</tr>
+<tr>
+<td align="right">2021</td>
+<td>Patil et al., <a href="https://doi.org/10.1016/j.cmpb.2021.106569">Computer Methods and Programs in Biomedicine</a></td>
+<td>Modelo bio-térmico de porosidad variable</td>
+<td>Alternativa a Pennes para representar perfusión/medio intersticial con más detalle</td>
+</tr>
+<tr>
+<td align="right">2021</td>
+<td>Zhang et al., <a href="https://doi.org/10.3390/s21248241">Sensors</a></td>
+<td>Revisión de métodos de voxelización 3D</td>
+<td>Contextualiza precisión, costo y elección de resolución de la conversión STL→máscara</td>
+</tr>
+<tr>
+<td align="right">2022</td>
+<td>Radmilović-Radjenović et al., <a href="https://doi.org/10.3390/bioengineering9110656">Bioengineering</a></td>
+<td>Revisión de modelado computacional de ablación por microondas</td>
+<td>Fuente general para Maxwell, transferencia, planificación y limitaciones; el proyecto conserva su propio alcance por umbral</td>
+</tr>
+<tr>
+<td align="right">2022</td>
+<td>Sengupta et al., <a href="https://doi.org/10.1007/s11831-021-09694-4">Archives of Computational Methods in Engineering</a></td>
+<td>Revisión sistemática de PSO</td>
+<td>Contexto para convergencia, variantes y ajuste de parámetros del optimizador</td>
+</tr>
+<tr>
+<td align="right">2022</td>
+<td>Trujillo-Romero et al., <a href="https://pubmed.ncbi.nlm.nih.gov/36236709/">Sensors</a></td>
+<td>Evaluación FEM de arreglos lineal, triangular y cuadrado para tumores óseos</td>
+<td>Coincide con las configuraciones de 2, 3 y 4 antenas</td>
+</tr>
+<tr>
+<td align="right">2023</td>
+<td>Bošković et al., <a href="https://doi.org/10.3390/math11122654">Mathematics</a></td>
+<td>Cadena FEM abierta Gmsh/GetDP para Maxwell y calentamiento, con esquema temporal explícito</td>
+<td>Alternativa reproducible a COMSOL y referencia para formulación débil/complejidad</td>
+</tr>
+<tr>
+<td align="right">2023</td>
+<td>Wang et al., <a href="https://doi.org/10.3390/app13010026">Applied Sciences</a></td>
+<td>Simulación de MWA con dos antenas y comparación experimental</td>
+<td>Directamente aplicable a la interferencia térmica/electromagnética multiantena</td>
+</tr>
+<tr>
+<td align="right">2023</td>
+<td>van Erp et al., <a href="https://doi.org/10.3390/cancers15235684">Cancers</a></td>
+<td>Revisión sistemática de 35 modelos de zonas de ablación; documenta heterogeneidad y escasa validación MWA in vivo</td>
+<td>Justifica reportar validación, anatomía, dosis, vasos, métricas y limitaciones</td>
+</tr>
+<tr>
+<td align="right">2023</td>
+<td>Hendriks et al., <a href="https://doi.org/10.1016/j.ejro.2023.100501">European Journal of Radiology Open</a></td>
+<td>Revisión de cuantificación de margen de ablación</td>
+<td>Relevante para reemplazar “cobertura” simple por margen espacial verificable</td>
+</tr>
+<tr>
+<td align="right">2023</td>
+<td>Frackowiak et al., <a href="https://doi.org/10.1038/s41598-023-42543-x">Scientific Reports</a></td>
+<td>Primera validación de planificación MWA hepática basada en modelo sobre datos clínicos, con Dice y distancia de Hausdorff</td>
+<td>Referencia para validación geométrica más allá del volumen</td>
+</tr>
+<tr>
+<td align="right">2024</td>
+<td>Heshmat et al., <a href="https://doi.org/10.3390/cancers16112095">Cancers</a></td>
+<td>Modelos y simulaciones 3D específicas del paciente para optimizar MWA hepática</td>
+<td>Ejemplo reciente de transición desde geometrías idealizadas a planificación individual</td>
+</tr>
+<tr>
+<td align="right">2024</td>
+<td>Pfannenstiel et al., <a href="https://doi.org/10.1080/02656736.2024.2313492">International Journal of Hyperthermia</a></td>
+<td>Evaluación experimental de modelado direccional de MWA en columna/hueso</td>
+<td>Particularmente pertinente para dirección de aplicador, hueso y estructuras críticas</td>
+</tr>
+<tr>
+<td align="right">2024</td>
+<td>Radmilović-Radjenović et al., <a href="https://doi.org/10.1515/phys-2024-0079">Open Physics</a></td>
+<td>Modelado de dos antenas simultáneas</td>
+<td>Fuente reciente para interacción multiantena y planificación</td>
+</tr>
+<tr>
+<td align="right">2025</td>
+<td>Liew et al., <a href="https://doi.org/10.1080/02656736.2025.2473391">International Journal of Hyperthermia</a></td>
+<td>Algoritmo que dilata el tumor 5 mm y selecciona combinaciones de fabricante, potencia y tiempo a partir de una biblioteca de 22 elipsoides; evaluación retrospectiva de 35 ablaciones monoantena</td>
+<td>Muestra una extensión directa del problema actual: optimizar también potencia y duración y usar margen ablativo mínimo, no sólo solapamiento volumétrico</td>
+</tr>
+<tr>
+<td align="right">2025</td>
+<td>Neizert et al., <a href="https://doi.org/10.1038/s41598-025-94957-4">Scientific Reports</a></td>
+<td>Define el <em>Ablation Success Ratio</em> a partir del radio mínimo tridimensional y lo valida en 126 ablaciones ex vivo útiles bajo diferentes caudales y distancias antena–vaso</td>
+<td>Demuestra por qué volumen total y cobertura pueden ocultar estrechamientos locales; aporta una métrica probabilística sensible al enfriamiento vascular</td>
+</tr>
+<tr>
+<td align="right">2026</td>
+<td>Nahmed et al., <a href="https://doi.org/10.1007/s11548-026-03641-z">International Journal of Computer Assisted Radiology and Surgery</a></td>
+<td>Gemelo digital FEM personalizado con CT/MRI y replanteamiento intraoperatorio de potencia, duración y posición; validación en tres ablaciones porcinas in vivo con Dice 0.82, 0.81 y 0.79</td>
+<td>Es el antecedente reciente más cercano a cerrar el ciclo simulación→optimización; evidencia la utilidad de incorporar variables energéticas, anatomía vascular y corrección de desplazamiento</td>
+</tr>
+</tbody></table>
+<h3>18.1 Cómo usar estas fuentes en la documentación posterior</h3>
+<h4>Fundamento electromagnético y térmico</h4>
+<p>Citar conjuntamente:</p>
+<ul>
+<li><a href="https://doi.org/10.3390/math11122654">Bošković et al. (2023)</a> para ecuación fuerte/débil y FEM;</li>
+<li><a href="https://doi.org/10.3390/bioengineering9110656">Radmilović-Radjenović et al. (2022)</a> para revisión;</li>
+<li><a href="https://doc.comsol.com/6.3/doc/com.comsol.help.models.rf.microwave_cancer_therapy/microwave_cancer_therapy.html">COMSOL 6.3</a> para la implementación software.</li>
+</ul>
+<h4>Tejidos músculo–grasa–hueso y antenas</h4>
+<p>Citar:</p>
+<ul>
+<li><a href="https://doi.org/10.3390/app11178271">Chen et al. (2021)</a>;</li>
+<li><a href="https://doi.org/10.3390/electronics10070761">Trujillo-Romero et al. (2021)</a>;</li>
+<li><a href="https://pubmed.ncbi.nlm.nih.gov/36236709/">evaluación multiantena de 2022</a>.</li>
+</ul>
+<h4>Validación</h4>
+<p>Citar:</p>
+<ul>
+<li><a href="https://doi.org/10.1002/mp.14318">Faridi et al. (2020)</a> como referencia experimental 3D;</li>
+<li><a href="https://doi.org/10.3390/cancers15235684">van Erp et al. (2023)</a> para el estado de la validación;</li>
+<li><a href="https://doi.org/10.1016/j.ejro.2023.100501">Hendriks et al. (2023)</a> para márgenes.</li>
+</ul>
+<h4>SSA y POD en contexto biomédico</h4>
+<p>Citar por pares y sin extrapolar el alcance:</p>
+<ul>
+<li><a href="https://doi.org/10.1002/wics.1487">Golyandina (2020)</a> para la matemática SSA y <a href="https://doi.org/10.1016/j.cmpb.2019.105304">Mukhopadhyay y Krishnan (2020)</a> o <a href="https://doi.org/10.1016/j.bspc.2021.102647">Maddirala et al. (2021)</a> para aplicaciones en bioseñales;</li>
+<li><a href="https://doi.org/10.3390/app10113729">Chen et al. (2020)</a> para POD en campos térmicos y <a href="https://doi.org/10.1002/mp.15811">VilasBoas-Ribeiro et al. (2022)</a> para POD en termometría 3D de hipertermia;</li>
+<li><a href="https://doi.org/10.3389/fpubh.2021.604093">Abdullah et al. (2021)</a> sólo como implementación de pronóstico recurrente SSA en una serie sanitaria, no como validación térmica.</li>
+</ul>
+<h4>Geometría, voxelización y optimización</h4>
+<p>Citar:</p>
+<ul>
+<li><a href="https://doi.org/10.3390/s21248241">Zhang et al. (2021)</a> para voxelización;</li>
+<li><a href="https://doi.org/10.1007/s11831-021-09694-4">Sengupta et al. (2022)</a> para PSO;</li>
+<li><a href="https://doi.org/10.3390/cancers16112095">Heshmat et al. (2024)</a> para planificación específica del paciente;</li>
+<li><a href="https://doi.org/10.1080/02656736.2025.2473391">Liew et al. (2025)</a> para selección automatizada de potencia, tiempo y margen mínimo;</li>
+<li><a href="https://doi.org/10.1038/s41598-025-94957-4">Neizert et al. (2025)</a> para riesgo de fallo asociado al radio mínimo 3D y enfriamiento vascular;</li>
+<li><a href="https://doi.org/10.1007/s11548-026-03641-z">Nahmed et al. (2026)</a> para gemelo digital, variables energéticas y replanteamiento ante desplazamiento.</li>
+</ul>
+<h3>18.2 Métricas recientes recomendadas, no implementadas</h3>
+<p><strong>[NO IMPLEMENTADO]</strong> La validación clínica de Frackowiak et al. usa solapamiento y distancia superficial. Para una predicción <span class=math-inline>\(A\)</span> y referencia <span class=math-inline>\(B\)</span>, el coeficiente Dice es:</p>
+<p><span class=math-display>\[
+\operatorname{Dice}(A,B)
+=
+\frac{2|A\cap B|}{|A|+|B|}.
+\]</span></p>
+<p>Dice vale 1 para solapamiento perfecto y 0 para conjuntos disjuntos. A diferencia de la cobertura (161), penaliza simultáneamente falsos negativos y falsos positivos.</p>
+<p>La distancia de Hausdorff simétrica es:</p>
+<p><span class=math-display>\[
+d_H(A,B)
+=
+\max\left\{
+\sup_{\mathbf a\in\partial A}\inf_{\mathbf b\in\partial B}
+\|\mathbf a-\mathbf b\|_2,\;
+\sup_{\mathbf b\in\partial B}\inf_{\mathbf a\in\partial A}
+\|\mathbf b-\mathbf a\|_2
+\right\}.
+\]</span></p>
+<p>Para evitar que un único punto atípico domine, suele reportarse también un percentil, por ejemplo <span class=math-inline>\(HD_{95}\)</span>. Estas métricas deberían aplicarse antes y después de suavizado/voxelización para separar error físico de error geométrico.</p>
+<p><strong>[NO IMPLEMENTADO]</strong> El margen ablativo mínimo que motiva el algoritmo de Liew et al. puede representarse geométricamente dilatando primero el tumor con una bola cerrada <span class=math-inline>\(B_m\)</span> de radio <span class=math-inline>\(m=5\)</span> mm:</p>
+<p><span class=math-display>\[
+\mathcal T_m
+=
+\mathcal T\oplus B_m
+=
+\left\{
+\mathbf t+\mathbf b:
+\mathbf t\in\mathcal T,\;
+\|\mathbf b\|_2\le m
+\right\}.
+\]</span></p>
+<p>Si <span class=math-inline>\(\mathcal E_k\)</span> es el elipsoide de ablación asociado con la combinación <span class=math-inline>\(k\)</span> de fabricante, potencia y duración, el problema de biblioteca puede conceptualizarse como:</p>
+<p><span class=math-display>\[
+(k^\ast,R^\ast,\mathbf t^\ast)
+\in
+\arg\min_{k,R,\mathbf t}
+\mathcal L\!\left(
+R\mathcal E_k+\mathbf t,\,
+\mathcal T_m
+\right),
+\]</span></p>
+<p>donde <span class=math-inline>\(\mathcal L\)</span> debe penalizar cobertura insuficiente y exceso sobre tejido sano. A diferencia del PSO implementado, <span class=math-inline>\(k\)</span> cambia el tamaño y la forma de la distribución térmica, no sólo su transformación rígida.</p>
+<p><strong>[NO IMPLEMENTADO]</strong> Neizert et al. definen el <em>Ablation Success Ratio</em> para un diámetro objetivo <span class=math-inline>\(x\)</span>. Si <span class=math-inline>\(r_{3D\min,j}\)</span> es el mínimo radio tridimensional de la ablación <span class=math-inline>\(j\)</span>, entonces:</p>
+<p><span class=math-display>\[
+d_{\min,j}=2r_{3D\min,j},
+\qquad
+\operatorname{ASR}(x)
+=
+\frac{100}{N}
+\sum_{j=1}^{N}
+H(d_{\min,j}-x),
+\]</span></p>
+<p>con:</p>
+<p><span class=math-display>\[
+H(z)
+=
+\begin{cases}
+1,&amp;z&gt;0,\\
+0,&amp;z\le0.
+\end{cases}
+\]</span></p>
+<p>Así, ASR no pregunta únicamente cuánto volumen se superpone, sino en qué fracción de una cohorte la esfera objetivo completa cabe dentro del radio mínimo observado. El contraste con (161) es importante: puede existir cobertura volumétrica alta y, al mismo tiempo, un radio local demasiado pequeño para asegurar margen circunferencial.</p>
+<h2>Apéndice A. Inventario numérico de <code>DatosTejidos.mat</code></h2>
+<p>Las siguientes tablas se inspeccionaron directamente en <code>DatasetTejidos</code>. Se reportan nombre, tamaño, intervalo de temperatura, primer y último valor usado, y máximo. Cuando existen tres columnas, <span class=math-inline>\(y\)</span> corresponde a la tercera porque ésa es la que importa el generador. Los extremos no implican monotonicidad: varias curvas crecen y después decrecen.</p>
+<h3>A.1 Conductividad eléctrica, familias exponenciales</h3>
+<table>
+<thead>
+<tr>
+<th align="right">#</th>
+<th>Tabla</th>
+<th align="right">Tamaño</th>
+<th align="right"><span class=math-inline>\(T\)</span> (K)</th>
+<th align="right"><span class=math-inline>\(y(T_1)\)</span></th>
+<th align="right"><span class=math-inline>\(y(T_m)\)</span></th>
+<th align="right"><span class=math-inline>\(\max y\)</span></th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="right">1</td>
+<td><code>sigma_grasa_exp_1.5_2</code></td>
+<td align="right">74×3</td>
+<td align="right">310–383</td>
+<td align="right">0.268</td>
+<td align="right"><span class=math-inline>\(6.73353501\times10^{-4}\)</span></td>
+<td align="right">0.689513985</td>
+</tr>
+<tr>
+<td align="right">2</td>
+<td><code>sigma_grasa_exp_1.5_4</code></td>
+<td align="right">74×3</td>
+<td align="right">310–383</td>
+<td align="right">0.268</td>
+<td align="right"><span class=math-inline>\(6.57571779\times10^{-7}\)</span></td>
+<td align="right">0.689513985</td>
+</tr>
+<tr>
+<td align="right">3</td>
+<td><code>sigma_grasa_exp_2_2</code></td>
+<td align="right">74×3</td>
+<td align="right">310–383</td>
+<td align="right">0.268</td>
+<td align="right"><span class=math-inline>\(9.22668905\times10^{-4}\)</span></td>
+<td align="right">0.944812959</td>
+</tr>
+<tr>
+<td align="right">4</td>
+<td><code>sigma_grasa_exp_2_4</code></td>
+<td align="right">74×3</td>
+<td align="right">310–383</td>
+<td align="right">0.268</td>
+<td align="right"><span class=math-inline>\(9.01043852\times10^{-7}\)</span></td>
+<td align="right">0.944812959</td>
+</tr>
+<tr>
+<td align="right">5</td>
+<td><code>sigma_hueso_exp_1.5_2</code></td>
+<td align="right">74×3</td>
+<td align="right">310–383</td>
+<td align="right">0.805</td>
+<td align="right"><span class=math-inline>\(2.02257302\times10^{-3}\)</span></td>
+<td align="right">2.07111477</td>
+</tr>
+<tr>
+<td align="right">6</td>
+<td><code>sigma_hueso_exp_1.5_4</code></td>
+<td align="right">74×3</td>
+<td align="right">310–383</td>
+<td align="right">0.805</td>
+<td align="right"><span class=math-inline>\(1.97516896\times10^{-6}\)</span></td>
+<td align="right">2.07111477</td>
+</tr>
+<tr>
+<td align="right">7</td>
+<td><code>sigma_hueso_exp_2_2</code></td>
+<td align="right">74×3</td>
+<td align="right">310–383</td>
+<td align="right">0.805</td>
+<td align="right"><span class=math-inline>\(2.77144951\times10^{-3}\)</span></td>
+<td align="right">2.83796430</td>
+</tr>
+<tr>
+<td align="right">8</td>
+<td><code>sigma_hueso_exp_2_4</code></td>
+<td align="right">74×3</td>
+<td align="right">310–383</td>
+<td align="right">0.805</td>
+<td align="right"><span class=math-inline>\(2.70649366\times10^{-6}\)</span></td>
+<td align="right">2.83796430</td>
+</tr>
+<tr>
+<td align="right">9</td>
+<td><code>sigma_musc_exp_1.5_2</code></td>
+<td align="right">74×3</td>
+<td align="right">310–383</td>
+<td align="right">1.74</td>
+<td align="right"><span class=math-inline>\(4.37177273\times10^{-3}\)</span></td>
+<td align="right">4.47669528</td>
+</tr>
+<tr>
+<td align="right">10</td>
+<td><code>sigma_musc_exp_1.5_4</code></td>
+<td align="right">74×3</td>
+<td align="right">310–383</td>
+<td align="right">1.74</td>
+<td align="right"><span class=math-inline>\(4.26930931\times10^{-6}\)</span></td>
+<td align="right">4.47669528</td>
+</tr>
+<tr>
+<td align="right">11</td>
+<td><code>sigma_musc_exp_2_2</code></td>
+<td align="right">74×3</td>
+<td align="right">310–383</td>
+<td align="right">1.74</td>
+<td align="right"><span class=math-inline>\(5.99046229\times10^{-3}\)</span></td>
+<td align="right">6.13423339</td>
+</tr>
+<tr>
+<td align="right">12</td>
+<td><code>sigma_musc_exp_2_4</code></td>
+<td align="right">74×3</td>
+<td align="right">310–383</td>
+<td align="right">1.74</td>
+<td align="right"><span class=math-inline>\(5.85006083\times10^{-6}\)</span></td>
+<td align="right">6.13423339</td>
+</tr>
+<tr>
+<td align="right">13</td>
+<td><code>sigma_piel_exp_1.5_2</code></td>
+<td align="right">74×3</td>
+<td align="right">310–383</td>
+<td align="right">1.46</td>
+<td align="right"><span class=math-inline>\(3.66826907\times10^{-3}\)</span></td>
+<td align="right">3.75630753</td>
+</tr>
+<tr>
+<td align="right">14</td>
+<td><code>sigma_piel_exp_1.5_4</code></td>
+<td align="right">74×3</td>
+<td align="right">310–383</td>
+<td align="right">1.46</td>
+<td align="right"><span class=math-inline>\(3.58229402\times10^{-6}\)</span></td>
+<td align="right">3.75630753</td>
+</tr>
+<tr>
+<td align="right">15</td>
+<td><code>sigma_piel_exp_2_2</code></td>
+<td align="right">74×3</td>
+<td align="right">310–383</td>
+<td align="right">1.46</td>
+<td align="right"><span class=math-inline>\(5.02647986\times10^{-3}\)</span></td>
+<td align="right">5.14711537</td>
+</tr>
+<tr>
+<td align="right">16</td>
+<td><code>sigma_piel_exp_2_4</code></td>
+<td align="right">74×3</td>
+<td align="right">310–383</td>
+<td align="right">1.46</td>
+<td align="right"><span class=math-inline>\(4.90867173\times10^{-6}\)</span></td>
+<td align="right">5.14711537</td>
+</tr>
+</tbody></table>
+<h3>A.2 Conductividad eléctrica, familias lineales</h3>
+<table>
+<thead>
+<tr>
+<th align="right">#</th>
+<th>Tabla</th>
+<th align="right">Tamaño</th>
+<th align="right"><span class=math-inline>\(T\)</span> (K)</th>
+<th align="right"><span class=math-inline>\(y(T_1)\)</span></th>
+<th align="right"><span class=math-inline>\(y(T_m)\)</span></th>
+<th align="right"><span class=math-inline>\(\max y\)</span></th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="right">17</td>
+<td><code>sigma_grasa_lineal_1.5_2</code></td>
+<td align="right">74×2</td>
+<td align="right">310–383</td>
+<td align="right">0.268</td>
+<td align="right"><span class=math-inline>\(5.09042969\times10^{-4}\)</span></td>
+<td align="right">0.52126</td>
+</tr>
+<tr>
+<td align="right">18</td>
+<td><code>sigma_grasa_lineal_1.5_4</code></td>
+<td align="right">74×2</td>
+<td align="right">310–383</td>
+<td align="right">0.268</td>
+<td align="right"><span class=math-inline>\(4.97112274\times10^{-7}\)</span></td>
+<td align="right">0.52126</td>
+</tr>
+<tr>
+<td align="right">19</td>
+<td><code>sigma_grasa_lineal_2_2</code></td>
+<td align="right">74×2</td>
+<td align="right">310–383</td>
+<td align="right">0.268</td>
+<td align="right"><span class=math-inline>\(5.91484375\times10^{-4}\)</span></td>
+<td align="right">0.60568</td>
+</tr>
+<tr>
+<td align="right">20</td>
+<td><code>sigma_grasa_lineal_2_4</code></td>
+<td align="right">74×2</td>
+<td align="right">310–383</td>
+<td align="right">0.268</td>
+<td align="right"><span class=math-inline>\(5.77621460\times10^{-7}\)</span></td>
+<td align="right">0.60568</td>
+</tr>
+<tr>
+<td align="right">21</td>
+<td><code>sigma_hueso_lineal_1.5_2</code></td>
+<td align="right">74×2</td>
+<td align="right">310–383</td>
+<td align="right">0.805</td>
+<td align="right"><span class=math-inline>\(1.52902832\times10^{-3}\)</span></td>
+<td align="right">1.565725</td>
+</tr>
+<tr>
+<td align="right">22</td>
+<td><code>sigma_hueso_lineal_1.5_4</code></td>
+<td align="right">74×2</td>
+<td align="right">310–383</td>
+<td align="right">0.805</td>
+<td align="right"><span class=math-inline>\(1.49319172\times10^{-6}\)</span></td>
+<td align="right">1.565725</td>
+</tr>
+<tr>
+<td align="right">23</td>
+<td><code>sigma_hueso_lineal_2_2</code></td>
+<td align="right">74×2</td>
+<td align="right">310–383</td>
+<td align="right">0.805</td>
+<td align="right"><span class=math-inline>\(1.77666016\times10^{-3}\)</span></td>
+<td align="right">1.8193</td>
+</tr>
+<tr>
+<td align="right">24</td>
+<td><code>sigma_hueso_lineal_2_4</code></td>
+<td align="right">74×2</td>
+<td align="right">310–383</td>
+<td align="right">0.805</td>
+<td align="right"><span class=math-inline>\(1.73501968\times10^{-6}\)</span></td>
+<td align="right">1.8193</td>
+</tr>
+<tr>
+<td align="right">25</td>
+<td><code>sigma_musc_lineal_1.5_2</code></td>
+<td align="right">74×2</td>
+<td align="right">310–383</td>
+<td align="right">1.74</td>
+<td align="right"><span class=math-inline>\(3.30498047\times10^{-3}\)</span></td>
+<td align="right">3.3843</td>
+</tr>
+<tr>
+<td align="right">26</td>
+<td><code>sigma_musc_lineal_1.5_4</code></td>
+<td align="right">74×2</td>
+<td align="right">310–383</td>
+<td align="right">1.74</td>
+<td align="right"><span class=math-inline>\(3.22751999\times10^{-6}\)</span></td>
+<td align="right">3.3843</td>
+</tr>
+<tr>
+<td align="right">27</td>
+<td><code>sigma_musc_lineal_2_2</code></td>
+<td align="right">74×2</td>
+<td align="right">310–383</td>
+<td align="right">1.74</td>
+<td align="right"><span class=math-inline>\(3.84023437\times10^{-3}\)</span></td>
+<td align="right">3.9324</td>
+</tr>
+<tr>
+<td align="right">28</td>
+<td><code>sigma_musc_lineal_2_4</code></td>
+<td align="right">74×2</td>
+<td align="right">310–383</td>
+<td align="right">1.74</td>
+<td align="right"><span class=math-inline>\(3.75022888\times10^{-6}\)</span></td>
+<td align="right">3.9324</td>
+</tr>
+<tr>
+<td align="right">29</td>
+<td><code>sigma_piel_lineal_1.5_2</code></td>
+<td align="right">74×2</td>
+<td align="right">310–383</td>
+<td align="right">1.46</td>
+<td align="right"><span class=math-inline>\(2.77314453\times10^{-3}\)</span></td>
+<td align="right">2.8397</td>
+</tr>
+<tr>
+<td align="right">30</td>
+<td><code>sigma_piel_lineal_1.5_4</code></td>
+<td align="right">73×2</td>
+<td align="right">311–383</td>
+<td align="right">1.4819</td>
+<td align="right"><span class=math-inline>\(2.70814896\times10^{-6}\)</span></td>
+<td align="right">2.8397</td>
+</tr>
+<tr>
+<td align="right">31</td>
+<td><code>sigma_piel_lineal_2_2</code></td>
+<td align="right">74×2</td>
+<td align="right">310–383</td>
+<td align="right">1.46</td>
+<td align="right"><span class=math-inline>\(3.22226562\times10^{-3}\)</span></td>
+<td align="right">3.2996</td>
+</tr>
+<tr>
+<td align="right">32</td>
+<td><code>sigma_piel_lineal_2_4</code></td>
+<td align="right">74×2</td>
+<td align="right">310–383</td>
+<td align="right">1.46</td>
+<td align="right"><span class=math-inline>\(3.14674377\times10^{-6}\)</span></td>
+<td align="right">3.2996</td>
+</tr>
+</tbody></table>
+<h3>A.3 Conductividad térmica</h3>
+<table>
+<thead>
+<tr>
+<th align="right">#</th>
+<th>Tabla</th>
+<th align="right">Tamaño</th>
+<th align="right"><span class=math-inline>\(T\)</span> (K)</th>
+<th align="right"><span class=math-inline>\(y(T_1)\)</span></th>
+<th align="right"><span class=math-inline>\(y(T_m)\)</span></th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="right">33</td>
+<td><code>k_grasa_lineal_+1.5</code></td>
+<td align="right">74×2</td>
+<td align="right">310–383</td>
+<td align="right">0.21</td>
+<td align="right">0.40845</td>
+</tr>
+<tr>
+<td align="right">34</td>
+<td><code>k_grasa_lineal_-1.5</code></td>
+<td align="right">74×2</td>
+<td align="right">310–383</td>
+<td align="right">0.21</td>
+<td align="right">0.01155</td>
+</tr>
+<tr>
+<td align="right">35</td>
+<td><code>k_hueso_lineal_+1.5</code></td>
+<td align="right">74×2</td>
+<td align="right">310–383</td>
+<td align="right">0.31</td>
+<td align="right">0.60295</td>
+</tr>
+<tr>
+<td align="right">36</td>
+<td><code>k_hueso_lineal_-1.5</code></td>
+<td align="right">74×2</td>
+<td align="right">310–383</td>
+<td align="right">0.31</td>
+<td align="right">0.01705</td>
+</tr>
+<tr>
+<td align="right">37</td>
+<td><code>k_musc_lineal_+1.5</code></td>
+<td align="right">74×2</td>
+<td align="right">310–383</td>
+<td align="right">0.49</td>
+<td align="right">0.95305</td>
+</tr>
+<tr>
+<td align="right">38</td>
+<td><code>k_musc_lineal_-1.5</code></td>
+<td align="right">74×2</td>
+<td align="right">310–383</td>
+<td align="right">0.49</td>
+<td align="right">0.02695</td>
+</tr>
+<tr>
+<td align="right">39</td>
+<td><code>k_piel_lineal_+1.5</code></td>
+<td align="right">74×2</td>
+<td align="right">310–383</td>
+<td align="right">0.37</td>
+<td align="right">0.71965</td>
+</tr>
+<tr>
+<td align="right">40</td>
+<td><code>k_piel_lineal_-1.5</code></td>
+<td align="right">74×2</td>
+<td align="right">310–383</td>
+<td align="right">0.37</td>
+<td align="right">0.02035</td>
+</tr>
+</tbody></table>
+<h3>A.4 Metabolismo</h3>
+<table>
+<thead>
+<tr>
+<th align="right">#</th>
+<th>Tabla</th>
+<th align="right">Tamaño</th>
+<th align="right"><span class=math-inline>\(T\)</span> (K)</th>
+<th align="right"><span class=math-inline>\(y(T_1)\)</span></th>
+<th align="right"><span class=math-inline>\(y(T_m)\)</span></th>
+<th align="right"><span class=math-inline>\(\max y\)</span></th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="right">41</td>
+<td><code>Meta_grasa_exp</code></td>
+<td align="right">74×3</td>
+<td align="right">310.15–383.15</td>
+<td align="right">350</td>
+<td align="right">0</td>
+<td align="right">141751.833</td>
+</tr>
+<tr>
+<td align="right">42</td>
+<td><code>Meta_hueso_exp</code></td>
+<td align="right">74×3</td>
+<td align="right">310.15–383.15</td>
+<td align="right">378.3</td>
+<td align="right">0</td>
+<td align="right">153213.481</td>
+</tr>
+<tr>
+<td align="right">43</td>
+<td><code>Meta_musc_exp</code></td>
+<td align="right">74×3</td>
+<td align="right">310.15–383.15</td>
+<td align="right">700</td>
+<td align="right">0</td>
+<td align="right">283503.666</td>
+</tr>
+<tr>
+<td align="right">44</td>
+<td><code>Meta_piel_exp</code></td>
+<td align="right">72×3</td>
+<td align="right">312.15–383.15</td>
+<td align="right">290.394088</td>
+<td align="right">0</td>
+<td align="right">97201.2571</td>
+</tr>
+<tr>
+<td align="right">45</td>
+<td><code>Meta_grasa_lineal</code></td>
+<td align="right">74×2</td>
+<td align="right">310.15–383.15</td>
+<td align="right">350</td>
+<td align="right">0</td>
+<td align="right">2555</td>
+</tr>
+<tr>
+<td align="right">46</td>
+<td><code>Meta_hueso_lineal</code></td>
+<td align="right">74×2</td>
+<td align="right">310.15–383.15</td>
+<td align="right">378.3</td>
+<td align="right">0</td>
+<td align="right">2761.59</td>
+</tr>
+<tr>
+<td align="right">47</td>
+<td><code>Meta_musc_lineal</code></td>
+<td align="right">74×2</td>
+<td align="right">310.15–383.15</td>
+<td align="right">350</td>
+<td align="right">0</td>
+<td align="right">2555</td>
+</tr>
+<tr>
+<td align="right">48</td>
+<td><code>Meta_piel_lineal</code></td>
+<td align="right">74×2</td>
+<td align="right">310.15–383.15</td>
+<td align="right">240</td>
+<td align="right">0</td>
+<td align="right">1752</td>
+</tr>
+</tbody></table>
+<p>Hay diferencias entre valores tabulados y nominales: músculo usa <span class=math-inline>\(716\)</span> W/m³ en el caso constante, 700 W/m³ al inicio de la curva exponencial y 350 W/m³ al inicio de la lineal. No deben tratarse como una única condición basal.</p>
+<h3>A.5 Perfusión</h3>
+<p>Todas las curvas siguientes tienen tamaño 74×2 e intervalo 310–383 K.</p>
+<table>
+<thead>
+<tr>
+<th align="right">#</th>
+<th>Tabla</th>
+<th align="right"><span class=math-inline>\(y(T_1)\)</span></th>
+<th align="right"><span class=math-inline>\(y(T_m)\)</span></th>
+<th align="right"><span class=math-inline>\(\max y\)</span></th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="right">49</td>
+<td><code>w_grasa_1</code></td>
+<td align="right"><span class=math-inline>\(2.08722862\times10^{-4}\)</span></td>
+<td align="right"><span class=math-inline>\(4.1544\times10^{-4}\)</span></td>
+<td align="right"><span class=math-inline>\(4.1544\times10^{-4}\)</span></td>
+</tr>
+<tr>
+<td align="right">50</td>
+<td><code>w_grasa_2</code></td>
+<td align="right"><span class=math-inline>\(2.08722862\times10^{-4}\)</span></td>
+<td align="right">0</td>
+<td align="right"><span class=math-inline>\(4.1544\times10^{-4}\)</span></td>
+</tr>
+<tr>
+<td align="right">51</td>
+<td><code>w_grasa_3</code></td>
+<td align="right"><span class=math-inline>\(5.79785727\times10^{-4}\)</span></td>
+<td align="right"><span class=math-inline>\(1.154\times10^{-3}\)</span></td>
+<td align="right"><span class=math-inline>\(1.154\times10^{-3}\)</span></td>
+</tr>
+<tr>
+<td align="right">52</td>
+<td><code>w_grasa_4</code></td>
+<td align="right"><span class=math-inline>\(5.79785727\times10^{-4}\)</span></td>
+<td align="right">0</td>
+<td align="right"><span class=math-inline>\(1.154\times10^{-3}\)</span></td>
+</tr>
+<tr>
+<td align="right">53</td>
+<td><code>w_musc_1</code></td>
+<td align="right"><span class=math-inline>\(3.02239077\times10^{-4}\)</span></td>
+<td align="right"><span class=math-inline>\(2.588\times10^{-3}\)</span></td>
+<td align="right"><span class=math-inline>\(2.588\times10^{-3}\)</span></td>
+</tr>
+<tr>
+<td align="right">54</td>
+<td><code>w_musc_2</code></td>
+<td align="right"><span class=math-inline>\(3.02239077\times10^{-4}\)</span></td>
+<td align="right">0</td>
+<td align="right"><span class=math-inline>\(2.588\times10^{-3}\)</span></td>
+</tr>
+<tr>
+<td align="right">55</td>
+<td><code>w_musc_3</code></td>
+<td align="right"><span class=math-inline>\(6.71677101\times10^{-4}\)</span></td>
+<td align="right"><span class=math-inline>\(5.7583\times10^{-3}\)</span></td>
+<td align="right"><span class=math-inline>\(5.7583\times10^{-3}\)</span></td>
+</tr>
+<tr>
+<td align="right">56</td>
+<td><code>w_musc_4</code></td>
+<td align="right"><span class=math-inline>\(6.71677101\times10^{-4}\)</span></td>
+<td align="right">0</td>
+<td align="right"><span class=math-inline>\(5.7583\times10^{-3}\)</span></td>
+</tr>
+<tr>
+<td align="right">57</td>
+<td><code>w_piel_1</code></td>
+<td align="right"><span class=math-inline>\(1.98219024\times10^{-3}\)</span></td>
+<td align="right"><span class=math-inline>\(1.892202\times10^{-2}\)</span></td>
+<td align="right"><span class=math-inline>\(1.892202\times10^{-2}\)</span></td>
+</tr>
+<tr>
+<td align="right">58</td>
+<td><code>w_piel_2</code></td>
+<td align="right"><span class=math-inline>\(1.88345767\times10^{-3}\)</span></td>
+<td align="right">0</td>
+<td align="right"><span class=math-inline>\(1.892202\times10^{-2}\)</span></td>
+</tr>
+<tr>
+<td align="right">59</td>
+<td><code>w_piel_3</code></td>
+<td align="right"><span class=math-inline>\(1.98219024\times10^{-3}\)</span></td>
+<td align="right"><span class=math-inline>\(1.892202\times10^{-2}\)</span></td>
+<td align="right"><span class=math-inline>\(1.892202\times10^{-2}\)</span></td>
+</tr>
+<tr>
+<td align="right">60</td>
+<td><code>w_piel_4</code></td>
+<td align="right"><span class=math-inline>\(1.88345767\times10^{-3}\)</span></td>
+<td align="right">0</td>
+<td align="right"><span class=math-inline>\(1.892202\times10^{-2}\)</span></td>
+</tr>
+</tbody></table>
+<h2>Apéndice B. Contrato matemático mínimo para reproducibilidad</h2>
+<p>Una corrida no queda reproducida sólo por el nombre del archivo. Deben preservarse:</p>
+<ol>
+<li>versión exacta del código y de COMSOL/MATLAB;</li>
+<li>caso <span class=math-inline>\(c\)</span>, antena, número, potencia, duración y paso;</li>
+<li>archivo y hash de <code>DatosTejidos.mat</code>;</li>
+<li>unidades originales de CAD y escala de importación;</li>
+<li>malla y tolerancias;</li>
+<li>activación de físicas por paso de estudio;</li>
+<li>umbrales <span class=math-inline>\(T_{\mathrm{abl}},T_{\mathrm{carbon}},T_{\max}\)</span>;</li>
+<li>tiempos realmente resueltos y tiempos seleccionados por (22);</li>
+<li>disponibilidad de <code>full_field</code> frente a nubes;</li>
+<li><span class=math-inline>\(\alpha\)</span>, iteraciones de suavizado y resolución voxel;</li>
+<li>tipo de representación: máscara, SDF o TSDF;</li>
+<li>archivos experimentales, recortes, pares de sondas y corrección;</li>
+<li>estrategia de extrapolación y horizonte;</li>
+<li>intensidad, offset y límite de temperatura;</li>
+<li>semilla, orden de candidatos, rejillas, pesos y opciones PSO;</li>
+<li>geometría calibrada, cara de acceso y matriz <span class=math-inline>\(R_{\mathrm{cal}}\)</span>.</li>
+</ol>
+<h2>Apéndice C. Diferencia entre modelo físico, estimador y decisión</h2>
+<p>Para evitar mezclar niveles:</p>
+<p><span class=math-display>\[
+\underbrace{T=\mathcal H(\mathcal M(\theta))}_{\text{modelo físico-numérico}}
+\quad\longrightarrow\quad
+\underbrace{\widehat{\mathcal D}=
+\mathcal S[\mathcal C(\mathcal E(T))]}_{\text{estimador geométrico}}
+\quad\longrightarrow\quad
+\underbrace{\mathbf p^\ast=
+\arg\min_{\mathbf p}J(\widehat{\mathcal D},\mathcal T,\mathbf p)}
+_{\text{decisión}}.
+\tag{189}
+\]</span></p>
+<p>La primera flecha no produce “tejido necrosado” directamente: produce una estimación geométrica basada en umbral, corrección, extrapolación, reconstrucción y voxelización. La segunda no produce una recomendación clínica validada: produce el mínimo numérico de (168) bajo los grados de libertad y restricciones codificados.</p>
+<h2>Apéndice D. Mapa función → ecuación</h2>
+<p>Este índice permite auditar el documento cuando cambie el código.</p>
+<table>
+<thead>
+<tr>
+<th>Archivo / función</th>
+<th>Ecuaciones o apartados asociados</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>modulo_interaccion_comsol.m</code> / generador integrado</td>
+<td>(1)–(21)</td>
+</tr>
+<tr>
+<td><code>calcular_posiciones</code></td>
+<td>posiciones de la sección 3.2</td>
+</tr>
+<tr>
+<td>creación de materiales y variables activas</td>
+<td>(5), (8)–(12), tablas del apéndice A</td>
+</tr>
+<tr>
+<td><code>crear_study</code></td>
+<td>(15)–(19), secciones 6.2–6.3</td>
+</tr>
+<tr>
+<td><code>detectar_carbonizacion</code></td>
+<td>(20)–(21)</td>
+</tr>
+<tr>
+<td><code>extraer_tiempos</code></td>
+<td>(22) y sección 7.1</td>
+</tr>
+<tr>
+<td><code>extraer_sondas</code>, <code>interpolar_sonda</code></td>
+<td>(23)–(25)</td>
+</tr>
+<tr>
+<td><code>extraer_snapshots</code></td>
+<td>(26)–(30)</td>
+</tr>
+<tr>
+<td><code>exportar_modelos</code>, <code>exportar_stl_de_snapshots</code></td>
+<td>(31)–(38)</td>
+</tr>
+<tr>
+<td><code>encontrar_primer_corte_sostenido</code></td>
+<td>(33)</td>
+</tr>
+<tr>
+<td><code>generar_stl_ablacion</code>, <code>calcular_radio_alpha</code></td>
+<td>(35)–(38)</td>
+</tr>
+<tr>
+<td><code>suavizar_malla_laplaciano</code></td>
+<td>(39)–(41)</td>
+</tr>
+<tr>
+<td><code>preprocesar_stl_a_mat</code>, <code>leer_stl_binario</code></td>
+<td>(42)–(46), (53)–(55)</td>
+</tr>
+<tr>
+<td><code>inpolyhedron</code></td>
+<td>(47)–(52)</td>
+</tr>
+<tr>
+<td><code>preparar_curvas_correlacion</code>, <code>sincronizar_curvas_ui</code></td>
+<td>(56)–(60)</td>
+</tr>
+<tr>
+<td><code>calcular_correlacion</code>, <code>crear_modelo_correccion_ui</code></td>
+<td>(61)–(71)</td>
+</tr>
+<tr>
+<td><code>crear_zonas_correccion</code>, <code>calcular_bordes_zonas_z</code></td>
+<td>(72)–(75)</td>
+</tr>
+<tr>
+<td><code>aplicar_correccion_volumen</code></td>
+<td>(76)–(80)</td>
+</tr>
+<tr>
+<td><code>correccion_termica_canonica</code>, <code>aplicar_correccion_canonica_local</code></td>
+<td>corrección por intensidad, línea basal, zonas y límite térmico descrita en §9</td>
+</tr>
+<tr>
+<td><code>pronostico_ssa_local</code>, <code>promedio_diagonal_ssa_local</code></td>
+<td>SSA completa y pronóstico recurrente descritos en §10</td>
+</tr>
+<tr>
+<td><code>construir_funcion_volumen</code>, <code>construir_malla</code></td>
+<td>(95)–(100), (122)–(123)</td>
+</tr>
+<tr>
+<td><code>calcular_volumen_por_tiempo</code></td>
+<td>(98)–(99)</td>
+</tr>
+<tr>
+<td><code>construir_extrapolacion_campo</code></td>
+<td>(101)–(121)</td>
+</tr>
+<tr>
+<td><code>corregir_dataset_individual_exportador</code></td>
+<td>(124)–(126)</td>
+</tr>
+<tr>
+<td>manejador visual / <code>puntos_archivo_math</code>, <code>plot_puntos_plano_math</code></td>
+<td>selección de columna, submuestreo y proyección descritos en §12</td>
+</tr>
+<tr>
+<td>manejador visual / <code>plot_resumen_temperatura_archivo_math</code></td>
+<td>mínimos, medias y máximos de valores almacenados; sin cálculo de volumen</td>
+</tr>
+<tr>
+<td>manejador visual / <code>cargar_par_sin_correccion_math</code>, <code>buscar_par_metadata_math</code></td>
+<td>emparejamiento de artefactos corregido/base por procedencia y metadata; sin corrección matemática</td>
+</tr>
+<tr>
+<td><code>preparar_geometria_base_apoyo_z0</code>, <code>capturar_punto_acceso</code></td>
+<td>(134)–(143)</td>
+</tr>
+<tr>
+<td>construcción de <code>grid_fino</code>, <code>grid_grueso</code> y puntos accesibles</td>
+<td>(144)–(146)</td>
+</tr>
+<tr>
+<td><code>transformacion_rotacional</code>, <code>hacer_matriz_rotacion</code>, <code>mapear_ejes</code></td>
+<td>(147)–(153)</td>
+</tr>
+<tr>
+<td><code>calcular_interseccion_volumen</code></td>
+<td>(154)–(160)</td>
+</tr>
+<tr>
+<td><code>calcular_metricas_fitness</code></td>
+<td>(161)–(168)</td>
+</tr>
+<tr>
+<td>dos llamadas a <code>particleswarm</code></td>
+<td>(169)–(178)</td>
+</tr>
+<tr>
+<td><code>cargar_mapa_antenas_local</code>, <code>calcular_profundidad_stl</code></td>
+<td>(179)–(181)</td>
+</tr>
+</tbody></table>
+<h2>19. Conclusión técnica</h2>
+<p>El repositorio implementa una cadena matemáticamente rica: FEM electromagnético y bio-térmico, propiedades tabuladas no lineales, muestreo temporal nativo, geometría alfa, validación topológica, voxelización, transformadas de distancia, correlación por incrementos, SSA clásica, POD/SVD con pronóstico modal, transformaciones rígidas y PSO bifásico.</p>
+<p>La principal conclusión no es que una sola ecuación esté equivocada, sino que el resultado final acumula varias definiciones distintas de “ablación”:</p>
+<p><span class=math-display>\[
+\text{temperatura FEM}
+\to
+\text{isoterma}
+\to
+\text{nube filtrada}
+\to
+\text{alpha/STL suavizada}
+\to
+\text{máscara/SDF}
+\to
+\text{volumen rígido optimizado}.
+\tag{190}
+\]</span></p>
+<p>Cada flecha introduce una aproximación cuantificable. Para convertir el flujo en una herramienta científicamente defendible, las acciones de mayor impacto son: verificar el acoplamiento de <span class=math-inline>\(\sigma(T)\)</span>, documentar el umbral como criterio operativo sin atribuirle daño clínico, comparar correcciones 11→21 y 21→21, validar por separado los pronósticos posteriores al tiempo 21, validar el campo 3D y el margen geométrico, y convertir accesibilidad/seguridad en restricciones efectivas del optimizador.</p>
+</main>
+<script>
+(()=>{const list=document.querySelector("#toc ol");document.querySelectorAll("main h2,main h3").forEach((h,i)=>{h.id=h.id||`seccion-${i+1}`;const li=document.createElement("li"),a=document.createElement("a");a.href=`#${h.id}`;a.textContent=(h.tagName==="H3"?"↳ ":"")+h.textContent;li.append(a);list.append(li)})})();
+</script>
+</body>
+</html>
