@@ -1,6 +1,4 @@
-﻿function varargout = tesis_auxiliares(accion, varargin)
-%TESIS_AUXILIARES Punto unico para helpers de infraestructura y UI.
-%
+function varargout = tesis_auxiliares(accion, varargin)
 % Este archivo concentra funciones auxiliares que no son modulos del flujo.
 % Los modulos finales deben llamarlo mediante acciones explicitas:
 %   tesis_auxiliares('configurar_paths', ruta)
@@ -167,7 +165,7 @@ function meta = metadata_ruta_impl(ruta, fuente)
     texto = strrep(char(ruta), '\', '/');
     for campo = {'tag_correccion', 'ruta_relativa', 'ruta_stl', 'ruta_correccion'}
         if isfield(fuente, campo{1}) && ~isempty(fuente.(campo{1}))
-            texto = [texto '/' char(string(fuente.(campo{1})))]; %#ok<AGROW>
+            texto = [texto '/' char(string(fuente.(campo{1})))];
         end
     end
 
@@ -254,6 +252,29 @@ function meta = metadata_ruta_impl(ruta, fuente)
     end
 
     textos = {'tipo', 'antena', 'fecha_adquisicion', 'zona_experimental'};
+    manual = regexp(texto, ...
+        'correccion_(?:correccion_)?([^/]+?)_([\d]+(?:p[\d]+)?)min_prueba_(\d+)_manual_exp(\d+)_sim(\d+)', ...
+        'tokens', 'once', 'ignorecase');
+    if ~isempty(manual)
+        if isempty(meta.fecha_adquisicion), meta.fecha_adquisicion = manual{1}; end
+        if ~isfinite(meta.tiempo_ejecucion_min), meta.tiempo_ejecucion_min = str2double(strrep(manual{2}, 'p', '.')); end
+        if ~isfinite(meta.numero_prueba), meta.numero_prueba = str2double(manual{3}); end
+        meta.zona_experimental = sprintf('Global: Exp%s -> Sim%s (sin altura)', manual{4}, manual{5});
+    end
+    if isfield(fuente, 'asignacion_sondas') && isstruct(fuente.asignacion_sondas)
+        a = fuente.asignacion_sondas;
+        if isfield(a, 'modo') && strcmp(a.modo, 'manual') && ...
+                isfield(a, 'indice_experimental') && isfield(a, 'indice_simulado')
+            meta.zona_experimental = sprintf('Global: Exp%d -> Sim%d (sin altura)', ...
+                a.indice_experimental, a.indice_simulado);
+        end
+    end
+    if isempty(meta.zona_experimental)
+        pareja = regexp(texto, 'manual_exp(\d+)_sim(\d+)', 'tokens', 'once', 'ignorecase');
+        if ~isempty(pareja)
+            meta.zona_experimental = sprintf('Global: Exp%s -> Sim%s (sin altura)', pareja{1}, pareja{2});
+        end
+    end
     numeros = {'num_antenas', 'caso', 'potencia_W', ...
         'tiempo_ejecucion_min', 'numero_prueba', 'num_zonas'};
     for k = 1:numel(textos)
@@ -907,7 +928,7 @@ function ui = crear_dashboard_modulo_impl(titulo, descripcion, entradas, ejecuta
             args_numeric = {'Value', ent.default, ...
                 'ValueChangedFcn', @(src, ~) cambiar_opcion(ent, src.Value)};
             if isfield(ent, 'limits') && ~isempty(ent.limits)
-                args_numeric = [args_numeric, {'Limits', ent.limits}]; %#ok<AGROW>
+                args_numeric = [args_numeric, {'Limits', ent.limits}];
             end
             ed_numeric = uieditfield(gl_control, 'numeric', args_numeric{:});
             labels.(ent.key) = ed_numeric;

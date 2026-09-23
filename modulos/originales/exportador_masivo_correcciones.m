@@ -73,7 +73,7 @@ function lanzar_ui_exportador_masivo_correcciones()
     uilabel(gl, 'Text', 'Resolucion MAT:');
     ed_res = uieditfield(gl, 'numeric', 'Value', 0.5, 'Limits', [eps Inf]);
     uilabel(gl, 'Text', 'Tipo MAT:');
-    dd_tipo = uidropdown(gl, 'Items', {'sdf', 'mascara', 'tsdf'}, 'Value', 'sdf');
+    dd_tipo = uidropdown(gl, 'Items', {'sdf'}, 'Value', 'sdf');
 
     chk_overwrite = uicheckbox(gl, 'Text', 'Sobrescribir datasets corregidos', ...
         'Value', false);

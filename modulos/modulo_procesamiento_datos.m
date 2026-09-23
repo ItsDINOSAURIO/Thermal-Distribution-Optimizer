@@ -1,5 +1,8 @@
 function modulo_procesamiento_datos(varargin)
-%MODULO_PROCESAMIENTO_DATOS App unica para procesamientos de datasets.
+%MODULO_PROCESAMIENTO_DATOS: procesamientos de datasets.
+% =========================================================================
+% ZONA 0 — ARRANQUE, RUTAS, DESPACHO DE SELF-TESTS Y ESTADO COMPARTIDO
+% =========================================================================
 
     bootstrap_modulo();
     if nargin >= 1 && (ischar(varargin{1}) || (isstring(varargin{1}) && isscalar(varargin{1})))
@@ -23,6 +26,28 @@ function modulo_procesamiento_datos(varargin)
             case 'selftest_export_auto'
                 ejecutar_selftest_export_auto_local();
                 return;
+            case 'selftest_vista_nativa'
+                ejecutar_selftest_vista_nativa();
+                return;
+            case 'selftest_ssa'
+                ejecutar_selftest_ssa();
+                return;
+            case 'selftest_compatibilidad_termica'
+                ejecutar_selftest_compatibilidad_termica();
+                return;
+            case 'selftest_exportacion_limite'
+                ejecutar_exportador_correcciones_integrado('selftest_exportacion_limite');
+                return;
+            case 'selftest_sondas'
+                ejecutar_correlador_volumen_integrado('selftest_sondas');
+                return;
+            case 'selftest_topologia_temporal'
+                ejecutar_exportador_mat_integrado('selftest_topologia_temporal');
+                ejecutar_preprocesador_stl_integrado('selftest_topologia_temporal');
+                return;
+            case 'selftest_solo_sdf'
+                ejecutar_preprocesador_stl_integrado('selftest_solo_sdf');
+                return;
         end
     end
     theme = tesis_auxiliares('tema_ui');
@@ -34,7 +59,7 @@ function modulo_procesamiento_datos(varargin)
     end
     mostrar_temporal_avanzado = false; % Source-only: reactiva Nt fino / N extrap si vuelve el remuestreo temporal.
     dataset_stl_default = dataset_default;
-    state = struct('exp', [], 'sim', [], 'corr', [], 'dataset', [], ...
+    state = struct('exp', [], 'sim', [], 'corr_calculada', [], 'corr', [], 'dataset', [], ...
         'dataset_catalog', [], 'dataset_catalog_filtrado', [], ...
         'dataset_catalog_indices', [], 'actualizando_filtros_ext', false, ...
         'actualizando_filtros_corr', false, 'actualizando_extrap_ext', false, ...
@@ -61,9 +86,9 @@ function modulo_procesamiento_datos(varargin)
     gm.Padding = [14 8 14 8]; gm.ColumnSpacing = 8;
 
     % Massive corrections stay in this file for later, but are hidden for now.
-    dd = uidropdown(gm, 'Items', {'Exportación', 'Correlacion', 'Correccion y pronostico'}, ...
-        'ItemsData', {'Exportación', 'Correlacion', 'Correccion y pronostico'}, ...
-        'Tooltip', 'Selecciona exportación geométrica, correlación experimental o corrección y pronóstico térmico.', ...
+    dd = uidropdown(gm, 'Items', {'Exportación', 'Cálculo de corrección térmica', 'Aplicación de corrección térmica'}, ...
+        'ItemsData', {'Exportación', 'Cálculo de corrección térmica', 'Aplicación de corrección térmica'}, ...
+        'Tooltip', 'Selecciona exportación geométrica, cálculo o aplicación de corrección térmica.', ...
         'Value', 'Exportación', 'ValueChangedFcn', @(~,~) mostrar());
     dd.Layout.Row = 1; dd.Layout.Column = 1;
     tesis_auxiliares('tema_ui', 'dropdown', dd);
@@ -71,8 +96,8 @@ function modulo_procesamiento_datos(varargin)
     tesis_auxiliares('tema_ui', 'label', estado, 'status');
 
     p_exportacion = panel(gl, 'Exportación');
-    p_corr = panel(gl, 'Correlacion termica');
-    p_ext = panel(gl, 'Correccion nativa y pronostico espacial futuro');
+    p_corr = panel(gl, 'Cálculo de corrección térmica');
+    p_ext = panel(gl, 'Aplicación de corrección térmica');
     p_exp = panel(gl, 'Exportador masivo de correcciones');
     [c_exportacion, c_stl, c_mat] = ui_exportacion(p_exportacion);
     c_corr = ui_corr(p_corr);
@@ -93,6 +118,9 @@ function modulo_procesamiento_datos(varargin)
         activar_scroll(p);
     end
 
+    % =====================================================================
+    % ZONA 1 — CONFIGURACION DE UI: EXPORTACION GEOMETRICA Y VOXELIZACION
+    % =====================================================================
     function [c, c_stl, c_mat] = ui_exportacion(p)
         gp = uigridlayout(p, [2, 1]);
         gp.RowHeight = {32, '1x'};
@@ -119,8 +147,8 @@ function modulo_procesamiento_datos(varargin)
         titulo_stl.Tooltip = ['Criterios térmicos fijos del problema: temperatura mínima ', ...
             'de datos extraídos 55 degC; máxima del caso 0, 500 degC; ', ...
             'máxima de los casos termodependientes, 120 degC.'];
-        c_stl.alpha = num(g, 2, 'Radio AlphaShape', 0);
-        c_stl.smooth = num(g, 3, 'Suavizado', 4);
+        c_stl.alpha = num(g, 2, 'Radio de AlphaShape', 0);
+        c_stl.smooth = num(g, 3, 'Iteraciones de suavizado', 4);
         b_stl = uibutton(g, 'Text', 'Exportar STL/TXT', ...
             'Tooltip', 'Aplica los criterios térmicos fijos y exporta las superficies y sondas.', ...
             'ButtonPushedFcn', @(~,~) run_stl());
@@ -132,29 +160,32 @@ function modulo_procesamiento_datos(varargin)
         lab = uilabel(g, 'Text', 'Representación', ...
             'Tooltip', descripcion_control_procesamiento('Tipo MAT'));
         lab.Layout.Row = 7; lab.Layout.Column = 1;
-        c_mat.tipo = uidropdown(g, 'Items', {'sdf', 'mascara', 'tsdf'}, 'Value', 'sdf', ...
-            'Tooltip', 'Representación volumétrica: distancia SDF, máscara binaria o distancia truncada TSDF.');
+        c_mat.tipo = uilabel(g, 'Text', 'SDF', ...
+            'Tooltip', 'Representación volumétrica disponible: campo de distancia con signo (SDF).');
         c_mat.tipo.Layout.Row = 7; c_mat.tipo.Layout.Column = [2 3];
-        tesis_auxiliares('tema_ui', 'dropdown', c_mat.tipo);
+        tesis_auxiliares('tema_ui', 'label', c_mat.tipo);
         b_mat = uibutton(g, 'Text', 'Voxelizar STL a MAT', ...
-            'Tooltip', 'Convierte los STL exportados a la representación volumétrica seleccionada.', ...
+            'Tooltip', 'Convierte los STL exportados a campos de distancia con signo (SDF).', ...
             'ButtonPushedFcn', @(~,~) run_mat());
         b_mat.Layout.Row = 8; b_mat.Layout.Column = [1 3];
         tesis_auxiliares('tema_ui', 'button', b_mat, 'success');
     end
 
+    % =====================================================================
+    % ZONA 2 — CONFIGURACION DE UI: CORRELACION Y CORRECCION TERMICA
+    % =====================================================================
     function c = ui_corr(p)
         gp = uigridlayout(p, [1, 2]);
         gp.ColumnWidth = {450, '1x'};
         gp.Padding = [8 8 8 8];
         activar_scroll(gp);
 
-        ctrl = uipanel(gp, 'Title', 'Configuracion de correlacion', ...
+        ctrl = uipanel(gp, 'Title', 'Configuración del cálculo de corrección térmica', ...
             'TitlePosition', 'centertop');
         ctrl.Layout.Column = 1;
         tesis_auxiliares('tema_ui', 'panel', ctrl);
         activar_scroll(ctrl);
-        g = crear_grid_control(ctrl, 22);
+        g = crear_grid_control(ctrl, 24);
         franja_seccion(g, 1, 'Experimental');
         c.exp_fecha = drop(g, 2, 'Fecha', {'Todos'});
         c.exp_antena = drop(g, 3, 'Antenas', {'Todos'});
@@ -170,13 +201,26 @@ function modulo_procesamiento_datos(varargin)
         c.sim_potencia = drop(g, 12, 'Potencia', {'Todos'});
         c.sim = drop(g, 13, 'Archivo', {'(sin catálogo)'});
 
-        c.sonda = drop(g, 14, 'Sonda', {'P1'});
-        [c.exp_i, c.exp_f] = rango_num(g, 15, 'Tiempo experimental', 0, 0);
-        [c.sim_i, c.sim_f] = rango_num(g, 16, 'Tiempo simulado', 0, 0);
-        c.grado = num(g, 17, 'Grado', 6); c.n = num(g, 18, 'Muestras', 1000);
-        gb = uigridlayout(g, [1, 2]); gb.Layout.Row = 21; gb.Layout.Column = [1 3];
+        c.modo_sondas = drop(g, 14, 'Asignación de sondas', ...
+            {'4 sondas: orden predeterminado', 'Pareja manual (sin altura)'});
+        c.sonda = drop(g, 15, 'Sonda simulada', {'P1'});
+        c.sonda_exp = drop(g, 16, 'Sonda experimental', {'(sin datos)'});
+        c.sonda_exp.ItemsData = 1;
+        c.sonda_exp.Enable = 'off';
+        c.modo_sondas.Tooltip = ['Orden predeterminado: cuatro pares por indice y alturas habituales. ', ...
+            'Pareja manual: una sonda experimental con una simulada; correccion global sin zonas ni alturas.'];
+        [c.exp_i, c.exp_f] = rango_num(g, 17, 'Tiempo experimental (min)', 0, 0);
+        [c.sim_i, c.sim_f] = rango_num(g, 18, 'Tiempo simulado (min)', 0, 0);
+        c.grado = num(g, 19, 'Grado del polinomio', 6);
+        c.n = num(g, 20, 'Muestras de correlación', 1000);
+        reiniciar = uibutton(g, 'Text', 'Reiniciar filtros', ...
+            'Tag', 'btn_reiniciar_filtros_corr', ...
+            'ButtonPushedFcn', @(~,~) reiniciar_filtros_corr());
+        reiniciar.Layout.Row = 21; reiniciar.Layout.Column = [1 3];
+        tesis_auxiliares('tema_ui', 'button', reiniciar, 'secondary');
+        gb = uigridlayout(g, [1, 2]); gb.Layout.Row = 23; gb.Layout.Column = [1 3];
         gb.RowHeight = {28}; gb.ColumnWidth = {'1x', '1x'}; gb.Padding = [0 0 0 0]; gb.ColumnSpacing = 6;
-        b1 = uibutton(gb, 'Text', 'Calcular correccion', 'ButtonPushedFcn', @(~,~) run_corr());
+        b1 = uibutton(gb, 'Text', 'Calcular corrección térmica', 'ButtonPushedFcn', @(~,~) run_corr());
         b1.Layout.Row = 1; b1.Layout.Column = 1; tesis_auxiliares('tema_ui', 'button', b1, 'success');
         b2 = uibutton(gb, 'Text', 'Guardar .mat', 'ButtonPushedFcn', @(~,~) run_save_corr());
         b2.Layout.Row = 1; b2.Layout.Column = 2; tesis_auxiliares('tema_ui', 'button', b2, 'secondary');
@@ -192,6 +236,8 @@ function modulo_procesamiento_datos(varargin)
         c.sim_potencia.ValueChangedFcn = @(~,~) aplicar_filtros_archivos_corr('simulado', true);
         c.sim.ValueChangedFcn = @(~,~) cargar_corr_sim(c.sim);
         c.sonda.ValueChangedFcn = @(~,~) actualizar_corr_reactiva();
+        c.modo_sondas.ValueChangedFcn = @(~,~) cambiar_modo_sondas();
+        c.sonda_exp.ValueChangedFcn = @(~,~) actualizar_corr_reactiva();
         c.exp_i.ValueChangedFcn = @(~,~) actualizar_corr_reactiva();
         c.exp_f.ValueChangedFcn = @(~,~) actualizar_corr_reactiva();
         c.sim_i.ValueChangedFcn = @(~,~) actualizar_corr_reactiva();
@@ -199,7 +245,7 @@ function modulo_procesamiento_datos(varargin)
         c.grado.ValueChangedFcn = @(~,~) actualizar_corr_reactiva();
         c.n.ValueChangedFcn = @(~,~) actualizar_corr_reactiva();
 
-        plots = uipanel(gp, 'Title', 'Graficas de correlacion', ...
+        plots = uipanel(gp, 'Title', 'Resultados del cálculo de corrección térmica', ...
             'TitlePosition', 'centertop');
         plots.Layout.Column = 2;
         tesis_auxiliares('tema_ui', 'panel', plots);
@@ -208,22 +254,25 @@ function modulo_procesamiento_datos(varargin)
         g2.RowHeight = {'1.45x', '1x'};
         g2.Padding = [8 8 8 8];
         activar_scroll(g2);
-        c.ax1 = uiaxes(g2); c.ax1.Layout.Row = 1; c.ax1.Layout.Column = 1; title(c.ax1, 'Correlacion simulacion vs experimento');
-        c.ax2 = uiaxes(g2); c.ax2.Layout.Row = 2; c.ax2.Layout.Column = 1; title(c.ax2, 'Funcion de correccion');
+        c.ax1 = uiaxes(g2); c.ax1.Layout.Row = 1; c.ax1.Layout.Column = 1; title(c.ax1, 'Comparación simulación vs experimento');
+        c.ax2 = uiaxes(g2); c.ax2.Layout.Row = 2; c.ax2.Layout.Column = 1; title(c.ax2, 'Función de corrección térmica');
     end
 
+    % =====================================================================
+    % ZONA 3 — CONFIGURACION DE UI: CAMPO 4D Y PRONOSTICO TEMPORAL
+    % =====================================================================
     function c = ui_extrap(p)
         gp = uigridlayout(p, [1, 2]);
         gp.ColumnWidth = {405, '1x'};
         gp.Padding = [8 8 8 8];
         activar_scroll(gp);
 
-        ctrl = uipanel(gp, 'Title', '21 tiempos nativos / futuro posterior', ...
+        ctrl = uipanel(gp, 'Title', 'Configuración de la aplicación térmica', ...
             'TitlePosition', 'centertop');
         ctrl.Layout.Column = 1;
         tesis_auxiliares('tema_ui', 'panel', ctrl);
         activar_scroll(ctrl);
-        n_filas_ext = 22 + 2 * double(mostrar_temporal_avanzado);
+        n_filas_ext = 24 + 2 * double(mostrar_temporal_avanzado);
         g = crear_grid_control(ctrl, n_filas_ext);
         g.RowHeight{end} = 30;
         c.tipo = drop(g, 1, 'Tipo', {'Todos'}); c.tipo.ValueChangedFcn = @(~,~) aplicar_filtros_ext();
@@ -233,36 +282,38 @@ function modulo_procesamiento_datos(varargin)
         c.corr_fecha = drop(g, 5, 'Fecha adquisicion', {'Todos'});
         c.corr_tiempo = drop(g, 6, 'Tiempo ejecucion', {'Todos'});
         c.corr_prueba = drop(g, 7, 'Numero de prueba', {'Todos'});
-        c.corr_zona = drop(g, 8, 'Zona experimental', {'Todos'});
+        c.corr_zona = drop(g, 8, 'Zona / pareja de sondas', {'Todos'});
         c.corr_fecha.ValueChangedFcn = @(~,~) aplicar_filtros_correccion_ext();
         c.corr_tiempo.ValueChangedFcn = @(~,~) aplicar_filtros_correccion_ext();
         c.corr_prueba.ValueChangedFcn = @(~,~) aplicar_filtros_correccion_ext();
         c.corr_zona.ValueChangedFcn = @(~,~) aplicar_filtros_correccion_ext();
         c.modelo = drop(g, 9, 'Modelo', {'(sin dataset)'}); c.modelo.ValueChangedFcn = @(~,~) modelo_ext_cambiado();
         c.ds = drop(g, 10, 'Dataset', {'(sin dataset)'});
-        c.nxyz = num(g, 11, 'Nx=Ny=Nz', 45);
+        c.nxyz = num(g, 11, 'Puntos por eje (Nx=Ny=Nz)', 45);
         fila = 12;
         if mostrar_temporal_avanzado
-            c.nt = num(g, fila, 'Nt fino', 200);
+            c.nt = num(g, fila, 'Muestras temporales internas', 200);
             fila = fila + 1;
         end
-        c.tabl = num(g, fila, 'T ablacion C', 60);
+        c.tabl = num(g, fila, 'Temperatura de ablación (°C)', 60);
         fila = fila + 1;
-        c.t_extra = num(g, fila, 'T extra max min', 0);
+        c.tmax = num(g, fila, 'Temperatura máxima (°C; 0=auto)', 0);
+        c.tmax.Limits = [0 Inf];
+        c.tmax.Tooltip = ['0 conserva el limite experimental y el tope de 120 °C. ', ...
+            'Un valor positivo sustituye ambos limites; no incrementa por si solo la temperatura.'];
+        fila = fila + 1;
+        c.t_extra = num(g, fila, 'Minuto final de aplicación', 0);
         fila = fila + 1;
         if mostrar_temporal_avanzado
-            c.nt_ext = num(g, fila, 'Nt extrap', 80);
+            c.nt_ext = num(g, fila, 'Muestras de aplicación térmica', 80);
             fila = fila + 1;
         end
         lab = uilabel(g, 'Text', 'Método', ...
             'Tooltip', descripcion_control_procesamiento('Método'));
         lab.Layout.Row = fila; lab.Layout.Column = 1;
-        c.estrategia = uidropdown(g, ...
-            'Items', {'POD/SVD + SSA recurrente', 'POD/SVD + tendencia modal', ...
-                'LOWESS', 'Gradiente local'}, ...
-            'Value', 'POD/SVD + SSA recurrente', ...
+        c.estrategia = uilabel(g, 'Text', 'POD/SVD + SSA recurrente', ...
             'Tooltip', descripcion_control_procesamiento('Método'));
-        c.estrategia.Layout.Row = fila; c.estrategia.Layout.Column = [2 3]; tesis_auxiliares('tema_ui', 'dropdown', c.estrategia);
+        c.estrategia.Layout.Row = fila; c.estrategia.Layout.Column = [2 3]; tesis_auxiliares('tema_ui', 'label', c.estrategia);
         fila = fila + 1;
         c.usar_corr = uicheckbox(g, 'Text', 'Aplicar corrección', 'Value', true, ...
             'Tooltip', 'Activa la función térmica obtenida de la correlación experimental.');
@@ -272,16 +323,16 @@ function modulo_procesamiento_datos(varargin)
             'Tooltip', 'Conserva la referencia de temperatura basal al aplicar la corrección.');
         c.offset.Layout.Row = fila; c.offset.Layout.Column = [1 3];
         fila = fila + 1;
-        c.intensidad = num(g, fila, 'Intensidad 0-1', 1);
+        c.intensidad = num(g, fila, 'Intensidad de corrección (0-1)', 1);
         fila = fila + 1;
         c.vista = drop(g, fila, 'Vista', {'Analisis 2D', 'Campo termico'});
         fila = fila + 1;
-        c.tiempo = drop(g, fila, 'Tiempo', {'(sin datos)'});
+        c.tiempo = drop(g, fila, 'Tiempo visualizado (min)', {'(sin datos)'});
         c.tiempo.Enable = 'off';
         fila = fila + 1;
-        gb = uigridlayout(g, [3, 2]); gb.Layout.Row = [fila fila + 2]; gb.Layout.Column = [1 3];
-        gb.RowHeight = {28, 28, 28}; gb.ColumnWidth = {'1x', '1x'}; gb.Padding = [0 0 0 0]; gb.RowSpacing = 6; gb.ColumnSpacing = 6;
-        b1 = uibutton(gb, 'Text', 'Pronosticar campo futuro (> ultimo tiempo)', 'ButtonPushedFcn', @(~,~) run_vol());
+        gb = uigridlayout(g, [4, 2]); gb.Layout.Row = [fila fila + 3]; gb.Layout.Column = [1 3];
+        gb.RowHeight = {28, 28, 28, 28}; gb.ColumnWidth = {'1x', '1x'}; gb.Padding = [0 0 0 0]; gb.RowSpacing = 6; gb.ColumnSpacing = 6;
+        b1 = uibutton(gb, 'Text', 'Aplicar corrección térmica', 'ButtonPushedFcn', @(~,~) run_vol());
         b1.Layout.Row = 1; b1.Layout.Column = [1 2]; tesis_auxiliares('tema_ui', 'button', b1, 'primary');
         c.build = b1;
         b2 = uibutton(gb, 'Text', 'Exportar dataset corregido', 'ButtonPushedFcn', @(~,~) run_export_vol());
@@ -295,8 +346,13 @@ function modulo_procesamiento_datos(varargin)
             'ButtonPushedFcn', @(~,~) run_export_auto_ext());
         b4.Layout.Row = 3; b4.Layout.Column = [1 2]; tesis_auxiliares('tema_ui', 'button', b4, 'primary');
         c.auto = b4;
+        reiniciar = uibutton(gb, 'Text', 'Reiniciar filtros', ...
+            'Tag', 'btn_reiniciar_filtros_ext', ...
+            'ButtonPushedFcn', @(~,~) reiniciar_filtros_ext());
+        reiniciar.Layout.Row = 4; reiniciar.Layout.Column = [1 2];
+        tesis_auxiliares('tema_ui', 'button', reiniciar, 'secondary');
 
-        plots = uipanel(gp, 'Title', 'Analisis de extrapolacion', ...
+        plots = uipanel(gp, 'Title', 'Resultados de la corrección térmica', ...
             'TitlePosition', 'centertop');
         plots.Layout.Column = 2;
         tesis_auxiliares('tema_ui', 'panel', plots);
@@ -312,13 +368,11 @@ function modulo_procesamiento_datos(varargin)
         c.panel_termico.Visible = 'off';
         tesis_auxiliares('tema_ui', 'panel', c.panel_termico);
 
-        g2 = uigridlayout(c.panel_2d, [2, 2]);
+        g2 = uigridlayout(c.panel_2d, [2, 1]);
         g2.Padding = [8 8 8 8];
         activar_scroll(g2);
         c.ax_vol = uiaxes(g2); c.ax_vol.Layout.Row = 1; c.ax_vol.Layout.Column = 1; title(c.ax_vol, 'Volumen seleccionado');
-        c.ax_methods = uiaxes(g2); c.ax_methods.Layout.Row = 1; c.ax_methods.Layout.Column = 2; title(c.ax_methods, 'Comparacion de metodos');
-        c.ax_sigma = uiaxes(g2); c.ax_sigma.Layout.Row = 2; c.ax_sigma.Layout.Column = 1; title(c.ax_sigma, 'Incertidumbre / sigma');
-        c.ax_factor = uiaxes(g2); c.ax_factor.Layout.Row = 2; c.ax_factor.Layout.Column = 2; title(c.ax_factor, 'Factor de correccion');
+        c.ax_factor = uiaxes(g2); c.ax_factor.Layout.Row = 2; c.ax_factor.Layout.Column = 1; title(c.ax_factor, 'Factor de correccion');
         gt = uigridlayout(c.panel_termico, [1, 2]);
         gt.Padding = [8 8 8 8]; gt.ColumnWidth = {'1x', '1x'};
         gt.RowSpacing = 8; gt.ColumnSpacing = 8;
@@ -337,10 +391,10 @@ function modulo_procesamiento_datos(varargin)
             c.nt.ValueChangedFcn = @(~,~) invalidar_pronostico_ext();
             c.nt_ext.ValueChangedFcn = @(~,~) invalidar_pronostico_ext();
         end
-        c.estrategia.ValueChangedFcn = @(~,~) invalidar_pronostico_ext();
         c.usar_corr.ValueChangedFcn = @(~,~) actualizar_correccion_ext_reactiva();
         c.offset.ValueChangedFcn = @(~,~) actualizar_correccion_ext_reactiva();
         c.intensidad.ValueChangedFcn = @(~,~) actualizar_correccion_ext_reactiva();
+        c.tmax.ValueChangedFcn = @(~,~) actualizar_correccion_ext_reactiva();
         c.vista.ValueChangedFcn = @(~,~) plot_vol();
         c.tiempo.ValueChangedFcn = @(~,~) plot_vol();
     end
@@ -349,9 +403,14 @@ function modulo_procesamiento_datos(varargin)
         g = crear_grid_control(p, 10);
         c.dataset = row_path(g, 1, 'Dataset/catalogo', dataset_default, '*.mat');
         c.corr = row_path(g, 2, 'Correlaciones', paths.correlaciones, 'dir');
-        c.tmin = num(g, 3, 'T min STL C', 55); c.alpha = num(g, 4, 'Alpha radius', 0);
-        c.smooth = num(g, 5, 'Suavizado', 1); c.res = num(g, 6, 'Resolucion MAT', 0.5);
-        c.tipo = drop(g, 7, 'Tipo MAT', {'sdf', 'mascara', 'tsdf'});
+        c.tmin = num(g, 3, 'Temperatura mínima STL (°C)', 55);
+        c.alpha = num(g, 4, 'Radio de AlphaShape', 0);
+        c.smooth = num(g, 5, 'Iteraciones de suavizado', 1);
+        c.res = num(g, 6, 'Resolución voxel (mm)', 0.5);
+        lab = uilabel(g, 'Text', 'Representación voxel');
+        lab.Layout.Row = 7; lab.Layout.Column = 1;
+        c.tipo = uilabel(g, 'Text', 'SDF');
+        c.tipo.Layout.Row = 7; c.tipo.Layout.Column = [2 3];
         c.over = uicheckbox(g, 'Text', 'Sobrescribir existentes', 'Value', false); c.over.Layout.Row = 8; c.over.Layout.Column = [1 2];
         b1 = uibutton(g, 'Text', '1 Dataset corregido', 'ButtonPushedFcn', @(~,~) run_export('dataset'));
         b1.Layout.Row = 9; b1.Layout.Column = 1; tesis_auxiliares('tema_ui', 'button', b1, 'secondary');
@@ -361,7 +420,7 @@ function modulo_procesamiento_datos(varargin)
 
     function g = crear_grid_control(p, n)
         g = uigridlayout(p, [n, 3]); g.RowHeight = repmat({30}, 1, n); g.RowHeight{end} = '1x';
-        g.ColumnWidth = {135, '1x', 95}; g.Padding = [12 12 12 12]; g.RowSpacing = 7;
+        g.ColumnWidth = {190, '1x', 95}; g.Padding = [12 12 12 12]; g.RowSpacing = 7;
         activar_scroll(g);
     end
 
@@ -422,26 +481,32 @@ function modulo_procesamiento_datos(varargin)
             ayuda = 'Potencia por antena registrada en la metadata térmica.';
         elseif contains(clave, 'antena')
             ayuda = 'Cantidad o tipo de antenas asociado al dataset.';
+        elseif contains(clave, 'minuto final de aplicación')
+            ayuda = 'Último minuto de la aplicación térmica; debe ser posterior al último tiempo nativo.';
         elseif contains(clave, 'tiempo experimental')
             ayuda = 'Intervalo temporal del registro experimental usado para ajustar la corrección.';
         elseif contains(clave, 'tiempo simulado')
             ayuda = 'Intervalo temporal de la sonda simulada que se compara con el experimento.';
         elseif contains(clave, 'tiempo')
             ayuda = 'Instante o duración, en minutos, usado por esta operación.';
-        elseif contains(clave, 'grilla') || contains(clave, 'nx=')
+        elseif contains(clave, 'grilla') || contains(clave, 'nx=') || contains(clave, 'puntos por eje')
             ayuda = 'Resolución espacial por eje de la reconstrucción térmica tridimensional.';
-        elseif contains(clave, 'resolucion')
+        elseif contains(clave, 'resolucion') || contains(clave, 'resolución')
             ayuda = 'Tamaño del voxel o paso espacial expresado en milímetros.';
         elseif contains(clave, 'alpha')
-            ayuda = 'Radio alpha usado para reconstruir una superficie cerrada desde puntos térmicos.';
+            ayuda = 'Radio AlphaShape en milímetros; cero activa el cálculo automático adaptativo.';
         elseif contains(clave, 'suavizado')
             ayuda = 'Número de iteraciones de suavizado aplicadas a la geometría exportada.';
         elseif contains(clave, 'grado')
             ayuda = 'Grado del ajuste polinomial entre las señales experimental y simulada.';
+        elseif contains(clave, 'muestras temporales') || contains(clave, 'muestras de aplicación')
+            ayuda = 'Cantidad de muestras temporales usada para construir el campo térmico corregido.';
         elseif contains(clave, 'muestras') || contains(clave, 'n común')
             ayuda = 'Cantidad de muestras de la base temporal común usada en la correlación.';
-        elseif contains(clave, 'metodo')
-            ayuda = 'Método matemático utilizado para pronosticar el campo térmico futuro.';
+        elseif contains(clave, 'ablación') || contains(clave, 'ablacion')
+            ayuda = 'Temperatura umbral, en grados Celsius, usada para delimitar el volumen de ablación.';
+        elseif contains(clave, 'metodo') || contains(clave, 'método')
+            ayuda = 'Método matemático utilizado para extender y corregir el campo térmico.';
         elseif contains(clave, 'intensidad')
             ayuda = 'Peso entre 0 y 1 con el que se aplica la corrección térmica al campo original.';
         elseif contains(clave, 'fuente')
@@ -478,11 +543,14 @@ function modulo_procesamiento_datos(varargin)
     function mostrar()
         v = dd.Value;
         p_exportacion.Visible = vis(strcmp(v, 'Exportación'));
-        p_corr.Visible = vis(strcmp(v, 'Correlacion'));
-        p_ext.Visible = vis(strcmp(v, 'Correccion y pronostico'));
+        p_corr.Visible = vis(strcmp(v, 'Cálculo de corrección térmica'));
+        p_ext.Visible = vis(strcmp(v, 'Aplicación de corrección térmica'));
         p_exp.Visible = 'off';
         estado.Text = sprintf('Vista activa: %s', v);
         logmsg('Vista activa: %s', v);
+        if strcmp(v, 'Aplicación de corrección térmica')
+            aplicar_filtros_correccion_ext();
+        end
     end
 
     function s = vis(tf), if tf, s = 'on'; else, s = 'off'; end, end
@@ -496,6 +564,9 @@ function modulo_procesamiento_datos(varargin)
         end
     end
 
+    % =====================================================================
+    % ZONA 4 — CATALOGOS, FILTROS DE METADATA Y CARGA DE ARTEFACTOS
+    % =====================================================================
     function precargar_ext_catalogo_si_hay()
         ruta = normalizar_ruta_ext_catalogo(dataset_default);
         if isfolder(ruta) && isfile(fullfile(ruta, 'Indice_Datasets_Metadata.mat'))
@@ -531,7 +602,7 @@ function modulo_procesamiento_datos(varargin)
             entrada.potencia = etiqueta_numero_corr(meta.potencia_W, '', 'W');
             entrada.tiempo = etiqueta_numero_corr(meta.tiempo_ejecucion_min, '', 'min');
             entrada.prueba = sprintf('Prueba_%d', prueba_experimental_corr(ruta, meta));
-            catalogo(end + 1) = entrada; %#ok<AGROW>
+            catalogo(end + 1) = entrada; 
         end
     end
 
@@ -551,8 +622,25 @@ function modulo_procesamiento_datos(varargin)
             entrada.antena = etiqueta_numero_corr(meta.num_antenas, '', 'ant');
             entrada.caso = etiqueta_numero_corr(meta.caso, 'Caso_', '');
             entrada.potencia = etiqueta_numero_corr(meta.potencia_W, 'Potencia_', 'W');
-            catalogo(end + 1) = entrada; %#ok<AGROW>
+            catalogo(end + 1) = entrada; 
         end
+    end
+
+    function reiniciar_filtros_corr()
+        tipos = {'experimental', 'simulado'};
+        for k = 1:numel(tipos)
+            [~, controles] = configuracion_archivos_corr(tipos{k});
+            for j = 1:numel(controles), controles(j).control.Value = 'Todos'; end
+        end
+        aplicar_filtros_archivos_corr('experimental', true);
+        aplicar_filtros_archivos_corr('simulado', true);
+    end
+
+    function reiniciar_filtros_ext()
+        controles = [controles_filtros_ext(), controles_filtros_correccion_ext()];
+        for k = 1:numel(controles), controles(k).control.Value = 'Todos'; end
+        aplicar_filtros_ext();
+        aplicar_filtros_correccion_ext();
     end
 
     function aplicar_filtros_archivos_corr(tipo, cargar)
@@ -697,6 +785,9 @@ function modulo_procesamiento_datos(varargin)
         end
     end
 
+    % =====================================================================
+    % ZONA 5 — ORQUESTACION DE EXPORTACIONES NATIVAS Y CORRECCIONES
+    % =====================================================================
     function run_stl()
         try
             [ruta_dataset, ruta_stl] = rutas_exportacion();
@@ -717,7 +808,7 @@ function modulo_procesamiento_datos(varargin)
         try
             [~, ruta_stl, ruta_mat] = rutas_exportacion();
             cfg = struct('carpeta_stl', ruta_stl, 'carpeta_salida', ruta_mat, ...
-                'resolucion', c_mat.res.Value, 'tipo_procesamiento', c_mat.tipo.Value, 'logfn', @logmsg);
+                'resolucion', c_mat.res.Value, 'tipo_procesamiento', 'sdf', 'logfn', @logmsg);
             sep(); estado.Text = 'Voxelizando...'; ejecutar_preprocesador_stl_integrado('run', cfg);
             estado.Text = 'Voxelizado finalizado.'; logmsg('Voxelizado finalizado.');
         catch ME
@@ -725,39 +816,45 @@ function modulo_procesamiento_datos(varargin)
         end
     end
 
+    % =====================================================================
+    % ZONA 6 — CALLBACKS DE CORRELACION, PREVISUALIZACION Y GUARDADO
+    % =====================================================================
     function run_corr()
         try
             sep(); asegurar_corr_cargada(); actualizar_corr_reactiva();
-            if isempty(state.corr), error('No se pudo calcular la correccion con los filtros actuales.'); end
-            logmsg('Correccion calculada en memoria. RMSE factor %.4f C.', state.corr.correccion_termica.rmse_factor_C);
+            if isempty(state.corr_calculada), error('No se pudo calcular la correccion con los filtros actuales.'); end
+            logmsg('Correccion calculada en memoria. RMSE factor %.4f C.', state.corr_calculada.correccion_termica.rmse_factor_C);
             estado.Text = 'Correccion calculada.';
         catch ME
-            fail('Correlacion', ME);
+            fail('Cálculo de corrección térmica', ME);
         end
     end
 
     function run_save_corr()
         try
-            if isempty(state.corr), run_corr(); end
-            if isempty(state.corr), error('No hay correccion valida para guardar.'); end
+            if isempty(state.corr_calculada), run_corr(); end
+            if isempty(state.corr_calculada), error('No hay correccion valida para guardar.'); end
             if ~isfolder(paths.correlaciones), mkdir(paths.correlaciones); end
             relativa = ejecutar_correlador_volumen_integrado( ...
-                'ruta_relativa_correccion', state.corr);
+                'ruta_relativa_correccion', state.corr_calculada);
             out = fullfile(paths.correlaciones, relativa);
-            out = ejecutar_correlador_volumen_integrado('guardar_correccion', out, state.corr);
+            out = ejecutar_correlador_volumen_integrado('guardar_correccion', out, state.corr_calculada);
             state.corr_catalog = [];
             state.corr_catalog_cargado = false;
             logmsg('Correccion guardada: %s', out); estado.Text = 'Correccion guardada.';
         catch ME
-            fail('Guardar correlacion', ME);
+            fail('Guardar corrección térmica', ME);
         end
     end
 
+    % =====================================================================
+    % ZONA 7 — CONSTRUCCION, PREVISUALIZACION Y EXPORTACION DEL CAMPO 4D
+    % =====================================================================
     function run_vol()
         try
             construir_volumen_ext(true);
         catch ME
-            fail('Pronostico espacial futuro', ME);
+            fail('Aplicación de corrección térmica', ME);
         end
     end
 
@@ -788,7 +885,6 @@ function modulo_procesamiento_datos(varargin)
             state.preview_nativa = struct('modelo', modelo, 'dsName', dsName, ...
                 't_min', t_nativo(:));
             actualizar_tiempos_preview_nativa();
-            c_ext.vista.Value = 'Campo termico';
             plot_vol();
             estado.Text = sprintf(['Correccion nativa lista: %d tiempos; ', ...
                 'sin interpolacion espacial 4D.'], n_t);
@@ -817,18 +913,16 @@ function modulo_procesamiento_datos(varargin)
         set_boton_construccion_ext(false);
         asegurar_ext_dataset_seleccionado();
         if isempty(state.dataset)
-            error('Carga un Dataset MAT antes de construir la extrapolacion.');
+            error('Carga un Dataset MAT antes de aplicar la correccion termica.');
         end
         ds_nativo = state.dataset.(modelo_ext_actual()).(dataset_ext_actual());
         t_nativo = tiempos_nativos_ext(ds_nativo);
-        if isempty(t_nativo)
-            error('El dataset no contiene tiempos nativos legibles.');
-        end
-        if ~isfinite(c_ext.t_extra.Value) || c_ext.t_extra.Value <= max(t_nativo) + 1e-9
-            error(['El pronostico espacial solo se construye despues del ultimo tiempo ', ...
-                'nativo (%.4g min). Para revisar cualquiera de los %d tiempos existentes, ', ...
-                'completa los filtros y usa la previsualizacion automatica.'], ...
-                max(t_nativo), numel(t_nativo));
+        if ~requiere_extension_termica(c_ext.t_extra.Value, t_nativo)
+            if registrar_separador
+                sep();
+            end
+            run_preview_nativa(false);
+            return;
         end
         corr = [];
         if c_ext.usar_corr.Value
@@ -843,13 +937,13 @@ function modulo_procesamiento_datos(varargin)
         if registrar_separador
             sep();
         end
-        estado.Text = 'Construyendo extrapolacion 4D...';
+        estado.Text = 'Aplicando correccion termica 4D...';
         drawnow limitrate;
         state.volumen = ejecutar_correlador_volumen_integrado('construir_volumen', cfg, corr, @logmsg);
         state.preview_nativa = [];
         plot_vol();
-        estado.Text = sprintf('Extrapolacion 4D construida con %s.', cfg.estrategia);
-        logmsg('Extrapolacion 4D construida: metodo=%s | modelo=%s | dataset=%s.', ...
+        estado.Text = sprintf('Correccion termica 4D aplicada con %s.', cfg.estrategia);
+        logmsg('Correccion termica 4D aplicada: metodo=%s | modelo=%s | dataset=%s.', ...
             cfg.estrategia, cfg.modelo, cfg.dsName);
     end
 
@@ -951,6 +1045,7 @@ function modulo_procesamiento_datos(varargin)
                         'aplicar_offset_base', c_ext.offset.Value, ...
                         'intensidad_correccion', intensidad, ...
                         'logfn', @logmsg);
+                    cfg = configurar_limite_termico_ext(cfg);
                     ejecutar_exportador_correcciones_integrado('selected', cfg);
                     procesados = procesados + 1;
                     estado.Text = sprintf('Exportacion automatica: %d/%d.', procesados, total);
@@ -986,11 +1081,22 @@ function modulo_procesamiento_datos(varargin)
             'ruta_correccion', state.corr_ruta, ...
             'nx', n, 'ny', n, 'nz', n, 'nt_fine', NaN, ...
             'T_abl', c_ext.tabl.Value, 't_extra_max', c_ext.t_extra.Value, ...
-            'nt_ext', nt_ext_cfg, 'estrategia', c_ext.estrategia.Value, ...
+            'nt_ext', nt_ext_cfg, 'estrategia', 'POD/SVD + SSA recurrente', ...
             'carpeta_exportacion', paths.datasets_corregidos_por_metadata, 'export_mat', true, 'export_m', true, ...
             'export_rbf', false, 'n_rbf_max', 1000, ...
             'temperatura_max_corregida_C', 120, ...
             'aplicar_offset_base', c_ext.offset.Value, 'intensidad_correccion', intensidad);
+        cfg = configurar_limite_termico_ext(cfg);
+    end
+
+    function cfg = configurar_limite_termico_ext(cfg)
+        valor = c_ext.tmax.Value;
+        if ~isfinite(valor) || valor < 0
+            error('La temperatura maxima debe ser finita y no negativa (0 = automatico).');
+        end
+        cfg.usar_limite_experimental = valor == 0;
+        cfg.temperatura_max_corregida_C = 120;
+        if valor > 0, cfg.temperatura_max_corregida_C = valor; end
     end
 
     function run_export(modo)
@@ -999,7 +1105,7 @@ function modulo_procesamiento_datos(varargin)
             cfg = struct('ruta_dataset', c_exp.dataset.Value, 'carpeta_correlaciones', c_exp.corr.Value, ...
                 'temperatura_min_stl', c_exp.tmin.Value, 'radio_alpha', c_exp.alpha.Value, ...
                 'iteraciones_suavizado', round(c_exp.smooth.Value), 'resolucion_preprocesamiento', c_exp.res.Value, ...
-                'tipo_preprocesamiento', c_exp.tipo.Value, 'exportar_stl', export_stl, 'exportar_mat', export_mat, ...
+                'tipo_preprocesamiento', 'sdf', 'exportar_stl', export_stl, 'exportar_mat', export_mat, ...
                 'temperatura_max_corregida_C', 120, ...
                 'sobrescribir', c_exp.over.Value, 'logfn', @logmsg);
             sep(); ejecutar_exportador_correcciones_integrado('run', cfg); estado.Text = 'Correcciones finalizadas.';
@@ -1008,6 +1114,9 @@ function modulo_procesamiento_datos(varargin)
         end
     end
 
+    % =====================================================================
+    % ZONA 8 — SELECCION REACTIVA DE DATASETS Y CORRECCIONES POR METADATA
+    % =====================================================================
     function modelos_to_ui()
         if ~isempty(state.dataset_catalog)
             catalogo = catalogo_ext_actual();
@@ -1160,6 +1269,16 @@ function modulo_procesamiento_datos(varargin)
             if ~isfile(ruta), logmsg('Experimental no encontrado: %s', ruta); return; end
             if strcmpi(state.corr_exp_ruta, ruta) && ~isempty(state.exp), return; end
             state.exp = ejecutar_correlador_volumen_integrado('leer_experimental', ruta, true);
+            n_sondas = size(state.exp.T, 2);
+            etiquetas = arrayfun(@(k) sprintf('Sonda %d', k), 1:n_sondas, 'UniformOutput', false);
+            if isfield(state.exp, 'labels') && numel(state.exp.labels) == n_sondas
+                etiquetas = arrayfun(@(k) sprintf('%d: %s', k, state.exp.labels{k}), ...
+                    1:n_sondas, 'UniformOutput', false);
+            end
+            c_corr.sonda_exp.ItemsData = [];
+            c_corr.sonda_exp.Items = etiquetas;
+            c_corr.sonda_exp.ItemsData = 1:n_sondas;
+            c_corr.sonda_exp.Value = 1;
             state.corr_exp_ruta = ruta;
             ed.Tooltip = ruta;
             ajustar_rango_tiempo(c_corr.exp_i, c_corr.exp_f, state.exp.t_min);
@@ -1208,16 +1327,16 @@ function modulo_procesamiento_datos(varargin)
             if ~isempty(state.dataset_catalog)
                 poblar_filtros_ext();
                 aplicar_filtros_ext();
-                logmsg('Catalogo termico importado para extrapolacion: %d entradas, %d modelos.', ...
+                logmsg('Catalogo termico importado para aplicar correccion: %d entradas, %d modelos.', ...
                     numel(state.dataset_catalog), numel(c_ext.modelo.Items));
-                estado.Text = 'Catalogo de extrapolacion cargado.';
+                estado.Text = 'Catalogo para correccion termica cargado.';
                 return;
             end
             state.dataset = ejecutar_correlador_volumen_integrado('cargar_dataset', ruta);
             state.dataset_ruta = ruta;
             modelos_to_ui();
-            logmsg('Dataset termico importado para extrapolacion: %d modelos.', numel(c_ext.modelo.Items));
-            estado.Text = 'Dataset de extrapolacion cargado.';
+            logmsg('Dataset termico importado para aplicar correccion: %d modelos.', numel(c_ext.modelo.Items));
+            estado.Text = 'Dataset para correccion termica cargado.';
         catch ME
             fail('Dataset MAT', ME);
         end
@@ -1270,8 +1389,8 @@ function modulo_procesamiento_datos(varargin)
             if any(strcmp(keys, key))
                 continue;
             end
-            keys{end+1} = key; %#ok<AGROW>
-            catalogo(end+1) = entrada; %#ok<AGROW>
+            keys{end+1} = key; 
+            catalogo(end+1) = entrada; 
         end
     end
 
@@ -1353,12 +1472,12 @@ function modulo_procesamiento_datos(varargin)
         end
         entrada = entrada_catalogo_ext_actual();
         if isempty(entrada)
-            error('Selecciona un modelo/dataset valido para extrapolacion.');
+            error('Selecciona un modelo/dataset valido para aplicar la correccion termica.');
         end
         modelo = entrada.modelo;
         dsName = entrada.dataset;
         if startsWith(modelo, '(') || startsWith(dsName, '(')
-            error('Selecciona un modelo/dataset valido para extrapolacion.');
+            error('Selecciona un modelo/dataset valido para aplicar la correccion termica.');
         end
         ruta = entrada.ruta;
         key = [modelo '|' dsName '|' ruta];
@@ -1431,38 +1550,22 @@ function modulo_procesamiento_datos(varargin)
         end
         if isempty(state.corr)
             error(['Selecciona metadata completa de correccion: fecha, tiempo, ', ...
-                'numero de prueba y zona experimental.']);
+                'numero de prueba y zona o pareja de sondas.']);
         end
         validar_correccion_ext_metadata(state.corr);
     end
 
     function validar_correccion_ext_metadata(corr)
-        entrada = entrada_catalogo_ext_actual();
-        if isempty(entrada) || ~isstruct(corr)
-            return;
-        end
-        meta = metadata_correccion_ext_unificada(corr);
-        if isempty(meta.tipo_antena) || ~isfinite(meta.num_antenas) || ...
-                ~isfinite(meta.caso) || ~isfinite(meta.potencia_W)
-            error('La correccion no contiene metadata completa de tipo/antenas/caso/potencia.');
-        end
-        esperado_antena = sprintf('%dant', round(meta.num_antenas));
-        esperado_caso = sprintf('Caso_%d', round(meta.caso));
-        esperado_potencia = sprintf('Potencia_%gW', meta.potencia_W);
-        if ~strcmpi(entrada.tipo, meta.tipo_antena) || ...
-                ~strcmpi(entrada.antena, esperado_antena) || ...
-                ~strcmpi(entrada.caso, esperado_caso) || ...
-                ~strcmpi(entrada.potencia, esperado_potencia)
-            error(['Correccion incompatible. Correccion=%s/%s/%s/%s; ', ...
-                'dataset=%s/%s/%s/%s.'], meta.tipo_antena, esperado_antena, ...
-                esperado_caso, esperado_potencia, entrada.tipo, entrada.antena, ...
-                entrada.caso, entrada.potencia);
-        end
+        asegurar_ext_dataset_seleccionado();
+        modelo = modelo_ext_actual(); nombre = dataset_ext_actual();
+        validar_modelo_correccion(state.dataset.(modelo).(nombre), ...
+            modelo, nombre, corr);
     end
 
     function asegurar_catalogo_correcciones_ext()
-        if ~state.corr_catalog_cargado
-            state.corr_catalog = catalogar_correcciones_metadata_ext(paths.correlaciones);
+        catalogo = catalogar_correcciones_metadata_ext(paths.correlaciones);
+        if ~state.corr_catalog_cargado || ~isequaln(catalogo, state.corr_catalog)
+            state.corr_catalog = catalogo;
             state.corr_catalog_cargado = true;
             logmsg('Catalogo de correcciones cargado: %d archivo(s) con metadata completa.', ...
                 numel(state.corr_catalog));
@@ -1475,15 +1578,18 @@ function modulo_procesamiento_datos(varargin)
         state.actualizando_filtros_corr = true;
         limpieza = onCleanup(@() set_actualizando_filtros_corr(false));
         controles = controles_filtros_correccion_ext();
-        for k = 1:numel(controles)
-            base = filtrar_catalogo_correccion_ui( ...
-                state.corr_catalog, controles(k).campo);
-            if isempty(base)
-                valores = {};
-            else
-                valores = {base.(controles(k).campo)};
+        % Recalcular tras descartar selecciones incompatibles con el nuevo modelo.
+        for pasada = 1:numel(controles)
+            for k = 1:numel(controles)
+                base = filtrar_catalogo_correccion_ui( ...
+                    state.corr_catalog, controles(k).campo);
+                if isempty(base)
+                    valores = {};
+                else
+                    valores = {base.(controles(k).campo)};
+                end
+                poblar_filtro_ext(controles(k).control, valores);
             end
-            poblar_filtro_ext(controles(k).control, valores);
         end
         clear limpieza;
         sincronizar_correccion_ext_filtrada();
@@ -1558,6 +1664,7 @@ function modulo_procesamiento_datos(varargin)
         end
         seleccionada = candidatas.ruta;
         if strcmpi(state.corr_ruta, seleccionada) && ~isempty(state.corr)
+            validar_correccion_ext_metadata(state.corr);
             return;
         end
         try
@@ -1635,7 +1742,7 @@ function modulo_procesamiento_datos(varargin)
         candidatos = horizonte_ct_abs(ct);
         zonas = zonas_correccion_ui(ct);
         for hz = 1:numel(zonas)
-            candidatos(end+1, 1) = horizonte_ct_abs(zonas(hz)); %#ok<AGROW>
+            candidatos(end+1, 1) = horizonte_ct_abs(zonas(hz)); 
         end
         candidatos = candidatos(isfinite(candidatos) & candidatos > 0);
         if ~isempty(candidatos)
@@ -1692,7 +1799,7 @@ function modulo_procesamiento_datos(varargin)
                 estado.Text = sprintf('Listo para construir: %s / %s.', ...
                     modelo_ext_actual(), dataset_ext_actual());
             else
-                estado.Text = sprintf('Vista actualizada: %s.', c_ext.estrategia.Value);
+                estado.Text = 'Vista actualizada: POD/SVD + SSA recurrente.';
             end
         catch ME
             estado.Text = sprintf('Previsualizacion no disponible: %s', ME.message);
@@ -1721,6 +1828,7 @@ function modulo_procesamiento_datos(varargin)
             end
             res = state.volumen;
             cfg = res.cfg;
+            cfg = configurar_limite_termico_ext(cfg);
             cfg.aplicar_offset_base = c_ext.offset.Value;
             cfg.intensidad_correccion = max(0, min(1, c_ext.intensidad.Value));
             cfg.ruta_correccion = state.corr_ruta;
@@ -1769,7 +1877,7 @@ function modulo_procesamiento_datos(varargin)
             actualizar_extrap_reactiva();
         else
             plot_vol();
-            estado.Text = 'Previsualizacion nativa conservada; pronostico pendiente.';
+            estado.Text = 'Previsualizacion nativa conservada; aplicacion termica pendiente.';
         end
     end
 
@@ -1794,9 +1902,21 @@ function modulo_procesamiento_datos(varargin)
         edFin.Value = max(t);
     end
 
+    % =====================================================================
+    % ZONA 9 — PREPARACION DE CURVAS, VALIDACION Y GRAFICAS DE CORRELACION
+    % =====================================================================
     function asegurar_corr_cargada()
         if isempty(state.exp), cargar_corr_exp(c_corr.exp); end
         if isempty(state.sim), cargar_corr_sim(c_corr.sim); end
+    end
+
+    function cambiar_modo_sondas()
+        if strcmp(c_corr.modo_sondas.Value, 'Pareja manual (sin altura)')
+            c_corr.sonda_exp.Enable = 'on';
+        else
+            c_corr.sonda_exp.Enable = 'off';
+        end
+        actualizar_corr_reactiva();
     end
 
     function actualizar_corr_reactiva()
@@ -1808,12 +1928,12 @@ function modulo_procesamiento_datos(varargin)
         end
         try
             cfg = cfg_corr();
-            state.corr = ejecutar_correlador_volumen_integrado('calcular_correlacion', cfg);
+            state.corr_calculada = ejecutar_correlador_volumen_integrado('calcular_correlacion', cfg);
             plot_corr();
-            estado.Text = sprintf('Correccion actualizada: RMSE %.4f C', state.corr.correccion_termica.rmse_factor_C);
+            estado.Text = sprintf('Correccion actualizada: RMSE %.4f C', state.corr_calculada.correccion_termica.rmse_factor_C);
         catch ME
-            state.corr = [];
-            estado.Text = sprintf('Correlacion no disponible: %s', ME.message);
+            state.corr_calculada = [];
+            estado.Text = sprintf('Calculo de correccion no disponible: %s', ME.message);
             cla(c_corr.ax2); plot_corr_base();
         end
         drawnow limitrate;
@@ -1827,6 +1947,11 @@ function modulo_procesamiento_datos(varargin)
             'sim_inicio', sim_i, 'sim_fin', sim_f, ...
             'grado', round(c_corr.grado.Value), 'n_comun', round(c_corr.n.Value), ...
             'nombre_exp', c_corr.exp.Value, 'nombre_sim', c_corr.sim.Value);
+        cfg.modo_sondas = 'cuatro_sondas';
+        if strcmp(c_corr.modo_sondas.Value, 'Pareja manual (sin altura)')
+            cfg.modo_sondas = 'manual';
+            cfg.indice_sonda_exp = c_corr.sonda_exp.Value;
+        end
     end
 
     function [i0, i1] = indices_por_ventana_min(t, t0, t1, etiqueta)
@@ -1846,7 +1971,7 @@ function modulo_procesamiento_datos(varargin)
     end
 
     function plot_corr()
-        r = state.corr;
+        r = state.corr_calculada;
         if isempty(r), plot_corr_base(); return; end
         cla(c_corr.ax1, 'reset'); tesis_auxiliares('tema_ui', 'axes', c_corr.ax1);
         yyaxis(c_corr.ax1, 'left'); hold(c_corr.ax1, 'on');
@@ -1867,7 +1992,9 @@ function modulo_procesamiento_datos(varargin)
             yyaxis(c_corr.ax1, 'left');
         end
         hold(c_corr.ax1, 'off'); grid_ui(c_corr.ax1);
-        xlabel(c_corr.ax1, 'Tiempo relativo (min)'); title(c_corr.ax1, 'Correlacion');
+        xlabel(c_corr.ax1, 'Tiempo relativo (min)');
+        title(c_corr.ax1, sprintf('Experimental: %s | Simulada: %s', ...
+            r.sonda_experimental, r.sonda), 'Interpreter', 'none');
         legend(c_corr.ax1, 'show', 'Location', 'best');
 
         cla(c_corr.ax2, 'reset'); tesis_auxiliares('tema_ui', 'axes', c_corr.ax2);
@@ -1878,7 +2005,7 @@ function modulo_procesamiento_datos(varargin)
         plot(c_corr.ax2, r.correccion_termica.t_rel_min, r.correccion_termica.factor_enfriamiento, 'LineWidth', 1.2, 'DisplayName', 'Factor');
         ylabel(c_corr.ax2, 'Factor');
         grid_ui(c_corr.ax2); xlabel(c_corr.ax2, 'Tiempo relativo (min)');
-        title(c_corr.ax2, 'Funcion de correccion'); legend(c_corr.ax2, 'show', 'Location', 'best');
+        title(c_corr.ax2, 'Función de corrección térmica'); legend(c_corr.ax2, 'show', 'Location', 'best');
     end
 
     function plot_corr_base()
@@ -1937,15 +2064,34 @@ function modulo_procesamiento_datos(varargin)
 
     function plot_vol()
         mostrar_vista_ext();
+        if c_ext.usar_corr.Value && ~isempty(state.corr)
+            try
+                validar_correccion_ext_metadata(state.corr);
+            catch ME
+                state.volumen = []; state.preview_nativa = [];
+                limpiar_ext_termico(ME.message);
+                for ax = [c_ext.ax_vol, c_ext.ax_factor]
+                    legend(ax, 'off'); limpiar_eje_ext(ax, ME.message);
+                end
+                actualizar_tiempos_ext([]);
+                estado.Text = ME.message;
+                logmsg('%s', ME.message);
+                return;
+            end
+        end
         r = state.volumen;
         if isempty(r)
             if ~isempty(state.preview_nativa)
-                plot_preview_nativa();
+                if es_vista_termica_ext()
+                    plot_preview_nativa();
+                else
+                    plot_analisis_nativo();
+                end
                 return;
             end
             actualizar_tiempos_ext([]);
             if es_vista_termica_ext()
-                limpiar_ext_termico('Previsualiza los datos nativos o pronostica el futuro.');
+                limpiar_ext_termico('Previsualiza los datos nativos o aplica la corrección térmica.');
             end
             return;
         end
@@ -1954,7 +2100,7 @@ function modulo_procesamiento_datos(varargin)
             plot_ext_termico(r);
             return;
         end
-        [V_sel, sigma_sel, modelo_label] = curva_extrap_actual(r);
+        [V_sel, modelo_label] = curva_extrap_actual(r);
         cla(c_ext.ax_vol, 'reset'); tesis_auxiliares('tema_ui', 'axes', c_ext.ax_vol); hold(c_ext.ax_vol, 'on');
         ley = {};
         if isfield(r, 't_fine') && isfield(r, 'V_base')
@@ -1976,8 +2122,23 @@ function modulo_procesamiento_datos(varargin)
         title(c_ext.ax_vol, sprintf('Volumen seleccionado: %s', modelo_label));
         if ~isempty(ley), legend(c_ext.ax_vol, ley, 'Location', 'best'); end
 
-        plot_extrap_methods(r);
-        plot_extrap_sigma(r, sigma_sel, modelo_label);
+        plot_ext_factor();
+    end
+
+    function plot_analisis_nativo()
+        p = state.preview_nativa;
+        ds = state.dataset.(p.modelo).(p.dsName);
+        corr = [];
+        if c_ext.usar_corr.Value
+            asegurar_ext_corr_cargada();
+            corr = state.corr;
+        end
+        cfg = struct('intensidad_correccion', c_ext.intensidad.Value, ...
+            'aplicar_offset_base', c_ext.offset.Value, ...
+            'temperatura_max_corregida_C', 120);
+        cfg = configurar_limite_termico_ext(cfg);
+        curvas = curvas_temperatura_nativa(ds.full_field, p.t_min, corr, cfg);
+        dibujar_analisis_nativo_2d(c_ext.ax_vol, curvas, c_ext.usar_corr.Value);
         plot_ext_factor();
     end
 
@@ -2004,11 +2165,12 @@ function modulo_procesamiento_datos(varargin)
         T_base = T_full(:, 1);
         T_corr = T_orig;
         if c_ext.usar_corr.Value
-            if isempty(state.corr), asegurar_ext_corr_cargada(); end
+            asegurar_ext_corr_cargada();
             cfg_corr = struct('intensidad_correccion', ...
                 max(0, min(1, c_ext.intensidad.Value)), ...
                 'aplicar_offset_base', c_ext.offset.Value, ...
                 'temperatura_max_corregida_C', 120);
+            cfg_corr = configurar_limite_termico_ext(cfg_corr);
             T_corr = correccion_termica_canonica('aplicar', T_orig, T_base, ...
                 p.t_min(idx_t), puntos, state.corr, cfg_corr);
         end
@@ -2208,9 +2370,8 @@ function modulo_procesamiento_datos(varargin)
         grid_ui(ax);
     end
 
-    function [V_sel, sigma_sel, modelo_label] = curva_extrap_actual(r)
+    function [V_sel, modelo_label] = curva_extrap_actual(r)
         V_sel = [];
-        sigma_sel = [];
         if isfield(r, 'modelo_tipo') && ~isempty(r.modelo_tipo)
             modelo_label = r.modelo_tipo;
         else
@@ -2218,66 +2379,10 @@ function modulo_procesamiento_datos(varargin)
         end
         if ~isfield(r, 'extrap') || ~isfield(r.extrap, 't_ext_only') || isempty(r.extrap.t_ext_only)
             if isfield(r, 'V_ext'), V_sel = r.V_ext; end
-            if isfield(r, 'sigma_sel'), sigma_sel = r.sigma_sel; end
             return;
         end
-        switch c_ext.estrategia.Value
-            case 'Gradiente local'
-                if isfield(r.extrap, 'V_grad'), V_sel = r.extrap.V_grad; end
-                if isfield(r.extrap, 'sigma_grad'), sigma_sel = r.extrap.sigma_grad; end
-                modelo_label = 'gradiente_local';
-            case 'LOWESS'
-                if isfield(r.extrap, 'V_lowess'), V_sel = r.extrap.V_lowess; end
-                if isfield(r.extrap, 'sigma_low'), sigma_sel = r.extrap.sigma_low; end
-                modelo_label = 'lowess_cuadratico';
-            case 'POD/SVD + tendencia modal'
-                if isfield(r.extrap, 'V_pod'), V_sel = r.extrap.V_pod; end
-                if isfield(r.extrap, 'sigma_pod'), sigma_sel = r.extrap.sigma_pod; end
-                modelo_label = 'pod_svd_tendencia_modal';
-            otherwise
-                if isfield(r.extrap, 'V_ssa'), V_sel = r.extrap.V_ssa; end
-                if isfield(r.extrap, 'sigma_ssa'), sigma_sel = r.extrap.sigma_ssa; end
-                modelo_label = 'pod_svd_ssa_recurrente';
-        end
-    end
-
-    function plot_extrap_methods(r)
-        cla(c_ext.ax_methods, 'reset'); tesis_auxiliares('tema_ui', 'axes', c_ext.ax_methods); hold(c_ext.ax_methods, 'on');
-        ley = {};
-        if isfield(r, 't_fine') && isfield(r, 'V_base')
-            plot(c_ext.ax_methods, r.t_fine, r.V_base, 'k-', 'LineWidth', 1.0); ley{end+1} = 'Base';
-        end
-        if isfield(r, 'extrap') && isfield(r.extrap, 't_ext_only') && ~isempty(r.extrap.t_ext_only)
-            t = r.extrap.t_ext_only;
-            if isfield(r.extrap, 'V_ssa'), plot(c_ext.ax_methods, t, r.extrap.V_ssa, 'LineWidth', 1.2); ley{end+1} = 'POD/SVD + SSA'; end
-            if isfield(r.extrap, 'V_pod'), plot(c_ext.ax_methods, t, r.extrap.V_pod, '-.', 'LineWidth', 1.2); ley{end+1} = 'POD/SVD + tendencia'; end
-            if isfield(r.extrap, 'V_lowess'), plot(c_ext.ax_methods, t, r.extrap.V_lowess, '--', 'LineWidth', 1.2); ley{end+1} = 'LOWESS'; end
-            if isfield(r.extrap, 'V_grad'), plot(c_ext.ax_methods, t, r.extrap.V_grad, ':', 'LineWidth', 1.4); ley{end+1} = 'Gradiente local'; end
-        else
-            text(c_ext.ax_methods, 0.05, 0.55, 'Sin tramo extrapolado.', 'Units', 'normalized');
-        end
-        if isfinite(c_ext.t_extra.Value) && c_ext.t_extra.Value > 0
-            xline(c_ext.ax_methods, c_ext.t_extra.Value, ':', 'T extra', 'HandleVisibility', 'off');
-        end
-        hold(c_ext.ax_methods, 'off'); grid_ui(c_ext.ax_methods);
-        xlabel(c_ext.ax_methods, 'Tiempo (min)'); ylabel(c_ext.ax_methods, 'Volumen'); title(c_ext.ax_methods, 'Comparacion de metodos');
-        if ~isempty(ley), legend(c_ext.ax_methods, ley, 'Location', 'best'); end
-    end
-
-    function plot_extrap_sigma(r, sigma_sel, modelo_label)
-        if nargin < 2 || isempty(sigma_sel)
-            [~, sigma_sel, modelo_label] = curva_extrap_actual(r);
-        end
-        cla(c_ext.ax_sigma, 'reset'); tesis_auxiliares('tema_ui', 'axes', c_ext.ax_sigma);
-        if ~isempty(sigma_sel) && isfield(r, 't_ext') && ~isempty(r.t_ext)
-            sigma = mean(abs(sigma_sel), 1, 'omitnan');
-            plot(c_ext.ax_sigma, r.t_ext, sigma, 'LineWidth', 1.2);
-            grid_ui(c_ext.ax_sigma); xlabel(c_ext.ax_sigma, 'Tiempo extrapolado (min)'); ylabel(c_ext.ax_sigma, 'Sigma media (C)');
-            title(c_ext.ax_sigma, sprintf('Incertidumbre: %s', modelo_label));
-        else
-            text(c_ext.ax_sigma, 0.05, 0.55, 'Sin sigma extrapolada.', 'Units', 'normalized');
-            axis(c_ext.ax_sigma, 'off'); title(c_ext.ax_sigma, 'Incertidumbre / sigma');
-        end
+        if isfield(r.extrap, 'V_ssa'), V_sel = r.extrap.V_ssa; end
+        modelo_label = 'pod_svd_ssa_recurrente';
     end
 
     function plot_ext_factor()
@@ -2290,6 +2395,13 @@ function modulo_procesamiento_datos(varargin)
         if isempty(state.corr) || ~isfield(state.corr, 'correccion_termica')
             text(c_ext.ax_factor, 0.05, 0.55, 'Sin correccion termica cargada.', 'Units', 'normalized');
             axis(c_ext.ax_factor, 'off'); title(c_ext.ax_factor, 'Factor de correccion');
+            return;
+        end
+        try
+            validar_correccion_ext_metadata(state.corr);
+        catch ME
+            limpiar_eje_ext(c_ext.ax_factor, ME.message);
+            estado.Text = ME.message;
             return;
         end
         ct = state.corr.correccion_termica;
@@ -2359,6 +2471,10 @@ function modulo_procesamiento_datos(varargin)
                 return;
             end
         end
+        if ~isempty(state.preview_nativa)
+            t_fin = max(state.preview_nativa.t_min);
+            return;
+        end
         if isfinite(c_ext.t_extra.Value) && c_ext.t_extra.Value > 0
             t_fin = c_ext.t_extra.Value;
         end
@@ -2416,6 +2532,17 @@ function modulo_procesamiento_datos(varargin)
     end
 
     function fail(etq, ME)
+        if strcmp(ME.identifier, 'Exportacion:TopologiaConsecutiva')
+            estado.Text = 'Lote detenido por topologia.';
+            logmsg('%s', ME.message);
+            uialert(fig, ME.message, 'Exportacion detenida', 'Icon', 'warning');
+            return;
+        end
+        if strcmp(ME.identifier, 'SSA:Cancelado')
+            estado.Text = 'Operacion cancelada.';
+            logmsg('%s', ME.message);
+            return;
+        end
         estado.Text = ['Error ' etq '.']; logmsg('ERROR %s: %s', etq, ME.message); uialert(fig, ME.message, ['Error ' etq]);
     end
     function abrir(r), if isfolder(r) && ispc, winopen(r); else, logmsg('Ruta: %s', r); end, end
@@ -2427,13 +2554,16 @@ function modulo_procesamiento_datos(varargin)
             msg = char(fmt);
         end
         parts = regexp(char(msg), '\r\n|\n|\r', 'split'); stamp = char(datetime('now', 'Format', 'HH:mm:ss')); add = {};
-        for k = 1:numel(parts), s = strtrim(parts{k}); if ~isempty(s), add{end+1,1} = sprintf('[%s] %s', stamp, s); end, end %#ok<AGROW>
+        for k = 1:numel(parts), s = strtrim(parts{k}); if ~isempty(s), add{end+1,1} = sprintf('[%s] %s', stamp, s); end, end 
         if isempty(add), return; end
         logbox.Value = [add; logbox.Value(:)]; if numel(logbox.Value) > 700, logbox.Value = logbox.Value(1:700); end
         drawnow limitrate;
     end
 end
 
+% =========================================================================
+% ZONA 10 — NUCLEO MATEMATICO: CORRECCION TERMICA CANONICA Y SSA DEL FACTOR
+% =========================================================================
 function varargout = correccion_termica_canonica(accion, varargin)
 % Contrato unico del modulo para previsualizacion, volumen y exportacion.
     switch lower(char(accion))
@@ -2541,6 +2671,12 @@ end
 
 function limite = limite_correccion_local(corr, config)
     limite = double(campo_local(config, 'temperatura_max_corregida_C', 120));
+    if ~campo_local(config, 'usar_limite_experimental', true)
+        if ~isscalar(limite) || ~isfinite(limite) || limite <= 0
+            error('El limite manual de temperatura debe ser finito y positivo.');
+        end
+        return;
+    end
     if ~isscalar(limite) || ~isfinite(limite), limite = 120; end
     valores = max_experimental_local(corr);
     limite = min(limite, 120);
@@ -2552,15 +2688,15 @@ function vmax = max_experimental_local(s)
     if isstruct(s)
         for ii = 1:numel(s)
             if isfield(s(ii), 'y_exp_interp') && isnumeric(s(ii).y_exp_interp)
-                v = double(s(ii).y_exp_interp(:)); candidatos = [candidatos; v(isfinite(v))]; %#ok<AGROW>
+                v = double(s(ii).y_exp_interp(:)); candidatos = [candidatos; v(isfinite(v))]; 
             end
             if isfield(s(ii), 'correccion_termica')
                 v = max_experimental_local(s(ii).correccion_termica);
-                if isfinite(v), candidatos(end+1,1) = v; end %#ok<AGROW>
+                if isfinite(v), candidatos(end+1,1) = v; end 
             end
             if isfield(s(ii), 'zonas')
                 v = max_experimental_local(s(ii).zonas);
-                if isfinite(v), candidatos(end+1,1) = v; end %#ok<AGROW>
+                if isfinite(v), candidatos(end+1,1) = v; end 
             end
         end
     end
@@ -2592,28 +2728,37 @@ function modelo = ajustar_ssa_local(t, y, config)
     t = double(t(:)); y = double(y(:));
     validos = isfinite(t) & isfinite(y); t = t(validos); y = y(validos);
     [t, idx] = unique(t, 'stable'); y = y(idx); [t, orden] = sort(t); y = y(orden);
-    if numel(t) < 8 || t(end) <= t(1), modelo = modelo_lineal_ssa_local(t, y); return; end
+    config = confirmar_datos_ssa(numel(t), config);
     paso = median(diff(t));
-    tu = linspace(t(1), t(end), max(8, round((t(end)-t(1))/paso)+1))';
+    tu = linspace(t(1), t(end), max(numel(t), round((t(end)-t(1))/paso)+1))';
     yu = interp1(t, y, tu, 'pchip'); media = mean(yu); yc = yu - media;
     n = numel(yc);
     L = min([campo_local(config, 'longitud_ventana', floor(n/3)), n-2, 80]);
-    L = max(4, round(L)); K = n-L+1; X = zeros(L,K);
+    L = min(n-1, max(4, round(L))); K = n-L+1; X = zeros(L,K);
     for j = 1:K, X(:,j) = yc(j:j+L-1); end
     [U,S,V] = svd(X, 'econ'); sv = diag(S); energia_total = sum(sv.^2);
-    if energia_total <= eps, modelo = modelo_lineal_ssa_local(t,y); return; end
-    energia = cumsum(sv.^2)/energia_total;
-    rango = find(energia >= campo_local(config,'energia_objetivo',0.99),1,'first');
-    rango = min([max(1,rango), campo_local(config,'rango_maximo',8), L-2]);
-    Ur = U(:,1:rango); Xr = Ur*S(1:rango,1:rango)*V(:,1:rango)';
-    yrec = promedio_diagonal_ssa_local(Xr) + media;
-    pi_ultima = Ur(end,:)'; den = 1-sum(pi_ultima.^2);
-    if den <= 1e-8, modelo = modelo_lineal_ssa_local(t,y); return; end
-    coef = Ur(1:end-1,:)*pi_ultima/den;
+    if energia_total <= eps
+        % Una serie centrada constante tiene recurrencia nula, sin otro metodo.
+        rango = 0; energia_retenida = 1;
+        yrec = repmat(media, n, 1); coef = zeros(L-1, 1);
+    else
+        energia = cumsum(sv.^2)/energia_total;
+        rango = find(energia >= campo_local(config,'energia_objetivo',0.99),1,'first');
+        rango = min([max(1,rango), campo_local(config,'rango_maximo',8), max(1,L-2)]);
+        Ur = U(:,1:rango); Xr = Ur*S(1:rango,1:rango)*V(:,1:rango)';
+        yrec = promedio_diagonal_ssa_local(Xr) + media;
+        pi_ultima = Ur(end,:)'; den = 1-sum(pi_ultima.^2);
+        if den <= 1e-8
+            error('SSA:RecurrenciaSingular', ...
+                'No se puede construir una recurrencia SSA estable con estos datos. No se aplico otro metodo.');
+        end
+        coef = Ur(1:end-1,:)*pi_ultima/den;
+        energia_retenida = energia(rango);
+    end
     modelo = struct('metodo','ssa_recurrente','t_inicio_min',tu(end), ...
         'factor_inicio',yrec(end),'paso_min',median(diff(tu)), ...
         'media_serie',media,'longitud_ventana',L,'rango_ssa',rango, ...
-        'energia_retenida',energia(rango),'coeficientes_recurrencia',coef(:), ...
+        'energia_retenida',energia_retenida,'coeficientes_recurrencia',coef(:), ...
         'historia_centrada',yrec(end-L+2:end)-media, ...
         'serie_reconstruida',yrec(:),'t_reconstruido_min',tu(:));
 end
@@ -2651,15 +2796,65 @@ function y = promedio_diagonal_ssa_local(X)
     y=y./conteo;
 end
 
-function modelo = modelo_lineal_ssa_local(t,y)
-    if isempty(t), error('SSA requiere al menos una muestra valida.'); end
-    pendiente=0; paso=1;
-    if numel(t)>=2
-        n=min(4,numel(t)); p=polyfit(t(end-n+1:end),y(end-n+1:end),1);
-        pendiente=p(1); paso=max(eps,median(diff(t)));
+function config = confirmar_datos_ssa(n, config)
+    if n < 3
+        error('SSA:DatosInsuficientes', ...
+            'SSA requiere al menos 3 tiempos distintos con datos validos. Se recibieron %d. No se aplico otro metodo.', n);
     end
-    modelo=struct('metodo','lineal','t_inicio_min',t(end),'factor_inicio',y(end), ...
-        'valor_final',y(end),'pendiente',pendiente,'paso_min',paso);
+    if n >= 8 || campo_local(config, 'permitir_pocos_datos_ssa', false), return; end
+    mensaje = sprintf(['Cuentas con una cantidad de datos menor a la mínima requerida, ', ...
+        'es posible que los resultados no sean los esperados, ¿deseas proseguir?\n\n', ...
+        'Datos validos: %d. Minimo recomendado: 8. Se mantendra el metodo SSA.'], n);
+    if isfield(config, 'confirmar_datos_ssa')
+        continuar = config.confirmar_datos_ssa(mensaje);
+    else
+        respuesta = questdlg(mensaje, 'Datos insuficientes para SSA', ...
+            'Proseguir', 'Cancelar', 'Cancelar');
+        continuar = strcmp(respuesta, 'Proseguir');
+    end
+    if ~isequal(continuar, true)
+        error('SSA:Cancelado', 'Operacion cancelada por el usuario: datos insuficientes para SSA.');
+    end
+    config.permitir_pocos_datos_ssa = true;
+end
+
+function ejecutar_selftest_ssa()
+    confirmaciones = 0;
+    cfg = struct('confirmar_datos_ssa', @aceptar);
+    for n = 3:7
+        t = (0:n-1)';
+        modelo = ajustar_ssa_local(t, 2 + sin(t), cfg);
+        assert(strcmp(modelo.metodo, 'ssa_recurrente'));
+        assert(all(isfinite(evaluar_ssa_local(modelo, [n; n+1]))));
+    end
+    assert(confirmaciones == 5);
+    modelo = ajustar_ssa_local((0:7)', ones(8,1)*37, cfg);
+    assert(strcmp(modelo.metodo, 'ssa_recurrente') && modelo.rango_ssa == 0);
+    assert(isequal(evaluar_ssa_local(modelo, [8;9]), [37;37]));
+    assert(confirmaciones == 5, 'Con 8 muestras no debe pedir confirmacion.');
+    rechazo = '';
+    try
+        ajustar_ssa_local((0:3)', [1;2;3;4], struct('confirmar_datos_ssa', @(~) false));
+    catch ME
+        rechazo = ME.identifier;
+    end
+    assert(strcmp(rechazo, 'SSA:Cancelado'));
+    rechazo = '';
+    try
+        ajustar_ssa_local([0;0;1;2], [1;2;3;NaN], cfg);
+    catch ME
+        rechazo = ME.identifier;
+    end
+    assert(strcmp(rechazo, 'SSA:DatosInsuficientes'));
+    confirmaciones = 0;
+    extrap = ejecutar_correlador_volumen_integrado('selftest_ssa_campo', cfg);
+    assert(confirmaciones == 1, 'Debe confirmar una vez por campo, no por modo.');
+    assert(all(cellfun(@(m) strcmp(m.metodo, 'ssa_recurrente'), extrap.meta_ssa.modelos_ssa)));
+    fprintf('SELFTEST_SSA_OK\n');
+    function tf = aceptar(~)
+        confirmaciones = confirmaciones + 1;
+        tf = true;
+    end
 end
 
 function [valida, d] = validar_malla_cerrada_local(caras, vertices)
@@ -2690,6 +2885,32 @@ function [valida, d] = validar_malla_cerrada_local(caras, vertices)
     d.motivo='valida'; valida=true;
 end
 
+function detener_exportacion_topologia(carpeta)
+    error('Exportacion:TopologiaConsecutiva', ...
+        ['Lote de exportacion detenido: dos fallos topologicos consecutivos en %s. ' ...
+         'No se procesaran los demas datasets de este lote.'], carpeta);
+end
+
+function comprobar_corte_topologico_prueba(accion)
+    identificador = '';
+    try
+        accion();
+    catch ME
+        identificador = ME.identifier;
+        if ~strcmp(identificador, 'Exportacion:TopologiaConsecutiva'), rethrow(ME); end
+    end
+    assert(strcmp(identificador,'Exportacion:TopologiaConsecutiva'), ...
+        'Dos fallos consecutivos deben detener todo el lote.');
+end
+
+function limpiar_prueba_topologia_temporal(carpeta)
+    destino = char(java.io.File(carpeta).getCanonicalPath());
+    raiz = char(java.io.File(tempdir).getCanonicalPath());
+    assert(startsWith(destino, [raiz filesep], 'IgnoreCase', true), ...
+        'La limpieza de pruebas debe permanecer dentro de la carpeta temporal.');
+    if isfolder(destino), rmdir(destino, 's'); end
+end
+
 function valor = campo_local(s,nombre,predeterminado)
     valor=predeterminado;
     if isstruct(s)&&isfield(s,nombre)&&~isempty(s.(nombre)),valor=s.(nombre);end
@@ -2699,7 +2920,102 @@ function x = limitar01_local(x)
     x=max(0,min(1,double(x)));
 end
 
+function curvas = curvas_temperatura_nativa(campo, tiempos, corr, cfg)
+    puntos = double(campo.points);
+    T = double(campo.T_C);
+    tiempos = double(tiempos(:));
+    assert(size(puntos, 1) == size(T, 1) && size(puntos, 2) == 3 && ...
+        numel(tiempos) == size(T, 2) && ~isempty(tiempos), ...
+        'Puntos, temperaturas y tiempos nativos incompatibles.');
+    curvas = struct('t_min', tiempos, 'original', NaN(size(tiempos)), ...
+        'corregida', NaN(size(tiempos)));
+    validos = all(isfinite(puntos), 2);
+    base = T(:, 1);
+    for k = 1:numel(tiempos)
+        original = T(:, k);
+        corregida = original;
+        if ~isempty(corr)
+            corregida = correccion_termica_canonica('aplicar', ...
+                original, base, tiempos(k), puntos, corr, cfg);
+        end
+        vo = original(validos & isfinite(original));
+        vc = corregida(validos & isfinite(corregida));
+        if ~isempty(vo), curvas.original(k) = max(vo); end
+        if ~isempty(vc), curvas.corregida(k) = max(vc); end
+    end
+end
+
+function dibujar_analisis_nativo_2d(ax, curvas, usar_corr)
+    cla(ax, 'reset'); tesis_auxiliares('tema_ui', 'axes', ax);
+    plot(ax, curvas.t_min, curvas.original, '-o', 'LineWidth', 1.2, ...
+        'DisplayName', 'Original');
+    hold(ax, 'on');
+    if usar_corr
+        plot(ax, curvas.t_min, curvas.corregida, '-s', 'LineWidth', 1.2, ...
+            'DisplayName', 'Corregida');
+    end
+    hold(ax, 'off'); grid(ax, 'on');
+    xlabel(ax, 'Tiempo nativo (min)'); ylabel(ax, 'Temperatura maxima (C)');
+    title(ax, 'Temperatura maxima del campo | tiempos nativos');
+    legend(ax, 'show', 'Location', 'best');
+end
+
+function ejecutar_selftest_vista_nativa()
+    campo = struct('points', [0 0 0; 0 0 1; NaN 0 2], ...
+        'T_C', [37 77 87; 37 57 67; 1000 1000 1000]);
+    corr = struct('t_rel_min', [0; 2], 'factor_enfriamiento', [1; 0.5]);
+    cfg = struct('intensidad_correccion', 1, 'aplicar_offset_base', false, ...
+        'temperatura_max_corregida_C', 120);
+    curvas = curvas_temperatura_nativa(campo, (0:2)', corr, cfg);
+    assert(isequal(curvas.original, [37; 77; 87]));
+    assert(max(abs(curvas.corregida - [37; 67; 62])) < 1e-12);
+    sin_corr = curvas_temperatura_nativa(campo, (0:2)', [], cfg);
+    assert(isequal(sin_corr.original, sin_corr.corregida));
+    cfg.intensidad_correccion = 0;
+    sin_efecto = curvas_temperatura_nativa(campo, (0:2)', corr, cfg);
+    assert(isequal(sin_efecto.original, sin_efecto.corregida));
+    campo.T_C(:, 2) = NaN;
+    incompleta = curvas_temperatura_nativa(campo, (0:2)', corr, cfg);
+    assert(isnan(incompleta.original(2)) && isnan(incompleta.corregida(2)));
+    fig = uifigure('Visible', 'off', 'Position', [50 50 1200 450]);
+    limpieza = onCleanup(@() delete(fig));
+    g = uigridlayout(fig, [1 1]);
+    ax = uiaxes(g);
+    dibujar_analisis_nativo_2d(ax, curvas, true);
+    assert(numel(findall(ax, 'Type', 'line')) == 2);
+    drawnow;
+    ruta = fullfile(tempdir, 'selftest_vista_nativa.png');
+    exportapp(fig, ruta);
+    dibujar_analisis_nativo_2d(ax, sin_corr, false);
+    assert(numel(findall(ax, 'Type', 'line')) == 1);
+    fprintf('SELFTEST_VISTA_NATIVA_OK %s\n', ruta);
+end
+
+function tf = requiere_extension_termica(t_final, t_nativo)
+    if isempty(t_nativo) || any(~isfinite(t_nativo(:)))
+        error('El dataset no contiene tiempos nativos legibles.');
+    end
+    if ~isscalar(t_final) || ~isfinite(t_final)
+        error('El tiempo final de aplicacion termica debe ser finito.');
+    end
+    tf = t_final > max(t_nativo(:)) + 1e-9;
+end
+
 function ejecutar_selftest_matematica_local()
+    % Aplicar correccion dentro del horizonte nativo no requiere extension 4D.
+    t_nativo = (0:20)';
+    assert(~requiere_extension_termica(0, t_nativo));
+    assert(~requiere_extension_termica(10, t_nativo));
+    assert(~requiere_extension_termica(20, t_nativo));
+    assert(~requiere_extension_termica(20 + 1e-10, t_nativo));
+    assert(requiere_extension_termica(21, t_nativo));
+    rechazo = false;
+    try
+        requiere_extension_termica(NaN, t_nativo);
+    catch
+        rechazo = true;
+    end
+    assert(rechazo, 'Un tiempo final no finito debe rechazarse.');
     corr=struct('t_rel_min',[0;1],'factor_enfriamiento',[1;0.5], ...
         'offset_base_C',4,'y_exp_interp',[37;100]);
     T=[37;77]; base=[37;37]; pts=[0 0 0;0 0 1];
@@ -2762,10 +3078,14 @@ function bootstrap_modulo()
 end
 
 % =========================================================================
-% LOGICA INTEGRADA LOCAL
+% ZONA 11 — LOGICA INTEGRADA LOCAL: EXPORTACION STL Y TXT DESDE DATASETS MAT
 % =========================================================================
 
 function ejecutar_exportador_mat_integrado(varargin)
+    if nargin >= 1 && strcmpi(varargin{1}, 'selftest_topologia_temporal')
+        ejecutar_selftest_topologia_temporal_stl();
+        return;
+    end
     if nargin >= 1 && ischar(varargin{1}) && ...
             strcmpi(varargin{1}, 'selftest_metadata_paths')
         ejecutar_selftest_rutas_stl_corregidas();
@@ -3232,18 +3552,29 @@ function exportar_stl_de_snapshots(snapshots, carpeta_salida, ...
     n_sin_puntos = 0;
     n_excluidos_corte = 0;
     n_error = 0;
+    fallos_topologicos_seguidos = 0;
+    corte_topologico = false;
+    n_excluidos_topologia = 0;
+    log_exportador('    Topologia temporal: se omite un fallo aislado; dos consecutivos detienen TODO el lote.\n');
 
     for posicion_temporal = 1:numel(orden_temporal)
         indice_snapshot = orden_temporal(posicion_temporal);
         snapshot = snapshots(indice_snapshot);
 
         if ~isfield(snapshot, 'points') || ~isfield(snapshot, 't_min')
+            fallos_topologicos_seguidos = 0;
             n_sin_puntos = n_sin_puntos + 1;
             continue;
         end
         nombre_stl = sprintf('Geometria_Ablacion_t%.4fmin.stl', snapshot.t_min);
         ruta_stl = fullfile(carpeta_salida, nombre_stl);
         ruta_done = [ruta_stl '.done'];
+        if corte_topologico
+            n_excluidos_topologia = n_excluidos_topologia + 1;
+            eliminar_salida_stl_obsoleta(ruta_stl, ruta_done);
+            log_exportador('    t=%.4f min excluido por corte topologico previo.\n', snapshot.t_min);
+            continue;
+        end
 
         if isfield(snapshot, 'points_ablacion_corregida')
             puntos = snapshot.points_ablacion_corregida;
@@ -3255,6 +3586,7 @@ function exportar_stl_de_snapshots(snapshots, carpeta_salida, ...
 
         if ~isnumeric(puntos) || ~ismatrix(puntos) || ...
                 size(puntos, 2) ~= 3
+            fallos_topologicos_seguidos = 0;
             n_sin_puntos = n_sin_puntos + 1;
             eliminar_salida_stl_obsoleta(ruta_stl, ruta_done);
             log_exportador(['    [%d/%d] t=%.4f min sin coordenadas ' ...
@@ -3265,6 +3597,7 @@ function exportar_stl_de_snapshots(snapshots, carpeta_salida, ...
 
         if isempty(temperaturas_snapshot) || ...
                 numel(temperaturas_snapshot) ~= size(puntos, 1)
+            fallos_topologicos_seguidos = 0;
             n_sin_puntos = n_sin_puntos + 1;
             eliminar_salida_stl_obsoleta(ruta_stl, ruta_done);
             log_exportador(['    [%d/%d] t=%.4f min sin temperaturas ' ...
@@ -3308,6 +3641,7 @@ function exportar_stl_de_snapshots(snapshots, carpeta_salida, ...
         end
         puntos = puntos(mascara_temperatura, :);
         if ~tiene_puntos_suficientes(puntos)
+            fallos_topologicos_seguidos = 0; % Ausencia de ablacion, no una malla topologicamente invalida.
             n_sin_puntos = n_sin_puntos + 1;
             eliminar_salida_stl_obsoleta(ruta_stl, ruta_done);
             log_exportador('    [%d/%d] t=%.4f min sin puntos suficientes. Omitido.\n', ...
@@ -3316,6 +3650,8 @@ function exportar_stl_de_snapshots(snapshots, carpeta_salida, ...
         end
         [region_unica, n_regiones] = nube_termica_region_unica_stl(puntos, radio_alpha);
         if ~region_unica
+            fallos_topologicos_seguidos = fallos_topologicos_seguidos + 1;
+            corte_topologico = fallos_topologicos_seguidos >= 2;
             n_sin_puntos = n_sin_puntos + 1;
             eliminar_salida_stl_obsoleta(ruta_stl, ruta_done);
             log_exportador(['    [%d/%d] t=%.4f min omitido: nube termica ' ...
@@ -3329,6 +3665,25 @@ function exportar_stl_de_snapshots(snapshots, carpeta_salida, ...
             temperatura_min_stl, temperatura_max_stl);
 
         if checkpoint_stl_vigente(ruta_stl, ruta_done, firma_snapshot)
+            % La firma conserva la reanudacion; la malla guardada tambien debe ser valida.
+            try
+                malla = stlread(ruta_stl);
+                [malla_valida, diagnostico] = validar_malla_cerrada_local( ...
+                    malla.ConnectivityList, malla.Points);
+            catch ME
+                malla_valida = false;
+                diagnostico = struct('motivo', ME.message);
+            end
+            if ~malla_valida
+                fallos_topologicos_seguidos = fallos_topologicos_seguidos + 1;
+                corte_topologico = fallos_topologicos_seguidos >= 2;
+                n_error = n_error + 1;
+                eliminar_salida_stl_obsoleta(ruta_stl, ruta_done);
+                log_exportador('    t=%.4f min omitido: STL guardado no valido (%s).\n', ...
+                    snapshot.t_min, diagnostico.motivo);
+                continue;
+            end
+            fallos_topologicos_seguidos = 0;
             n_omitidos = n_omitidos + 1;
             log_exportador('    [%d/%d] %s vigente por .done. Omitido.\n', ...
                 posicion_temporal, numero_snapshots, nombre_stl);
@@ -3337,23 +3692,32 @@ function exportar_stl_de_snapshots(snapshots, carpeta_salida, ...
 
         log_exportador('    [%d/%d] Exportando %s ...\n', ...
             posicion_temporal, numero_snapshots, nombre_stl);
-        generado = generar_stl_ablacion( ...
+        [generado, fallo_topologico] = generar_stl_ablacion( ...
             puntos, ...
             snapshot.t_min, ...
             ruta_stl, ...
             radio_alpha, ...
             iteraciones_suavizado);
         if generado
+            fallos_topologicos_seguidos = 0;
             escribir_checkpoint_stl(ruta_done, firma_snapshot);
             n_exportados = n_exportados + 1;
         else
+            eliminar_salida_stl_obsoleta(ruta_stl, ruta_done);
+            if fallo_topologico
+                fallos_topologicos_seguidos = fallos_topologicos_seguidos + 1;
+                corte_topologico = fallos_topologicos_seguidos >= 2;
+            else
+                fallos_topologicos_seguidos = 0;
+            end
             n_error = n_error + 1;
         end
     end
     log_exportador(['  Resumen STL: exportados=%d | omitidos_done=%d | ' ...
-        'excluidos_corte=%d | sin_puntos=%d | errores=%d\n'], ...
+        'excluidos_corte=%d | sin_puntos=%d | errores=%d | posteriores_corte_topologico=%d\n'], ...
         n_exportados, n_omitidos, n_excluidos_corte, ...
-        n_sin_puntos, n_error);
+        n_sin_puntos, n_error, n_excluidos_topologia);
+    if corte_topologico, detener_exportacion_topologia(carpeta_salida); end
 end
 
 function [orden_temporal, tmax_datos, tmax_metadata, tmax_decision] = ...
@@ -3482,18 +3846,20 @@ function [tmax_datos, tmax_metadata, tmax_decision] = ...
     end
 end
 
-function generado = generar_stl_ablacion(puntos, tiempo_min, ruta_stl, radio_alpha, iteraciones_suavizado)
+function [generado, fallo_topologico] = generar_stl_ablacion(puntos, tiempo_min, ruta_stl, radio_alpha, iteraciones_suavizado)
 % generar_stl_ablacion
 % Reconstruye una superficie cerrada aproximada mediante alphaShape, suaviza
 % la malla triangular y la guarda en formato STL.
 
     generado = false;
+    fallo_topologico = false;
     try
         radio_alpha_local = calcular_radio_alpha(puntos, radio_alpha);
         forma_alpha = alphaShape(puntos(:, 1), puntos(:, 2), puntos(:, 3), radio_alpha_local);
 
         n_regiones = numRegions(forma_alpha);
         if n_regiones ~= 1
+            fallo_topologico = true;
             log_exportador(['     [WARN] STL omitido en t=%.4f: nube termica ' ...
                 'multicomponente (%g regiones).\n'], tiempo_min, n_regiones);
             return;
@@ -3501,6 +3867,7 @@ function generado = generar_stl_ablacion(puntos, tiempo_min, ruta_stl, radio_alp
 
         [triangulos, nodos] = boundaryFacets(forma_alpha);
         if size(triangulos, 1) < 4
+            fallo_topologico = true;
             return;
         end
 
@@ -3512,6 +3879,7 @@ function generado = generar_stl_ablacion(puntos, tiempo_min, ruta_stl, radio_alp
         [malla_valida, diagnostico] = validar_malla_cerrada_local( ...
             triangulos_suavizados, nodos_suavizados);
         if ~malla_valida
+            fallo_topologico = true;
             log_exportador(['     [WARN] STL omitido en t=%.4f: topologia no valida ' ...
                 '(%s; componentes=%g, genus=%g).\n'], tiempo_min, ...
                 diagnostico.motivo, diagnostico.componentes, diagnostico.genus);
@@ -3748,7 +4116,7 @@ function firma = crear_firma_sondas_txt(datos_solucion, nombre_modelo, tag_datas
             'real=[%.10g %.10g %.10g]|n=%d|finite=%d|min=%.10g|max=%.10g|sum=%.10g'], ...
             nombre_sonda, coord_mm(1), coord_mm(2), coord_mm(3), ...
             coord_real(1), coord_real(2), coord_real(3), ...
-            numel(T), sum(finitos), Tmin, Tmax, Tsum); %#ok<AGROW>
+            numel(T), sum(finitos), Tmin, Tmax, Tsum); 
     end
     firma = strjoin(partes, ';');
 end
@@ -4083,6 +4451,69 @@ function log_exportador(formato, varargin)
     end
 end
 
+function ejecutar_selftest_topologia_temporal_stl()
+    carpeta = tempname; mkdir(carpeta);
+    limpieza = onCleanup(@() limpiar_prueba_topologia_temporal(carpeta));
+    puntos = [0 0 0; 1 0 0; 0 1 0; 0 0 1];
+    tiempos = [5 6 7 8 9 10];
+    s = repmat(struct('points', puntos, 'T', 60*ones(4,1), 't_min', 0), 1, numel(tiempos));
+    for k = 1:numel(tiempos), s(k).t_min = tiempos(k); end
+    exportar_stl_de_snapshots(s, carpeta, 2, 0, 55, 120);
+    assert(numel(dir(fullfile(carpeta, '*.stl'))) == 6);
+    firma_esperada = ['stl_export_v5|criterio=prefijo_sostenido|t=5|n=4|alpha=2|' ...
+        'smooth=0|tmin=55|tmax=120|min=[0 0 0]|max=[1 1 1]|sum=[1 1 1]'];
+    assert(strcmp(crear_firma_snapshot_stl(puntos,5,2,0,55,120),firma_esperada), ...
+        'La firma STL existente debe conservarse.');
+    ruta_5 = fullfile(carpeta,'Geometria_Ablacion_t5.0000min.stl');
+    archivo_5 = dir(ruta_5); checkpoint_5 = fileread([ruta_5 '.done']);
+    caras_abiertas = [1 3 2;1 2 4;2 3 4];
+    % Un STL invalido con .done vigente tampoco debe eludir el filtro.
+    stlwrite(triangulation(caras_abiertas,puntos), ...
+        fullfile(carpeta,'Geometria_Ablacion_t6.0000min.stl'));
+    exportar_stl_de_snapshots(s, carpeta, 2, 0, 55, 120);
+    for k = 1:numel(tiempos)
+        ruta = fullfile(carpeta,sprintf('Geometria_Ablacion_t%.4fmin.stl',tiempos(k)));
+        assert(isfile(ruta)==(tiempos(k)~=6),'El fallo aislado debe omitir solo su instante.');
+    end
+    for t = [8 9]
+        stlwrite(triangulation(caras_abiertas,puntos), ...
+            fullfile(carpeta,sprintf('Geometria_Ablacion_t%.4fmin.stl',t)));
+    end
+    comprobar_corte_topologico_prueba(@() exportar_stl_de_snapshots(s, carpeta, 2, 0, 55, 120));
+    assert(~isfile(fullfile(carpeta,'Geometria_Ablacion_t10.0000min.stl')), ...
+        'Dos STL invalidos consecutivos deben cortar incluso si hay checkpoints vigentes.');
+    actual_5 = dir(ruta_5);
+    assert(archivo_5.datenum==actual_5.datenum && archivo_5.bytes==actual_5.bytes && ...
+        strcmp(checkpoint_5,fileread([ruta_5 '.done'])), 'El STL valido no debe regenerarse.');
+    for k = [2 4 5]
+        s(k).points = [puntos; puntos + 10];
+        s(k).T = 60*ones(8,1);
+    end
+    comprobar_corte_topologico_prueba(@() exportar_stl_de_snapshots( ...
+        s([6 2 1 4 3 5]), carpeta, 2, 0, 55, 120));
+    for k = 1:numel(tiempos)
+        ruta = fullfile(carpeta, sprintf('Geometria_Ablacion_t%.4fmin.stl', tiempos(k)));
+        assert(isfile(ruta) == ismember(k, [1 3]), 'Secuencia STL topologica incorrecta.');
+        assert(isfile([ruta '.done']) == isfile(ruta));
+    end
+    dataset = struct('modelo_Monopolo_1ant',struct( ...
+        'dset_c0_p30',struct('snapshots',s), 'dset_c0_p40',struct('snapshots',s(3))));
+    ruta_mat = fullfile(carpeta,'lote.mat'); save(ruta_mat,'dataset');
+    cfg = struct('ruta_mat_entrada',ruta_mat,'carpeta_exportacion',fullfile(carpeta,'lote'), ...
+        'radio_alpha',2,'iteraciones_suavizado',0,'mantener_figuras',true);
+    comprobar_corte_topologico_prueba(@() comsol_mat_exportador_masivo('run',cfg));
+    assert(~isfolder(fullfile(cfg.carpeta_exportacion,'Monopolo','1ant','Caso_0','Potencia_40W')), ...
+        'El lote no debe continuar con el siguiente dataset.');
+    % Sin ablacion al inicio no equivale a dos fallos topologicos.
+    s(1).T(:) = 37; s(2).T(:) = 37;
+    mkdir(fullfile(carpeta, 'sin_ablacion'));
+    exportar_stl_de_snapshots(s(1:3), fullfile(carpeta, 'sin_ablacion'), 2, 0, 55, 120);
+    assert(isfile(fullfile(carpeta, 'sin_ablacion', 'Geometria_Ablacion_t7.0000min.stl')));
+    assert(isnan(encontrar_primer_corte_sostenido([false true false])));
+    assert(encontrar_primer_corte_sostenido([false true true]) == 2);
+    fprintf('SELFTEST_TOPOLOGIA_TEMPORAL_STL_OK\n');
+end
+
 function ejecutar_selftest_rutas_stl_corregidas()
     meta = struct('tipo', 'Monopolo', 'antena', '1ant', ...
         'num_antenas', 1, 'caso', 1, 'potencia_W', 30, ...
@@ -4099,12 +4530,39 @@ function ejecutar_selftest_rutas_stl_corregidas()
         'modelo_Monopolo_1ant', 'dset_c1_p30', meta), '\', '/');
     assert(~strcmpi(ruta_19, ruta_22), ...
         'Dos fechas de correccion resolvieron la misma carpeta STL.');
+    rutas_manuales = {};
+    for fecha = {'mayo_14', 'mayo_15'}
+        for prueba = 1:2
+            for sonda = [1 4]
+                meta.tag_correccion = sprintf('correccion_%s_10min_prueba_%d_manual_exp%d_sim1', ...
+                    fecha{1}, prueba, sonda);
+                ruta_manual = subcarpeta_optimizador_desde_metadata( ...
+                    'modelo_Monopolo_1ant', 'dset_c1_p30', meta);
+                md = metadata_especifica_correccion_global(ruta_manual);
+                assert(strcmp(md.fecha_adquisicion, fecha{1}) && md.numero_prueba == prueba && ...
+                    strcmp(md.tag_correccion, meta.tag_correccion) && isnan(md.num_zonas));
+                rutas_manuales{end+1} = ruta_manual;
+            end
+        end
+    end
+    assert(numel(unique(rutas_manuales)) == 8, 'Colision de rutas STL individuales.');
     fprintf('SELFTEST_STL_METADATA_PATHS_OK %s | %s\n', ruta_19, ruta_22);
 end
 
 % ---- Fin copia local: comsol_mat_exportador_masivo.m ----
 end
+% =========================================================================
+% ZONA 12 — VOXELIZACION: STL A MASCARA, SDF O TSDF PARA EL OPTIMIZADOR
+% =========================================================================
 function ejecutar_preprocesador_stl_integrado(varargin)
+    if nargin >= 1 && strcmpi(varargin{1}, 'selftest_solo_sdf')
+        ejecutar_selftest_solo_sdf();
+        return;
+    end
+    if nargin >= 1 && strcmpi(varargin{1}, 'selftest_topologia_temporal')
+        ejecutar_selftest_topologia_temporal_voxel();
+        return;
+    end
     if nargin >= 1 && ischar(varargin{1}) && ...
             strcmpi(varargin{1}, 'selftest_metadata_paths')
         ejecutar_selftest_metadata_voxel_corregido();
@@ -4121,12 +4579,10 @@ function preprocesar_stl_a_mat(varargin)
 %  FUNCIONALIDAD
 %  Convierte archivos STL de distribuciones térmicas en archivos .mat para
 %  uso posterior en optimización espacial. El usuario selecciona una carpeta,
-%  una resolución de voxelizado y un método de representación volumétrica.
+%  una resolución de voxelizado; la representación disponible es SDF.
 %
-%  MÉTODOS SOPORTADOS
-%  - mascara : ocupación binaria del volumen.
+%  REPRESENTACIÓN DISPONIBLE
 %  - sdf     : campo de distancia con signo.
-%  - tsdf    : campo de distancia con signo truncado.
 %
 %  CONVENCIONES
 %  - Las geometrías se centran respecto a su centroide antes de voxelizar.
@@ -4173,13 +4629,21 @@ function preprocesar_stl_a_mat(varargin)
     else
         tipo_procesamiento = seleccionar_tipo_procesamiento();
     end
+    if ~strcmpi(tipo_procesamiento, 'sdf')
+        error('Voxelizacion:SoloSDF', 'La voxelizacion disponible es SDF. Selecciona sdf en la configuracion.');
+    end
+    tipo_procesamiento = 'sdf';
     archivos_stl = dir(fullfile(carpeta_stl, '**', '*.stl'));
     archivos_stl = archivos_stl(~arrayfun(@(a) ruta_esta_en_repetidos_global( ...
         fullfile(a.folder, a.name)), archivos_stl));
-    if isempty(archivos_stl)
-        error('No se encontraron archivos .stl en la carpeta especificada.');
+    tiempos_stl = inf(numel(archivos_stl), 1);
+    for k = 1:numel(archivos_stl)
+        token = regexp(archivos_stl(k).name, 'Geometria_Ablacion_t([\d.]+)min', 'tokens', 'once');
+        if ~isempty(token), tiempos_stl(k) = str2double(token{1}); end
     end
-
+    [~, ~, grupos_stl] = unique({archivos_stl.folder});
+    [~, orden_stl] = sortrows([grupos_stl(:), tiempos_stl]);
+    archivos_stl = archivos_stl(orden_stl);
     log_preprocesador('Procesando %d distribuciones térmicas...\n', numel(archivos_stl));
 
     carpeta_salida = obtener_carpeta_salida_mat(carpeta_stl, config);
@@ -4191,11 +4655,26 @@ function preprocesar_stl_a_mat(varargin)
     n_omitidos_metadata = 0;
     n_omitidos_filtro = 0;
     n_descartados_topologia = 0;
+    n_excluidos_topologia = 0;
+    carpeta_anterior = '';
+    fallos_topologicos_seguidos = 0;
+    corte_topologico = false;
     n_existentes = 0;
     filtro_metadata = obtener_campo_config_local(config, 'filtro_metadata', struct());
+    retirar_voxeles_sin_stl(carpeta_stl, carpeta_salida, tipo_procesamiento, resolucion, filtro_metadata);
+    if isempty(archivos_stl)
+        log_preprocesador('No quedan STL para voxelizar en la carpeta seleccionada.\n');
+        return;
+    end
 
     for indice_archivo = 1:numel(archivos_stl)
         archivo_actual = archivos_stl(indice_archivo);
+        if ~strcmp(carpeta_anterior, archivo_actual.folder)
+            if corte_topologico, detener_exportacion_topologia(carpeta_anterior); end
+            carpeta_anterior = archivo_actual.folder;
+            fallos_topologicos_seguidos = 0;
+            corte_topologico = false;
+        end
         ruta_stl = fullfile(archivo_actual.folder, archivo_actual.name);
         ruta_relativa = erase(ruta_stl, [carpeta_stl filesep]);
         [subcarpeta, nombre_base, ~] = fileparts(ruta_relativa);
@@ -4223,19 +4702,15 @@ function preprocesar_stl_a_mat(varargin)
         ruta_salida = fullfile(carpeta_destino, ...
             sprintf('%s_%s_res%.2f.mat', nombre_base, tipo_procesamiento, resolucion));
         ruta_done = [ruta_salida '.done'];
-        firma_preprocesamiento = crear_firma_preprocesamiento_stl( ...
-            ruta_stl, tipo_procesamiento, resolucion);
-
-        if checkpoint_preprocesamiento_vigente(ruta_salida, ruta_done, firma_preprocesamiento)
-            n_existentes = n_existentes + 1;
-            log_preprocesador('Distribucion %d/%d: %s ... Ya existe vigente, omitiendo.\n', ...
-                indice_archivo, numel(archivos_stl), ruta_relativa);
+        if corte_topologico
+            if isfile(ruta_salida), delete(ruta_salida); end
+            if isfile(ruta_done), delete(ruta_done); end
+            n_excluidos_topologia = n_excluidos_topologia + 1;
+            log_preprocesador('Distribucion %s excluida por corte topologico previo.\n', ruta_relativa);
             continue;
         end
-        if isfile(ruta_salida)
-            log_preprocesador('Distribucion %d/%d: %s ... Existe sin checkpoint vigente, se regenerara.\n', ...
-                indice_archivo, numel(archivos_stl), ruta_relativa);
-        end
+        firma_preprocesamiento = crear_firma_preprocesamiento_stl( ...
+            ruta_stl, tipo_procesamiento, resolucion);
 
         log_preprocesador('Distribución %d/%d: %s ...', ...
             indice_archivo, numel(archivos_stl), ruta_relativa);
@@ -4244,6 +4719,10 @@ function preprocesar_stl_a_mat(varargin)
         [vertices, caras] = leer_stl_binario(ruta_stl);
         [malla_valida, diagnostico_malla] = validar_malla_cerrada_local(caras, vertices);
         if ~malla_valida
+            fallos_topologicos_seguidos = fallos_topologicos_seguidos + 1;
+            corte_topologico = fallos_topologicos_seguidos >= 2;
+            if isfile(ruta_salida), delete(ruta_salida); end
+            if isfile(ruta_done), delete(ruta_done); end
             n_descartados_topologia = n_descartados_topologia + 1;
             log_preprocesador([' Omitida por topologia: %s ' ...
                 '(componentes=%g, genus=%g).\n'], diagnostico_malla.motivo, ...
@@ -4251,6 +4730,15 @@ function preprocesar_stl_a_mat(varargin)
             continue;
         end
         metadata.topologia_valida = true;
+        fallos_topologicos_seguidos = 0;
+        if checkpoint_preprocesamiento_vigente(ruta_salida, ruta_done, firma_preprocesamiento)
+            n_existentes = n_existentes + 1;
+            log_preprocesador(' Ya existe vigente, omitiendo.\n');
+            continue;
+        end
+        if isfile(ruta_salida)
+            log_preprocesador(' Existe sin checkpoint vigente, se regenerara.\n');
+        end
         metadata.componentes_superficie = diagnostico_malla.componentes;
         metadata.caracteristica_euler = diagnostico_malla.euler;
         metadata.genus_superficie = diagnostico_malla.genus;
@@ -4270,26 +4758,49 @@ function preprocesar_stl_a_mat(varargin)
     end
 
     log_preprocesador(['Resumen preprocesamiento: procesados=%d | existentes=%d | ', ...
-        'omitidos_metadata=%d | omitidos_filtro=%d | descartados_topologia=%d\n'], ...
+        'omitidos_metadata=%d | omitidos_filtro=%d | descartados_topologia=%d | posteriores_corte_topologico=%d\n'], ...
         n_procesados, n_existentes, n_omitidos_metadata, ...
-        n_omitidos_filtro, n_descartados_topologia);
+        n_omitidos_filtro, n_descartados_topologia, n_excluidos_topologia);
+    if corte_topologico, detener_exportacion_topologia(carpeta_anterior); end
     log_preprocesador('Procesamiento completado. Archivos guardados en: %s\n', carpeta_salida);
+end
+
+function retirar_voxeles_sin_stl(carpeta_stl, carpeta_salida, tipo, resolucion, filtro)
+    sufijo = sprintf('_%s_res%.2f.mat', tipo, resolucion);
+    archivos = dir(fullfile(carpeta_salida, '**', ['Geometria_Ablacion_t*' sufijo]));
+    for k = 1:numel(archivos)
+        ruta = fullfile(archivos(k).folder, archivos(k).name);
+        if ruta_esta_en_repetidos_global(ruta), continue; end
+        relativa = erase(ruta, [carpeta_salida filesep]);
+        origen = fullfile(carpeta_stl, [relativa(1:end-numel(sufijo)) '.stl']);
+        if isfile(origen), continue; end
+        % Solo retirar resultados de este origen y de los filtros activos.
+        raw = load(ruta, 'metadata');
+        if ~isfield(raw, 'metadata') || ~isfield(raw.metadata, 'ruta_stl') || ...
+                ~strcmpi(raw.metadata.ruta_stl, origen) || ...
+                ~ruta_stl_pasa_filtro_metadata_preprocesador(raw.metadata, filtro)
+            continue;
+        end
+        delete(ruta);
+        if isfile([ruta '.done']), delete([ruta '.done']); end
+        log_preprocesador('Voxel retirado porque su STL ya fue excluido: %s\n', relativa);
+    end
 end
 
 function lanzar_ui_preprocesar_stl_a_mat()
     entradas = struct( ...
-        'key', {'carpeta_stl', 'tipo_procesamiento', 'resolucion'}, ...
-        'label', {'carpeta raiz STL', 'Tipo de preprocesamiento', 'Resolucion voxel (mm)'}, ...
-        'kind', {'folder', 'choice', 'numeric'}, ...
-        'filter', {'*.*', '', ''}, ...
-        'title', {'Selecciona la carpeta raiz con archivos STL', '', ''}, ...
-        'default', {'', 'sdf', 0.5}, ...
-        'items', {{}, {'sdf', 'mascara', 'tsdf'}, {}}, ...
-        'limits', {[], [], [eps Inf]});
+        'key', {'carpeta_stl', 'resolucion'}, ...
+        'label', {'carpeta raiz STL', 'Resolucion voxel (mm)'}, ...
+        'kind', {'folder', 'numeric'}, ...
+        'filter', {'*.*', ''}, ...
+        'title', {'Selecciona la carpeta raiz con archivos STL', ''}, ...
+        'default', {'', 0.5}, ...
+        'items', {{}, {}}, ...
+        'limits', {[], [eps Inf]});
 
     tesis_auxiliares('crear_dashboard_modulo',  ...
         'Preprocesar STL a MAT', ...
-        'Convierte STL de distribuciones termicas a volumenes MAT para optimizacion.', ...
+        'Convierte STL de distribuciones termicas a volumenes SDF en formato MAT.', ...
         entradas, ...
         @ejecutar_desde_ui);
 
@@ -4301,6 +4812,7 @@ function lanzar_ui_preprocesar_stl_a_mat()
             error('La resolucion debe ser positiva.');
         end
         config = valores;
+        config.tipo_procesamiento = 'sdf';
         config.logfn = logfn;
         logfn('Resolucion: %.2f mm.', config.resolucion);
         logfn('Metodo seleccionado: %s.', config.tipo_procesamiento);
@@ -4309,22 +4821,7 @@ function lanzar_ui_preprocesar_stl_a_mat()
 end
 
 function tipo_procesamiento = seleccionar_tipo_procesamiento()
-    log_preprocesador(['Seleccione el método deseado:\n', ...
-             '1. sdf\n', ...
-             '2. mascara\n', ...
-             '3. tsdf\n']);
-    opcion = input('Opción: ');
-
-    switch opcion
-        case 1
-            tipo_procesamiento = 'sdf';
-        case 2
-            tipo_procesamiento = 'mascara';
-        case 3
-            tipo_procesamiento = 'tsdf';
-        otherwise
-            error('Seleccione una opción válida del 1 al 3.');
-    end
+    tipo_procesamiento = 'sdf';
 end
 
 function [es_util, motivo] = ruta_stl_tiene_metadata_util(metadata_o_ruta)
@@ -4409,6 +4906,18 @@ function pasa = ruta_stl_pasa_filtro_metadata_preprocesador(metadata_o_ruta, fil
     if filtro_numerico_definido_preprocesador(filtro_zonas)
         pasa = pasa && numeros_metadata_iguales_preprocesador( ...
             metadata.num_zonas, filtro_zonas);
+    end
+    filtro_pareja = obtener_valor_filtro_preprocesador( ...
+        filtro_metadata, {'zona_experimental', 'zona'});
+    if ~isempty(filtro_pareja)
+        pasa = pasa && strcmpi(metadata.zona_experimental, char(filtro_pareja));
+    end
+    filtro_tag = obtener_valor_filtro_preprocesador(filtro_metadata, {'tag_correccion', 'tag'});
+    if ~isempty(filtro_tag)
+        identidad = metadata_especifica_correccion_global(char(filtro_tag));
+        if ~isempty(identidad.tag_correccion)
+            pasa = pasa && strcmpi(metadata.tag_correccion, identidad.tag_correccion);
+        end
     end
 end
 
@@ -4687,7 +5196,7 @@ function firma = crear_firma_preprocesamiento_stl(ruta_stl, tipo_procesamiento, 
         bytes = info(1).bytes;
         fecha = info(1).datenum;
     end
-    firma = sprintf('stl_preprocess_v3_topologia|archivo=%s|bytes=%d|datenum=%.12g|tipo=%s|res=%.10g', ...
+    firma = sprintf('stl_preprocess_v4_metadata_manual|archivo=%s|bytes=%d|datenum=%.12g|tipo=%s|res=%.10g', ...
         nombre, bytes, fecha, char(tipo_procesamiento), resolucion);
 end
 
@@ -4813,6 +5322,80 @@ function [vertices, caras] = leer_stl_binario(nombre_archivo)
     caras = reshape(indices_unicos, 3, numero_caras)';
 end
 
+function ejecutar_selftest_solo_sdf()
+    assert(strcmp(seleccionar_tipo_procesamiento(), 'sdf'));
+    cfg = struct('carpeta_stl', tempdir, 'resolucion', 0.5);
+    for tipo_no_disponible = {'mascara', 'tsdf'}
+        cfg.tipo_procesamiento = tipo_no_disponible{1};
+        identificador = '';
+        try
+            preprocesar_stl_a_mat('run', cfg);
+        catch ME
+            identificador = ME.identifier;
+        end
+        assert(strcmp(identificador, 'Voxelizacion:SoloSDF'));
+    end
+    fprintf('SELFTEST_SOLO_SDF_OK\n');
+end
+
+function ejecutar_selftest_topologia_temporal_voxel()
+    carpeta = tempname; mkdir(carpeta);
+    limpieza = onCleanup(@() limpiar_prueba_topologia_temporal(carpeta));
+    entrada = fullfile(carpeta, 'stl'); salida = fullfile(carpeta, 'voxel');
+    relativa = fullfile('Monopolo', '1ant', 'Caso_0', 'Potencia_30W');
+    folder = fullfile(entrada, relativa); mkdir(folder);
+    v = [0 0 0; 1 0 0; 0 1 0; 0 0 1];
+    f = [1 3 2; 1 2 4; 2 3 4; 3 1 4];
+    tiempos = [5 6 7 8 9 10];
+    for t = tiempos
+        stlwrite(triangulation(f,v), fullfile(folder, sprintf('Geometria_Ablacion_t%.4fmin.stl', t)));
+    end
+    otra = fullfile('Monopolo', '2ant', 'Caso_0', 'Potencia_30W');
+    mkdir(fullfile(entrada, otra));
+    stlwrite(triangulation(f,v), fullfile(entrada, otra, 'Geometria_Ablacion_t5.0000min.stl'));
+    % Esta prueba verifica continuidad y reanudacion, sin recalcular distancias SDF.
+    archivos = dir(fullfile(entrada,'**','*.stl'));
+    for k = 1:numel(archivos)
+        ruta_stl = fullfile(archivos(k).folder,archivos(k).name);
+        relativa_stl = erase(ruta_stl,[entrada filesep]);
+        [subcarpeta,nombre] = fileparts(relativa_stl);
+        if ~isfolder(fullfile(salida,subcarpeta)), mkdir(fullfile(salida,subcarpeta)); end
+        ruta_mat = fullfile(salida,subcarpeta,[nombre '_sdf_res0.50.mat']);
+        sdf = zeros(2,2,2);
+        metadata = crear_metadata_preprocesamiento_stl(relativa_stl,ruta_stl,'sdf',0.5);
+        save(ruta_mat,'sdf','metadata');
+        escribir_checkpoint_preprocesamiento([ruta_mat '.done'], ...
+            crear_firma_preprocesamiento_stl(ruta_stl,'sdf',0.5));
+    end
+    cfg = struct('carpeta_stl', entrada, 'carpeta_salida', salida, ...
+        'resolucion', 0.5, 'tipo_procesamiento', 'sdf');
+    preprocesar_stl_a_mat('run', cfg);
+    assert(numel(dir(fullfile(salida, relativa, '*.mat'))) == 6);
+    stlwrite(triangulation(f,v), fullfile(entrada,otra,'Geometria_Ablacion_t6.0000min.stl'));
+    for t = [6 8 9]
+        ruta_stl = fullfile(folder, sprintf('Geometria_Ablacion_t%.4fmin.stl', t));
+        stlwrite(triangulation(f(1:3,:),v), ruta_stl);
+        ruta_mat = fullfile(salida,relativa,sprintf('Geometria_Ablacion_t%.4fmin_sdf_res0.50.mat',t));
+        escribir_checkpoint_preprocesamiento([ruta_mat '.done'], ...
+            crear_firma_preprocesamiento_stl(ruta_stl,'sdf',0.5));
+    end
+    comprobar_corte_topologico_prueba(@() preprocesar_stl_a_mat('run',cfg));
+    for t = tiempos
+        ruta = fullfile(salida, relativa, sprintf('Geometria_Ablacion_t%.4fmin_sdf_res0.50.mat', t));
+        assert(isfile(ruta) == ismember(t, [5 7]), 'Secuencia voxel topologica incorrecta.');
+        assert(isfile([ruta '.done']) == isfile(ruta));
+    end
+    ruta_sdf = fullfile(salida, otra, 'Geometria_Ablacion_t5.0000min_sdf_res0.50.mat');
+    volumen = load(ruta_sdf, 'sdf', 'metadata');
+    assert(isfield(volumen, 'sdf') && strcmp(volumen.metadata.tipo_procesamiento, 'sdf'));
+    assert(~isfile(fullfile(salida,otra,'Geometria_Ablacion_t6.0000min_sdf_res0.50.mat')), ...
+        'La voxelizacion no debe continuar con el siguiente dataset.');
+    delete(fullfile(folder, 'Geometria_Ablacion_t7.0000min.stl'));
+    comprobar_corte_topologico_prueba(@() preprocesar_stl_a_mat('run',cfg));
+    assert(~isfile(fullfile(salida, relativa, 'Geometria_Ablacion_t7.0000min_sdf_res0.50.mat')));
+    fprintf('SELFTEST_TOPOLOGIA_TEMPORAL_VOXEL_OK\n');
+end
+
 function ejecutar_selftest_metadata_voxel_corregido()
     ruta = fullfile('Monopolo', '1ant', 'Caso_1', 'Potencia_30W', ...
         'Fecha_junio_19', 'Tiempo_20min', 'Prueba_1', 'Zonas_4', ...
@@ -4828,6 +5411,29 @@ function ejecutar_selftest_metadata_voxel_corregido()
     assert(ruta_stl_pasa_filtro_metadata_preprocesador(metadata, filtro));
     filtro.fecha_adquisicion = 'junio_22';
     assert(~ruta_stl_pasa_filtro_metadata_preprocesador(metadata, filtro));
+    tags = {'correccion_mayo_14_10min_prueba_1_manual_exp4_sim1', ...
+        'correccion_mayo_14_10min_prueba_2_manual_exp4_sim1', ...
+        'correccion_mayo_15_10min_prueba_1_manual_exp4_sim1', ...
+        'correccion_mayo_14_10min_prueba_1_manual_exp1_sim1'};
+    for k = 1:numel(tags)
+        carpetas = carpetas_metadata_correccion_global(tags{k});
+        ruta_manual = fullfile('Monopolo', '1ant', 'Caso_1', 'Potencia_30W', ...
+            carpetas{:}, 'Geometria_Ablacion_t5.0000min.stl');
+        md = crear_metadata_preprocesamiento_stl(ruta_manual, '', 'sdf', 0.5);
+        assert(ruta_stl_tiene_metadata_util(md) && isnan(md.num_zonas));
+        assert(strcmp(md.tag_correccion, tags{k}));
+        for j = 1:numel(tags)
+            filtro_manual = metadata_especifica_correccion_global(tags{j});
+            assert(ruta_stl_pasa_filtro_metadata_preprocesador(md, filtro_manual) == (j == k), ...
+                'El filtro voxel mezcla fechas, pruebas o parejas individuales.');
+        end
+    end
+    raw = struct('metadata_correlacion', struct('fecha_adquisicion', 'mayo_14', ...
+        'tiempo_ejecucion_min', 10, 'numero_prueba', 1, ...
+        'asignacion_sondas', struct('modo', 'manual', 'indice_experimental', 4, 'indice_simulado', 1)));
+    md_raw = metadata_especifica_correccion_global(raw);
+    assert(strcmp(md_raw.tag_correccion, tags{1}));
+    fprintf('SELFTEST_STL_VOXEL_MANUAL_OK\n');
     fprintf(['SELFTEST_VOXEL_METADATA_PATHS_OK fecha=%s tiempo=%g ' ...
         'prueba=%g zonas=%g\n'], metadata.fecha_adquisicion, ...
         metadata.tiempo_ejecucion_min, metadata.numero_prueba, ...
@@ -4836,6 +5442,9 @@ end
 
 % ---- Fin copia local: preprocesar_stl_a_mat.m ----
 end
+% =========================================================================
+% ZONA 13 — CORRELACION TERMICA, FACTORES POR ZONA Y CAMPO 4D
+% =========================================================================
 function varargout = ejecutar_correlador_volumen_integrado(varargin)
     if nargin >= 1 && ischar(varargin{1})
         accion = lower(varargin{1});
@@ -4865,6 +5474,14 @@ function varargout = ejecutar_correlador_volumen_integrado(varargin)
                 varargout{1} = exportar_volumen_desde_resultado(varargin{2}, varargin{3}, logfn); return;
             case 'reaplicar_correccion_volumen'
                 varargout{1} = reaplicar_correccion_volumen_resultado(varargin{2}, varargin{3}, varargin{4}); return;
+            case 'selftest_sondas'
+                ejecutar_selftest_sondas();
+                return;
+            case 'selftest_ssa_campo'
+                t = 0:4;
+                varargout{1} = construir_extrapolacion_campo( ...
+                    [sin(t);cos(t)], t, 2, 6, 60, 1, varargin{2});
+                return;
             case 'selftest_limite_volumen'
                 ejecutar_selftest_limite_volumen();
                 if nargout > 0, varargout{1} = true; end
@@ -5046,11 +5663,7 @@ function correlador_volumen_interpolado_ui(varargin)
         'Position', [xCtrl+116 366 98 24], 'Value', 0, ...
         'Tooltip', 'Minuto final de extrapolacion. Si es 0, se usa automatico: 1.5x el tiempo simulado.');
     crear_mini_label('Estrategia:', 388, 350);
-    ddEstrategia = uidropdown(fig, 'Position', [xCtrl+350 366 98 24], ...
-        'Items', {'POD/SVD + SSA recurrente', 'POD/SVD + tendencia modal', ...
-            'LOWESS', 'Gradiente local'}, ...
-        'Value', 'POD/SVD + SSA recurrente', ...
-        'ValueChangedFcn', @actualizar_analisis_4d);
+    uilabel(fig, 'Position', [xCtrl+350 366 98 24], 'Text', 'SSA recurrente');
     uilabel(fig, 'Position', [xCtrl 338 118 20], 'Text', 'Tiempo vista 3D:');
     lblTiempoVista = uilabel(fig, 'Position', [xCtrl+124 338 324 20], ...
         'Text', 'sin volumen construido', ...
@@ -5369,7 +5982,7 @@ function correlador_volumen_interpolado_ui(varargin)
         cfg.T_abl = edTAbl.Value;
         cfg.t_extra_max = edTExtra.Value;
         cfg.nt_ext = NaN;
-        cfg.estrategia = ddEstrategia.Value;
+        cfg.estrategia = 'POD/SVD + SSA recurrente';
         cfg.carpeta_exportacion = state.carpeta_exportacion;
         cfg.ruta_correccion = '';
         cfg.export_mat = chkExportMat.Value;
@@ -5525,21 +6138,9 @@ function correlador_volumen_interpolado_ui(varargin)
             'Color', [0.35 0.75 1.0], 'MarkerSize', 3, ...
             'LineWidth', 1.4, 'DisplayName', 'V base');
         if ~isempty(res.t_ext) && isfield(res, 'extrap')
-            plot(axVol, res.t_ext, res.extrap.V_grad, '-', ...
-                'Color', [0.42 0.72 1.0], ...
-                'LineWidth', ancho_metodo(res, 'gradiente_local'), ...
-                'DisplayName', 'Gradiente local');
-            plot(axVol, res.t_ext, res.extrap.V_lowess, '-', ...
-                'Color', [0.40 1.00 0.55], ...
-                'LineWidth', ancho_metodo(res, 'lowess_cuadratico'), ...
-                'DisplayName', 'LOWESS');
-            plot(axVol, res.t_ext, res.extrap.V_pod, '-', ...
-                'Color', [1.00 0.72 0.25], ...
-                'LineWidth', ancho_metodo(res, 'pod_svd_tendencia_modal'), ...
-                'DisplayName', 'POD/SVD + tendencia');
             plot(axVol, res.t_ext, res.extrap.V_ssa, '-', ...
                 'Color', [0.78 0.42 1.00], ...
-                'LineWidth', ancho_metodo(res, 'pod_svd_ssa_recurrente'), ...
+                'LineWidth', 3.0, ...
                 'DisplayName', 'POD/SVD + SSA');
         end
         if chkUsarCorreccion.Value && isfield(res, 'V_corr') && ~isempty(res.V_corr)
@@ -5558,15 +6159,6 @@ function correlador_volumen_interpolado_ui(varargin)
         lg.TextColor = theme.colors.text;
         lg.Color = theme.colors.card;
         lg.EdgeColor = theme.colors.border;
-    end
-
-    function ancho = ancho_metodo(res, tipo)
-        tipo_ui = normalizar_estrategia(ddEstrategia.Value);
-        if strcmp(tipo_ui, tipo) || (isempty(tipo_ui) && strcmp(res.modelo_tipo, tipo))
-            ancho = 3.0;
-        else
-            ancho = 1.5;
-        end
     end
 
     function dibujar_funcion_correccion_4d()
@@ -5908,7 +6500,7 @@ function simData = leer_txt_sondas(ruta_txt)
         if tabla
             nums = sscanf(line, '%f');
             if numel(nums) >= 2
-                values = [values; nums(:)']; %#ok<AGROW>
+                values = [values; nums(:)']; 
             end
         end
         line = fgetl(fid);
@@ -5937,7 +6529,7 @@ function labels = parsear_encabezado_sondas(line)
         if isempty(tok)
             tok = sprintf('Sonda_%d', k-1);
         end
-        labels{end+1} = tok; %#ok<AGROW>
+        labels{end+1} = tok; 
     end
 end
 
@@ -5946,15 +6538,20 @@ function curvas = preparar_curvas_correlacion(cfg, sim_idx, exp_idx)
     T_sim = obtener_matriz_T(cfg.sim.T);
     if nargin < 2 || isempty(sim_idx)
         sim_idx = find(strcmp(cfg.sim.labels, cfg.sonda), 1);
-        if isempty(sim_idx)
-            sim_idx = 1;
+    end
+    if nargin < 3 || isempty(exp_idx)
+        if strcmp(campo_local(cfg, 'modo_sondas', 'cuatro_sondas'), 'manual')
+            exp_idx = campo_local(cfg, 'indice_sonda_exp', NaN);
+        else
+            exp_idx = sim_idx;
         end
     end
-    sim_idx = max(1, min(sim_idx, size(T_sim, 2)));
-    if nargin < 3 || isempty(exp_idx)
-        exp_idx = min(sim_idx, size(T_exp, 2));
+    if isempty(sim_idx) || ~isscalar(sim_idx) || ~isfinite(sim_idx) || ...
+            sim_idx ~= fix(sim_idx) || sim_idx < 1 || sim_idx > size(T_sim, 2) || ...
+            isempty(exp_idx) || ~isscalar(exp_idx) || ~isfinite(exp_idx) || ...
+            exp_idx ~= fix(exp_idx) || exp_idx < 1 || exp_idx > size(T_exp, 2)
+        error('Correccion:SondaInvalida', 'Selecciona una sonda experimental y una simulada existentes.');
     end
-    exp_idx = max(1, min(exp_idx, size(T_exp, 2)));
 
     y_exp = T_exp(:, exp_idx);
     t_exp = cfg.exp.t_min(:);
@@ -5992,6 +6589,50 @@ function curvas = preparar_curvas_correlacion(cfg, sim_idx, exp_idx)
     end
 end
 
+function ejecutar_selftest_sondas()
+    t = (0:11)';
+    cfg = struct('exp', struct('t_min', t, 'T', 37+t*[2 4], 'labels', {{'E1','E2'}}), ...
+        'sim', struct('t_min', t, 'T', 37+t*[3 4 5 8], 'labels', {{'P1','P2','P3','P4'}}), ...
+        'sonda', 'P4', 'modo_sondas', 'manual', 'indice_sonda_exp', 2, ...
+        'exp_inicio', 1, 'exp_fin', 12, 'sim_inicio', 1, 'sim_fin', 12, ...
+        'grado', 2, 'n_comun', 24, 'nombre_exp', 'experimental.csv', 'nombre_sim', 'simulado.txt');
+    r = calcular_correlacion(cfg);
+    assert(r.indice_sonda_exp == 2 && r.indice_sonda_sim == 4);
+    assert(isequal(r.y_exp, cfg.exp.T(:,2)) && isequal(r.y_sim, cfg.sim.T(:,4)));
+    assert(strcmp(r.correccion_termica.modo_espacial, 'global'));
+    assert(~isfield(r.correccion_termica, 'zonas') && ~isfield(r.correccion_termica, 'profundidades_exp_mm'));
+    assert(max(abs(r.correccion_termica.factor_enfriamiento - 0.5)) < 1e-10);
+    assert(strcmp(nombre_correccion_default(r), 'Correccion_termica_manual_Exp2_Sim4.mat'));
+    ruta = [tempname '.mat'];
+    limpieza = onCleanup(@() borrar_temporal_correccion(ruta));
+    guardar_correccion_mat(ruta, r);
+    guardado = load(ruta);
+    assert(guardado.metadata_correlacion.asignacion_sondas.indice_experimental == 2);
+    assert(guardado.correccion_termica.asignacion_sondas.indice_simulado == 4);
+    cfg.exp.T = cfg.exp.T(:,1); cfg.exp.labels = {'E1'}; cfg.indice_sonda_exp = 1;
+    r = calcular_correlacion(cfg);
+    assert(r.indice_sonda_exp == 1 && r.indice_sonda_sim == 4);
+    cfg.indice_sonda_exp = 2;
+    verificar_error(cfg, 'Correccion:SondaInvalida');
+    cfg.modo_sondas = 'cuatro_sondas';
+    verificar_error(cfg, 'Correccion:RequiereCuatroSondas');
+    cfg.exp.T = 37+t*[1 2 3 4]; cfg.exp.labels = {'E1','E2','E3','E4'};
+    r = calcular_correlacion(cfg);
+    assert(numel(r.correccion_termica.zonas) == 4);
+    assert(isequal([r.correccion_termica.zonas.indice_sonda_exp], 1:4));
+    assert(isequal([r.correccion_termica.zonas.indice_sonda_sim], 1:4));
+    fprintf('SELFTEST_SONDAS_OK\n');
+    function verificar_error(c, esperado)
+        identificador = '';
+        try
+            calcular_correlacion(c);
+        catch ME
+            identificador = ME.identifier;
+        end
+        assert(strcmp(identificador, esperado));
+    end
+end
+
 function T = obtener_matriz_T(T)
     if isempty(T)
         T = zeros(0, 1);
@@ -6007,6 +6648,15 @@ function validar_indices_recorte(i0, i1, n, etiqueta)
 end
 
 function resultado = calcular_correlacion(cfg)
+    modo_sondas = campo_local(cfg, 'modo_sondas', 'cuatro_sondas');
+    if ~any(strcmp(modo_sondas, {'cuatro_sondas', 'manual'}))
+        error('Correccion:ModoSondasInvalido', 'Modo de asignacion de sondas desconocido.');
+    end
+    if strcmp(modo_sondas, 'cuatro_sondas') && ...
+            (size(obtener_matriz_T(cfg.exp.T), 2) < 4 || size(obtener_matriz_T(cfg.sim.T), 2) < 4)
+        error('Correccion:RequiereCuatroSondas', ...
+            'El orden predeterminado requiere cuatro sondas experimentales y cuatro simuladas. Selecciona Pareja manual para datasets de una o dos sondas.');
+    end
     curvas = preparar_curvas_correlacion(cfg);
     [t_comun, y_exp_interp, y_sim_interp] = sincronizar_curvas_ui( ...
         curvas.t_exp_zero, curvas.y_exp, ...
@@ -6041,9 +6691,22 @@ function resultado = calcular_correlacion(cfg)
     resultado.y_delta = y_delta;
     resultado.p_arreglo = p_arreglo;
     resultado.correccion_termica = correccion_termica;
+    resultado.correccion_termica.asignacion_sondas = struct( ...
+        'modo', modo_sondas, 'indice_experimental', curvas.indice_sonda_exp, ...
+        'indice_simulado', curvas.indice_sonda_sim, ...
+        'sonda_experimental', curvas.sonda_experimental, 'sonda_simulada', curvas.sonda);
+    if strcmp(modo_sondas, 'manual')
+        resultado.correccion_termica.descripcion = ...
+            'Correccion global de una pareja manual de sondas; sin altura experimental asignada ni zonas espaciales.';
+    end
 end
 
 function [zonas, meta] = crear_zonas_correccion(cfg)
+    if strcmp(campo_local(cfg, 'modo_sondas', 'cuatro_sondas'), 'manual')
+        zonas = struct([]);
+        meta = struct('profundidades_sim_mm', [], 'profundidades_exp_mm', [], 'z_edges_mm', []);
+        return;
+    end
     prof_sim_default = [18.6, 25.2, 31.8, 38.4];
     prof_exp_default = [26.4, 19.8, 13.2, 6.6];
     T_exp = obtener_matriz_T(cfg.exp.T);
@@ -6093,7 +6756,7 @@ function [zonas, meta] = crear_zonas_correccion(cfg)
         zona.y_sim_interp = y_sim_z(:);
         zona.p_arreglo = p_arreglo_z(:)';
         zona.y_delta = y_delta_z(:);
-        zonas = [zonas; zona]; %#ok<AGROW>
+        zonas = [zonas; zona]; 
     end
 end
 
@@ -6222,6 +6885,14 @@ end
 
 function nombre = nombre_correccion_default(corr)
     if isfield(corr, 'correccion_termica') && ...
+            isfield(corr.correccion_termica, 'asignacion_sondas') && ...
+            strcmp(corr.correccion_termica.asignacion_sondas.modo, 'manual')
+        a = corr.correccion_termica.asignacion_sondas;
+        nombre = sprintf('Correccion_termica_manual_Exp%d_Sim%d.mat', ...
+            a.indice_experimental, a.indice_simulado);
+        return;
+    end
+    if isfield(corr, 'correccion_termica') && ...
             isfield(corr.correccion_termica, 'zonas') && ...
             ~isempty(corr.correccion_termica.zonas)
         nombre = 'Correccion_termica_zonal.mat';
@@ -6238,11 +6909,14 @@ function relativa = ruta_relativa_correccion_default(corr)
         potencia = strrep(potencia, '.', 'p');
         partes = {meta.tipo_antena, sprintf('%dant', round(meta.num_antenas)), ...
             sprintf('Caso_%d', round(meta.caso)), potencia};
-        if metadata_correlacion_especifica_completa(meta)
+        if ~isempty(meta.fecha_adquisicion) && isfinite(meta.tiempo_ejecucion_min) && ...
+                isfinite(meta.numero_prueba)
             partes = [partes, {['Fecha_' simplificar_tag_archivo(meta.fecha_adquisicion, 32)], ...
                 sprintf('Tiempo_%gmin', meta.tiempo_ejecucion_min), ...
-                sprintf('Prueba_%d', round(meta.numero_prueba)), ...
-                sprintf('Zonas_%d', round(meta.num_zonas))}];
+                sprintf('Prueba_%d', round(meta.numero_prueba))}];
+            if isfinite(meta.num_zonas)
+                partes{end+1} = sprintf('Zonas_%d', round(meta.num_zonas));
+            end
         end
         relativa = fullfile(partes{:}, nombre);
     else
@@ -6276,6 +6950,10 @@ function metadata = metadata_correlacion_archivos(corr)
         'sonda_simulada', campo_corr_texto(corr, 'sonda'), ...
         'sonda_experimental', campo_corr_texto(corr, 'sonda_experimental'), ...
         'schema_version', 3);
+    if isfield(corr, 'correccion_termica') && isfield(corr.correccion_termica, 'asignacion_sondas')
+        metadata.asignacion_sondas = corr.correccion_termica.asignacion_sondas;
+        metadata.schema_version = 4;
+    end
 end
 
 function meta = extraer_metadata_experimental_correlacion(ruta_exp, corr)
@@ -6437,6 +7115,23 @@ function ejecutar_selftest_metadata_correlacion()
     assert(contains(conflicto, '/repetidos/conflictos/Revision_2/', ...
         'IgnoreCase', true));
     clear cleanup;
+    corr.nombre_sim = fullfile('datasets', 'distribuciones_stl', 'Doble_slot', ...
+        '3ant', 'Caso_0', 'Potencia_10W', 'Registro_Sondas_Temperatura.txt');
+    corr.correccion_termica = struct('modo_espacial', 'global', ...
+        'asignacion_sondas', struct('modo', 'manual', ...
+        'indice_experimental', 1, 'indice_simulado', 1));
+    for prueba = 1:2
+        sufijo = '';
+        if prueba == 2, sufijo = '_2'; end
+        corr.nombre_exp = fullfile('datasets', 'experimentales', 'mayo_14', ...
+            ['3 antenas_30 watt 10min' sufijo '.csv']);
+        meta = metadata_correlacion_archivos(corr);
+        assert(meta.numero_prueba == prueba && isnan(meta.num_zonas));
+        relativa_manual = strrep(ruta_relativa_correccion_default(corr), '\', '/');
+        assert(contains(relativa_manual, sprintf( ...
+            'Fecha_mayo_14/Tiempo_10min/Prueba_%d/Correccion_termica_manual_Exp1_Sim1.mat', prueba)));
+        assert(~contains(relativa_manual, 'Zonas_'));
+    end
     fprintf('SELFTEST_CORR_METADATA_OK %s\n', relativa);
 end
 
@@ -6507,6 +7202,9 @@ function resultado = construir_funcion_volumen(cfg, corr, logfn)
         logfn = @(varargin) fprintf([varargin{1} '\n'], varargin{2:end});
     end
     dsData = cfg.dataset.(cfg.modelo).(cfg.dsName);
+    if ~isempty(corr)
+        validar_modelo_correccion(dsData, cfg.modelo, cfg.dsName, corr);
+    end
     snapshots = dsData.snapshots;
     t_min_orig = dsData.t_min(:)';
     nTimes = numel(snapshots);
@@ -6525,7 +7223,7 @@ function resultado = construir_funcion_volumen(cfg, corr, logfn)
     else
         puntos_dominio = zeros(0, 3);
         for ti = 1:nTimes
-            puntos_dominio = [puntos_dominio; snapshots(ti).points]; %#ok<AGROW>
+            puntos_dominio = [puntos_dominio; snapshots(ti).points]; 
         end
         logfn('Sin full_field: usando nubes filtradas de snapshots.');
     end
@@ -6596,7 +7294,7 @@ function resultado = construir_funcion_volumen(cfg, corr, logfn)
     if ~isfinite(t_extra_obj) || t_extra_obj <= 0
         t_extra_obj = max(t_fine);
         cfg.nt_ext = 0;
-        logfn('T extra max min=0: sin extrapolacion automatica; horizonte final %.4g min.', t_extra_obj);
+        logfn('Minuto final de aplicacion=0: sin extrapolacion automatica; horizonte final %.4g min.', t_extra_obj);
     elseif t_extra_obj <= max(t_fine) + 1e-9
         cfg.nt_ext = 0;
         logfn('Horizonte %.4g min cubierto por datos fuente; sin tramo extrapolado.', t_extra_obj);
@@ -6605,7 +7303,7 @@ function resultado = construir_funcion_volumen(cfg, corr, logfn)
     end
     cfg.t_extra_max = t_extra_obj;
     extrap = construir_extrapolacion_campo(T_4D_vec, t_fine, cfg.nt_ext, ...
-        cfg.t_extra_max, cfg.T_abl, voxel_vol);
+        cfg.t_extra_max, cfg.T_abl, voxel_vol, cfg);
     [T_ext_sel, sigma_sel, modelo_sel] = seleccionar_extrapolacion(extrap, cfg.estrategia);
     t_full = [t_fine, extrap.t_ext_only];
     T_export_vec = [T_4D_vec, T_ext_sel];
@@ -6687,7 +7385,8 @@ function V = calcular_volumen_por_tiempo(T_mat, T_abl, voxel_vol)
     end
 end
 
-function extrap = construir_extrapolacion_campo(T_4D_vec, t_fine, ~, t_extra_max, T_abl, voxel_vol)
+function extrap = construir_extrapolacion_campo(T_4D_vec, t_fine, ~, t_extra_max, T_abl, voxel_vol, config)
+    if nargin < 7, config = struct(); end
     nGrid = size(T_4D_vec, 1);
     if ~isfinite(t_extra_max) || t_extra_max <= max(t_fine) + 1e-9
         vacio = zeros(nGrid, 0);
@@ -6710,6 +7409,7 @@ function extrap = construir_extrapolacion_campo(T_4D_vec, t_fine, ~, t_extra_max
             'meta_pod', struct(), 'meta_ssa', struct());
         return;
     end
+    config = confirmar_datos_ssa(numel(unique(t_fine(isfinite(t_fine)))), config);
     k_win = min(12, nt_fine);
     t_win = t_fine(end-k_win+1:end);
     T_win = T_4D_vec(:, end-k_win+1:end);
@@ -6772,7 +7472,7 @@ function extrap = construir_extrapolacion_campo(T_4D_vec, t_fine, ~, t_extra_max
         derivada_modal(ri) = (serie(end) - serie(end-1)) / ...
             (t_fine(end) - t_fine(end-1));
         coef_pod_ext(ri, :) = serie(end) + derivada_modal(ri) * dt_ext;
-        modelos_ssa{ri} = pronostico_ssa_local('ajustar', t_fine, serie);
+        modelos_ssa{ri} = pronostico_ssa_local('ajustar', t_fine, serie, config);
         coef_ssa_ext(ri, :) = pronostico_ssa_local( ...
             'evaluar', modelos_ssa{ri}, t_ext_only);
     end
@@ -6883,6 +7583,10 @@ function [T_nd_corr, V_corr, meta] = aplicar_correccion_volumen(T_nd, T_base_vec
 end
 
 function res = reaplicar_correccion_volumen_resultado(res, cfg, corr)
+    if ~isempty(corr)
+        validar_modelo_correccion(cfg.dataset.(cfg.modelo).(cfg.dsName), ...
+            cfg.modelo, cfg.dsName, corr);
+    end
     if ~isfield(res, 'T_export_base_nd') || isempty(res.T_export_base_nd)
         error('El resultado 4D no contiene T_export_base_nd para reaplicar correccion.');
     end
@@ -6917,6 +7621,10 @@ function T_corr = limitar_temperatura_corregida_volumen(T_corr, corr, cfg)
 end
 
 function limite = limite_temperatura_corregida_volumen(corr, cfg)
+    if ~campo_local(cfg, 'usar_limite_experimental', true)
+        limite = limite_correccion_local(corr, cfg);
+        return;
+    end
     limite = 120;
     if isstruct(cfg) && isfield(cfg, 'temperatura_max_corregida_C')
         limite = cfg.temperatura_max_corregida_C;
@@ -7070,11 +7778,10 @@ function metodos = construir_metodos_extrapolacion_exportables(res, cfg, logfn)
         return;
     end
     defs = struct( ...
-        'campo', {'ssa', 'pod', 'lowess', 'grad'}, ...
-        'volumen', {'V_ssa', 'V_pod', 'V_lowess', 'V_grad'}, ...
-        'meta', {'meta_ssa', 'meta_pod', 'meta_low', 'meta_grad'}, ...
-        'nombre', {'pod_svd_ssa_recurrente', 'pod_svd_tendencia_modal', ...
-            'lowess_cuadratico', 'gradiente_local'});
+        'campo', {'ssa', 'pod'}, ...
+        'volumen', {'V_ssa', 'V_pod'}, ...
+        'meta', {'meta_ssa', 'meta_pod'}, ...
+        'nombre', {'pod_svd_ssa_recurrente', 'pod_svd_tendencia_modal'});
     nx = numel(res.xg); ny = numel(res.yg); nz = numel(res.zg);
     t_full_m = [res.t_fine, res.extrap.t_ext_only];
     for mi = 1:numel(defs)
@@ -7396,6 +8103,7 @@ function selftest_muestreo_minutos_volumen()
         't_min', [0 1 2], ...
         'full_field', struct('points', puntos, 'T_C', T_C));
     dataset = struct();
+    ds.metadata = struct('tipo', 'Monopolo', 'num_antenas', 4, 'caso', 0, 'potencia_W', 30);
     dataset.modelo_sintetico = struct('dset_minutos', ds);
     cfg = struct( ...
         'dataset', dataset, ...
@@ -7406,7 +8114,8 @@ function selftest_muestreo_minutos_volumen()
         'T_abl', 60, ...
         't_extra_max', 4, ...
         'nt_ext', 99, ...
-        'estrategia', 'Gradiente local', ...
+        'estrategia', 'POD/SVD + SSA recurrente', ...
+        'permitir_pocos_datos_ssa', true, ...
         'carpeta_exportacion', tempdir, ...
         'export_mat', false, ...
         'export_m', false, ...
@@ -7425,6 +8134,8 @@ function selftest_muestreo_minutos_volumen()
 
     corr = struct();
     corr.ruta_correccion_mat = fullfile(tempdir, 'corr_fecha_a_4ant_30w_15min.mat');
+    corr.metadata_correlacion = struct('tipo_antena', 'Monopolo', ...
+        'num_antenas', 4, 'caso', 0, 'potencia_W', 30);
     corr.correccion_termica = struct( ...
         't_rel_min', [0; 1; 2], ...
         'factor_enfriamiento', [1; 0.95; 0.9], ...
@@ -7500,7 +8211,14 @@ end
 
 % ---- Fin copia local: correlador_volumen_interpolado_ui.m ----
 end
+% =========================================================================
+% ZONA 14 — EXPORTACION DE DATASETS CORREGIDOS Y TRAZABILIDAD METADATA
+% =========================================================================
 function varargout = ejecutar_exportador_correcciones_integrado(varargin)
+    if nargin >= 1 && strcmpi(varargin{1}, 'selftest_exportacion_limite')
+        ejecutar_selftest_exportacion_limite();
+        return;
+    end
     if nargin >= 1 && ischar(varargin{1}) && strcmpi(varargin{1}, 'selftest_metadata')
         ejecutar_selftest_filtros_metadata();
         if nargout > 0, varargout{1} = true; end
@@ -7594,7 +8312,7 @@ function lanzar_ui_exportador_masivo_correcciones()
     uilabel(gl, 'Text', 'Resolucion MAT:');
     ed_res = uieditfield(gl, 'numeric', 'Value', 0.5, 'Limits', [eps Inf]);
     uilabel(gl, 'Text', 'Tipo MAT:');
-    dd_tipo = uidropdown(gl, 'Items', {'sdf', 'mascara', 'tsdf'}, 'Value', 'sdf');
+    uilabel(gl, 'Text', 'SDF');
 
     chk_overwrite = uicheckbox(gl, 'Text', 'Sobrescribir datasets corregidos', ...
         'Value', false);
@@ -7694,7 +8412,7 @@ function lanzar_ui_exportador_masivo_correcciones()
             'radio_alpha', ed_alpha.Value, ...
             'iteraciones_suavizado', round(ed_smooth.Value), ...
             'resolucion_preprocesamiento', ed_res.Value, ...
-            'tipo_preprocesamiento', dd_tipo.Value, ...
+            'tipo_preprocesamiento', 'sdf', ...
             'exportar_stl', exportar_stl, ...
             'exportar_mat', exportar_mat, ...
             'sobrescribir', chk_overwrite.Value, ...
@@ -7720,6 +8438,7 @@ function resumen = exportar_dataset_seleccionado_corregido(config)
     if isempty(corr_raw)
         error('No hay una correccion resuelta por metadata para exportar.');
     end
+    validar_modelo_correccion(config.dataset.(modelo).(dsName), modelo, dsName, corr_raw);
     if isstruct(corr_raw) && isfield(corr_raw, 'correccion_termica')
         corr = corr_raw.correccion_termica;
     else
@@ -8179,7 +8898,7 @@ function dataset_corr = corregir_dataset_completo_exportador(dataset_base, corr,
             ds = dataset_base.(modelo).(dsName);
             if isstruct(ds) && isfield(ds, 'snapshots') && ~isempty(ds.snapshots) && ...
                     dataset_pasa_filtro_correlacion(dsName, filtro_corr)
-                ds_validos{end+1} = dsName; %#ok<AGROW>
+                ds_validos{end+1} = dsName; 
             end
         end
         if isempty(ds_validos)
@@ -8195,8 +8914,11 @@ function dataset_corr = corregir_dataset_completo_exportador(dataset_base, corr,
         for di = 1:numel(ds_validos)
             dsName = ds_validos{di};
             ds = dataset_base.(modelo).(dsName);
+            config_item = config;
+            config_item.modelo = modelo;
+            config_item.dsName = dsName;
             dataset_corr.(modelo).(dsName) = corregir_dataset_individual_exportador( ...
-                ds, corr, config);
+                ds, corr, config_item);
             n_datasets_corregidos = n_datasets_corregidos + 1;
             if mod(di, max(1, floor(numel(ds_validos) / 5))) == 0 || di == numel(ds_validos)
                 logfn('  Datasets corregidos %d/%d.', di, numel(ds_validos));
@@ -8256,7 +8978,7 @@ function rutas = filtrar_particiones_exportador(rutas_todas, filtro_corr)
         if ~ruta_esta_en_repetidos(ruta) && ...
                 modelo_pasa_filtro_correlacion(ruta, filtro_corr) && ...
                 dataset_pasa_filtro_correlacion(ruta, filtro_corr)
-            rutas{end + 1} = rutas_todas{k}; %#ok<AGROW>
+            rutas{end + 1} = rutas_todas{k}; 
         end
     end
     rutas = unique(rutas, 'stable');
@@ -8354,6 +9076,30 @@ function tag = tag_experimental_correccion_exportador(corr_raw)
             isstruct(corr_raw.correccion_termica) && ...
             isfield(corr_raw.correccion_termica, 'zonas')
         zonas = numel(corr_raw.correccion_termica.zonas);
+    end
+    a = struct();
+    if isfield(corr_raw, 'metadata_correlacion') && ...
+            isfield(corr_raw.metadata_correlacion, 'asignacion_sondas')
+        a = corr_raw.metadata_correlacion.asignacion_sondas;
+    end
+    if isfield(corr_raw, 'correccion_termica') && ...
+            isfield(corr_raw.correccion_termica, 'asignacion_sondas')
+        a = corr_raw.correccion_termica.asignacion_sondas;
+    end
+    if isfield(a, 'modo') && strcmp(a.modo, 'manual')
+        exp_idx = numero_meta_filtro(a, 'indice_experimental');
+        sim_idx = numero_meta_filtro(a, 'indice_simulado');
+        if isempty(fecha) || ~isfinite(tiempo) || ~isfinite(prueba) || ...
+                ~isfinite(exp_idx) || ~isfinite(sim_idx) || ...
+                exp_idx < 1 || sim_idx < 1 || exp_idx ~= fix(exp_idx) || sim_idx ~= fix(sim_idx)
+            error('Correccion:IdentificadorExportacionIncompleto', ...
+                'La correccion individual requiere fecha, tiempo, prueba y pareja de sondas para exportarse sin colisiones.');
+        end
+        tiempo_txt = strrep(sprintf('%g', tiempo), '.', 'p');
+        tag = sanitizar_nombre_correccion_exportador(sprintf( ...
+            'correccion_%s_%smin_prueba_%d_manual_exp%d_sim%d', ...
+            fecha, tiempo_txt, round(prueba), exp_idx, sim_idx));
+        return;
     end
     if isempty(fecha) || ~isfinite(tiempo) || ~isfinite(prueba) || ~isfinite(zonas)
         return;
@@ -8472,6 +9218,8 @@ function txt = valor_filtro_log_exportador(valor)
 end
 
 function ds_corr = corregir_dataset_individual_exportador(ds, corr, config)
+    validar_modelo_correccion(ds, campo_local(config, 'modelo', ''), ...
+        campo_local(config, 'dsName', ''), campo_local(config, 'correccion', corr));
     ds_corr = ds;
     t_vec = obtener_tiempos_dataset_exportador(ds);
     umbral = obtener_umbral_ablacion_exportador(ds, config);
@@ -8545,6 +9293,10 @@ function T_corr = limitar_temperatura_corregida_exportador(T_corr, corr, config)
 end
 
 function limite = limite_temperatura_corregida_exportador(corr, config)
+    if ~campo_local(config, 'usar_limite_experimental', true)
+        limite = limite_correccion_local(corr, config);
+        return;
+    end
     limite = obtener_campo_config_exportador(config, 'temperatura_max_corregida_C', 120);
     if isempty(limite) || ~isnumeric(limite) || ~isscalar(limite) || ~isfinite(limite)
         limite = 120;
@@ -8907,6 +9659,36 @@ function abrir_carpeta_exportador(folder)
     end
 end
 
+function ejecutar_selftest_exportacion_limite()
+    md = struct('tipo', 'Monopolo', 'num_antenas', 2, 'caso', 0, 'potencia_W', 30);
+    ct = struct('t_rel_min', [0;1], 'factor_enfriamiento', [1;1], ...
+        'y_exp_interp', [37;80], 'offset_base_C', 0);
+    raw = struct('metadata_correlacion', struct('tipo_antena', 'Monopolo', ...
+        'num_antenas', 2, 'caso', 0, 'potencia_W', 30), 'correccion_termica', ct);
+    pts = [0 0 0;1 1 1];
+    ds = struct('metadata', md, 't_min', [0 1], ...
+        'full_field', struct('points', pts, 'T_C', [37 150;37 100]), ...
+        'snapshots', repmat(struct('points', pts, 'T', [37;37]), 1, 2));
+    cfg = struct('modelo', 'modelo', 'dsName', 'dataset', 'correccion', raw, ...
+        'temperatura_max_corregida_C', 120, 'usar_limite_experimental', true);
+    automatico = corregir_dataset_individual_exportador(ds, ct, cfg);
+    assert(max(automatico.full_field.T_C, [], 'all') == 80);
+    cfg.usar_limite_experimental = false;
+    cfg.temperatura_max_corregida_C = 140;
+    manual = corregir_dataset_individual_exportador(ds, ct, cfg);
+    assert(max(manual.full_field.T_C, [], 'all') == 140);
+    assert(manual.metadata.correccion_termica.temperatura_max_corregida_C == 140);
+    cfg.correccion.metadata_correlacion.num_antenas = 1;
+    rechazo = '';
+    try
+        corregir_dataset_individual_exportador(ds, ct, cfg);
+    catch ME
+        rechazo = ME.identifier;
+    end
+    assert(strcmp(rechazo, 'Correccion:ModeloIncompatible'));
+    fprintf('SELFTEST_EXPORTACION_LIMITE_OK\n');
+end
+
 function ejecutar_selftest_filtros_metadata()
     paths = tesis_auxiliares('dataset_paths');
     catalogo_corr = catalogar_correcciones_metadata_ext(paths.correlaciones);
@@ -8953,6 +9735,25 @@ function ejecutar_selftest_filtros_metadata()
         assert(~ruta_esta_en_repetidos(filtradas{k}), ...
             'El filtro incluyo una particion en repetidos: %s', filtradas{k});
     end
+    individuales = catalogo_corr(startsWith({catalogo_corr.nombre}, 'Correccion_termica_manual_'));
+    destinos = cell(1, numel(individuales));
+    for k = 1:numel(individuales)
+        entrada = individuales(k);
+        raw_manual = load(entrada.ruta);
+        tag_manual = tag_correccion_seleccionada(raw_manual, raw_manual.correccion_termica, struct());
+        md_manual = metadata_especifica_correccion_global(tag_manual);
+        assert(strcmpi(md_manual.fecha_adquisicion, entrada.fecha_adquisicion) && ...
+            md_manual.numero_prueba == entrada.numero_prueba && ...
+            md_manual.tiempo_ejecucion_min == entrada.tiempo_ejecucion_min && ...
+            isnan(md_manual.num_zonas), 'La exportacion individual perdio su metadata.');
+        pm = struct('tipo', entrada.tipo, 'antena', entrada.antena, 'caso', entrada.caso, ...
+            'potencia_W', entrada.potencia_W, 'tag_correccion', tag_manual);
+        [carpeta, archivo] = destino_particion_corregida('salida_prueba', pm);
+        destinos{k} = lower(fullfile(carpeta, archivo));
+    end
+    assert(numel(unique(destinos)) == numel(destinos), ...
+        'Correcciones individuales diferentes comparten un destino de exportacion.');
+    fprintf('SELFTEST_DESTINOS_MANUALES_OK %d rutas unicas\n', numel(destinos));
     fprintf(['SELFTEST_METADATA_OK tipo=%s antena=%s caso=%s potencia=%s ', ...
         'particiones=%d\n'], filtro.tipo, filtro.antena, filtro.caso, ...
         filtro.potencia, numel(filtradas));
@@ -9031,6 +9832,21 @@ function meta = copiar_metadata_especifica_correccion_global(meta, fuente)
             isstruct(fuente.zonas) && ~isempty(fuente.zonas)
         meta.num_zonas = numel(fuente.zonas);
     end
+    if isfield(fuente, 'asignacion_sondas') && isstruct(fuente.asignacion_sondas)
+        a = fuente.asignacion_sondas;
+        if isfield(a, 'modo') && strcmp(a.modo, 'manual') && ...
+                isfield(a, 'indice_experimental') && isfield(a, 'indice_simulado')
+            meta.zona_experimental = sprintf('Global: Exp%d -> Sim%d (sin altura)', ...
+                a.indice_experimental, a.indice_simulado);
+            if isempty(meta.tag_correccion) && ~isempty(meta.fecha_adquisicion) && ...
+                    isfinite(meta.tiempo_ejecucion_min) && isfinite(meta.numero_prueba)
+                tiempo = strrep(sprintf('%g', meta.tiempo_ejecucion_min), '.', 'p');
+                meta.tag_correccion = sprintf('correccion_%s_%smin_prueba_%d_manual_exp%d_sim%d', ...
+                    meta.fecha_adquisicion, tiempo, meta.numero_prueba, ...
+                    a.indice_experimental, a.indice_simulado);
+            end
+        end
+    end
 end
 
 function meta = completar_metadata_especifica_desde_texto_global(meta, texto)
@@ -9056,6 +9872,22 @@ function meta = completar_metadata_especifica_desde_texto_global(meta, texto)
         meta.num_zonas = str2double(token{1});
     end
 
+    token_manual = regexp(normal, ...
+        'correccion_(?:correccion_)?([^/]+?)_([\d]+(?:p[\d]+)?)min_prueba_(\d+)_manual_exp(\d+)_sim(\d+)', ...
+        'tokens', 'once', 'ignorecase');
+    if ~isempty(token_manual)
+        if isempty(meta.fecha_adquisicion), meta.fecha_adquisicion = token_manual{1}; end
+        if ~isfinite(meta.tiempo_ejecucion_min)
+            meta.tiempo_ejecucion_min = str2double(strrep(lower(token_manual{2}), 'p', '.'));
+        end
+        if ~isfinite(meta.numero_prueba), meta.numero_prueba = str2double(token_manual{3}); end
+        meta.zona_experimental = sprintf('Global: Exp%s -> Sim%s (sin altura)', ...
+            token_manual{4}, token_manual{5});
+        if isempty(meta.tag_correccion)
+            meta.tag_correccion = sprintf('correccion_%s_%smin_prueba_%s_manual_exp%s_sim%s', ...
+                token_manual{:});
+        end
+    end
     token = regexp(normal, ...
         'correccion_(.+?)_([\d]+(?:p[\d]+)?)min_prueba_(\d+)_zonas_(\d+)', ...
         'tokens', 'once', 'ignorecase');
@@ -9111,12 +9943,37 @@ function catalogo = catalogar_correcciones_metadata_ext(carpeta)
     if ~isfolder(carpeta), return; end
     archivos = dir(fullfile(carpeta, '*', '*', 'Caso_*', 'Potencia_*', ...
         'Fecha_*', 'Tiempo_*', 'Prueba_*', 'Zonas_*', 'Correccion_*.mat'));
+    individuales = dir(fullfile(carpeta, '*', '*', 'Caso_*', 'Potencia_*', ...
+        'Fecha_*', 'Tiempo_*', 'Prueba_*', 'Correccion_termica_manual_*.mat'));
+    archivos = [archivos; individuales];
     archivos = archivos(~[archivos.isdir]);
     for k = 1:numel(archivos)
         ruta = fullfile(archivos(k).folder, archivos(k).name);
         if ruta_esta_en_repetidos_global(ruta), continue; end
         meta = tesis_auxiliares('metadata_ruta', ruta);
-        if ~meta.completa_simulacion || ~meta.completa_adquisicion, continue; end
+        if ~meta.completa_simulacion, continue; end
+        if startsWith(archivos(k).name, 'Correccion_termica_manual_')
+            try
+                guardada = load(ruta, 'metadata_correlacion', 'correccion_termica');
+                individual = metadata_correccion_ext_unificada(guardada);
+                a = guardada.correccion_termica.asignacion_sondas;
+                if ~strcmp(a.modo, 'manual') || isempty(individual.fecha_adquisicion) || ...
+                        ~isfinite(individual.tiempo_ejecucion_min) || ...
+                        ~isfinite(individual.numero_prueba)
+                    continue;
+                end
+                meta.fecha_adquisicion = individual.fecha_adquisicion;
+                meta.tiempo_ejecucion_min = individual.tiempo_ejecucion_min;
+                meta.numero_prueba = individual.numero_prueba;
+                meta.num_zonas = NaN;
+                meta.zona_experimental = sprintf('Global: Exp%d -> Sim%d (sin altura)', ...
+                    a.indice_experimental, a.indice_simulado);
+            catch
+                continue;
+            end
+        elseif ~meta.completa_adquisicion
+            continue;
+        end
         entrada = plantilla;
         entrada.ruta = ruta;
         entrada.tipo = meta.tipo;
@@ -9134,7 +9991,7 @@ function catalogo = catalogar_correcciones_metadata_ext(carpeta)
         entrada.zona = meta.zona_experimental;
         entrada.datenum = archivos(k).datenum;
         entrada.nombre = archivos(k).name;
-        catalogo(end + 1) = entrada; %#ok<AGROW>
+        catalogo(end + 1) = entrada; 
     end
 end
 
@@ -9210,6 +10067,87 @@ function meta = metadata_correccion_ext_unificada(corr)
     end
     if isempty(meta.zona_experimental) && isfinite(meta.num_zonas)
         meta.zona_experimental = sprintf('Zonas_%d', round(meta.num_zonas));
+    end
+end
+
+function validar_modelo_correccion(ds, modelo, nombre, corr)
+    meta = tesis_auxiliares('metadata_dataset', [char(modelo) '/' char(nombre)]);
+    fuentes = {ds};
+    if isfield(ds, 'metadata') && isstruct(ds.metadata)
+        fuentes{end+1} = ds.metadata;
+        for campo = {'metadata_dataset', 'partition_meta'}
+            if isfield(ds.metadata, campo{1}) && isstruct(ds.metadata.(campo{1}))
+                fuentes{end+1} = ds.metadata.(campo{1});
+            end
+        end
+    end
+    if isfield(ds, 'partition_meta') && isstruct(ds.partition_meta)
+        fuentes{end+1} = ds.partition_meta;
+    end
+    campos = {'tipo', 'num_antenas', 'caso', 'potencia_W'};
+    for i = 1:numel(fuentes)
+        m = tesis_auxiliares('metadata_dataset', '', fuentes{i});
+        for j = 1:numel(campos)
+            campo = campos{j}; a = meta.(campo); b = m.(campo);
+            if j == 1
+                presente = ~isempty(b); previo = ~isempty(a);
+                coincide = strcmpi(strtrim(a), strtrim(b));
+            else
+                presente = isfinite(b); previo = isfinite(a);
+                coincide = abs(a-b) < 1e-9;
+            end
+            if presente
+                if previo && ~coincide
+                    error('Correccion:MetadataInconsistente', ...
+                        'La metadata del dataset contradice su identificacion en %s.', campo);
+                end
+                meta.(campo) = b;
+            end
+        end
+    end
+    mc = metadata_correccion_ext_unificada(corr);
+    if isempty(meta.tipo) || any(~isfinite([meta.num_antenas meta.caso meta.potencia_W])) || ...
+            isempty(mc.tipo_antena) || any(~isfinite([mc.num_antenas mc.caso mc.potencia_W]))
+        error('Correccion:MetadataIncompleta', ...
+            'No se permite aplicar ni previsualizar la correccion sin metadata de tipo, antenas, caso y potencia en ambos modelos.');
+    end
+    if ~strcmpi(strtrim(meta.tipo), strtrim(mc.tipo_antena)) || ...
+            any(abs([meta.num_antenas meta.caso meta.potencia_W] - ...
+            [mc.num_antenas mc.caso mc.potencia_W]) > 1e-9)
+        error('Correccion:ModeloIncompatible', ...
+            ['Correccion incompatible: %s/%gant/Caso_%g/%gW; ', ...
+            'simulacion: %s/%gant/Caso_%g/%gW. No se permite aplicar ni previsualizar.'], ...
+            mc.tipo_antena, mc.num_antenas, mc.caso, mc.potencia_W, ...
+            meta.tipo, meta.num_antenas, meta.caso, meta.potencia_W);
+    end
+end
+
+function ejecutar_selftest_compatibilidad_termica()
+    md = struct('tipo', 'Monopolo', 'num_antenas', 2, 'caso', 0, 'potencia_W', 30);
+    ds = struct('metadata', struct('partition_meta', md));
+    cm = struct('tipo_antena', 'Monopolo', 'num_antenas', 2, 'caso', 0, 'potencia_W', 30);
+    corr = struct('metadata_correlacion', cm);
+    validar_modelo_correccion(ds, 'modelo', 'dataset', corr);
+    validar_modelo_correccion(struct(), 'Monopolo_2ant', 'Caso_0_Potencia_30W', corr);
+    campos = {'tipo_antena', 'num_antenas', 'caso', 'potencia_W'};
+    valores = {'Doble_slot', 1, 1, 40};
+    for k = 1:numel(campos)
+        incompatible = corr;
+        incompatible.metadata_correlacion.(campos{k}) = valores{k};
+        verificar_rechazo(ds, 'modelo', 'dataset', incompatible, 'Correccion:ModeloIncompatible');
+    end
+    verificar_rechazo(struct(), 'modelo', 'dataset', corr, 'Correccion:MetadataIncompleta');
+    verificar_rechazo(ds, 'modelo', 'dataset', struct(), 'Correccion:MetadataIncompleta');
+    verificar_rechazo(ds, 'Monopolo_1ant', 'Caso_0_Potencia_30W', corr, 'Correccion:MetadataInconsistente');
+    fprintf('SELFTEST_COMPATIBILIDAD_TERMICA_OK\n');
+    function verificar_rechazo(d, m, n, c, esperado)
+        identificador = '';
+        try
+            validar_modelo_correccion(d, m, n, c);
+        catch ME
+            identificador = ME.identifier;
+        end
+        assert(strcmp(identificador, esperado), 'No se bloqueo la incompatibilidad esperada.');
     end
 end
 
@@ -9293,6 +10231,14 @@ function ejecutar_selftest_carga_correcciones_filtrada()
     catalogo = catalogar_correcciones_metadata_ext(paths.correlaciones);
     assert(~isempty(catalogo), ...
         'No hay correcciones con metadata completa para probar el filtro.');
+    individuales = dir(fullfile(paths.correlaciones, '*', '*', 'Caso_*', 'Potencia_*', ...
+        'Fecha_*', 'Tiempo_*', 'Prueba_*', 'Correccion_termica_manual_*.mat'));
+    for k = 1:numel(individuales)
+        ruta = fullfile(individuales(k).folder, individuales(k).name);
+        entrada = catalogo(strcmpi({catalogo.ruta}, ruta));
+        assert(isscalar(entrada) && startsWith(entrada.zona, 'Global: Exp') && ...
+            isnan(entrada.num_zonas), 'No se catalogo la pareja manual sin altura.');
+    end
     for k = 1:numel(catalogo)
         muestra = catalogo(k);
         filtradas = filtrar_catalogo_correcciones_ext(catalogo, muestra.tipo, ...

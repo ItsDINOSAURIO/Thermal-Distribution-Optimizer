@@ -138,42 +138,42 @@ lstImagenes.Layout.Row = 12;
 lstImagenes.Layout.Column = [1 2];
 
 crearLabelAncho(ctrl, 'Parámetros', 13, 'lbl_seccion_parametros_alphashape');
-crearLabel(ctrl, 'K-means', 14, 'lbl_kmeans_alphashape');
+crearLabel(ctrl, 'Grupos K-means', 14, 'lbl_kmeans_alphashape');
 spnClusters = uispinner(ctrl, 'Limits', [2 8], 'Value', 4, 'Step', 1, ...
     'Tooltip', 'Número de grupos de color usados para segmentar el hueso.', ...
     'Tag', 'spn_clusters_alphashape');
 spnClusters.Layout.Row = 14;
 spnClusters.Layout.Column = 2;
 
-crearLabel(ctrl, 'Área mínima', 15, 'lbl_area_minima_alphashape');
+crearLabel(ctrl, 'Área mínima de región (px²)', 15, 'lbl_area_minima_alphashape');
 spnArea = uispinner(ctrl, 'Limits', [50 50000], 'Value', 3000, 'Step', 100, ...
     'Tooltip', 'Área mínima en píxeles para conservar una región segmentada.', ...
     'Tag', 'spn_area_alphashape');
 spnArea.Layout.Row = 15;
 spnArea.Layout.Column = 2;
 
-crearLabel(ctrl, 'Cierre', 16, 'lbl_cierre_alphashape');
+crearLabel(ctrl, 'Radio de cierre morfológico (px)', 16, 'lbl_cierre_alphashape');
 spnCierre = uispinner(ctrl, 'Limits', [1 80], 'Value', 18, 'Step', 1, ...
     'Tooltip', 'Radio morfológico usado para cerrar discontinuidades del contorno.', ...
     'Tag', 'spn_cierre_alphashape');
 spnCierre.Layout.Row = 16;
 spnCierre.Layout.Column = 2;
 
-crearLabel(ctrl, 'Alpha x', 17, 'lbl_alpha_alphashape');
+crearLabel(ctrl, 'Factor de AlphaShape', 17, 'lbl_alpha_alphashape');
 spnAlpha = uispinner(ctrl, 'Limits', [0.5 10], 'Value', 5, 'Step', 0.25, ...
     'Tooltip', 'Factor alpha de la reconstrucción tridimensional a partir de contornos.', ...
     'Tag', 'spn_alpha_alphashape');
 spnAlpha.Layout.Row = 17;
 spnAlpha.Layout.Column = 2;
 
-crearLabel(ctrl, 'Subdivisión', 18, 'lbl_subdivision_alphashape');
+crearLabel(ctrl, 'Niveles de subdivisión', 18, 'lbl_subdivision_alphashape');
 spnSubdiv = uispinner(ctrl, 'Limits', [0 3], 'Value', 2, 'Step', 1, ...
     'Tooltip', 'Número de subdivisiones aplicadas a la malla reconstruida.', ...
     'Tag', 'spn_subdivision_alphashape');
 spnSubdiv.Layout.Row = 18;
 spnSubdiv.Layout.Column = 2;
 
-crearLabel(ctrl, 'Suavizado', 19, 'lbl_suavizado_alphashape');
+crearLabel(ctrl, 'Iteraciones de suavizado', 19, 'lbl_suavizado_alphashape');
 spnSuavizado = uispinner(ctrl, 'Limits', [0 250], 'Value', 120, 'Step', 10, ...
     'Tooltip', 'Iteraciones de suavizado aplicadas a la superficie final.', ...
     'Tag', 'spn_suavizado_alphashape');
@@ -239,8 +239,8 @@ gc.RowSpacing = 8;
 gc.ColumnSpacing = 8;
 
 btnSTLNormZ = crearBotonComparacion(gc, 'Rotar a Z', 1, [1 2], 'btn_rotar_z_alphashape', @(~, ~) RotarZ());
-btnSTLfijo = crearBotonComparacion(gc, 'STL fijo', 2, 1, 'btn_stl_fijo_alphashape', @(~, ~) SelecionarSTL_fij());
-btnSTLRot = crearBotonComparacion(gc, 'STL libre', 2, 2, 'btn_stl_libre_alphashape', @(~, ~) SelecionarSTL_rot());
+btnSTLfijo = crearBotonComparacion(gc, 'Reconstruido', 2, 1, 'btn_stl_fijo_alphashape', @(~, ~) SelecionarSTL_fij());
+btnSTLRot = crearBotonComparacion(gc, 'Simulado', 2, 2, 'btn_stl_libre_alphashape', @(~, ~) SelecionarSTL_rot());
 btnSTlHueso = crearBotonComparacion(gc, 'Generar STL de hueso', 3, [1 2], 'btn_stl_hueso_alphashape', @(~, ~) CalculSTLhues());
 btnCalibrarSTL = crearBotonComparacion(gc, 'Calibrar por puntos', 4, [1 2], 'btn_calibrar_stl_alphashape', @(~, ~) CalibrarSTLPorPuntos());
 
@@ -434,9 +434,9 @@ limpiarAxes();
         elseif contains(clave, 'suavizado')
             ayuda = 'Reducción iterativa de irregularidades de la superficie.';
         elseif contains(clave, 'rotación')
-            ayuda = 'Ajuste angular del STL libre alrededor del eje indicado.';
+            ayuda = 'Ajuste angular del STL simulado alrededor del eje indicado.';
         elseif contains(clave, 'traslación')
-            ayuda = 'Desplazamiento del STL libre sobre el eje indicado.';
+            ayuda = 'Desplazamiento del STL simulado sobre el eje indicado.';
         elseif contains(clave, 'segmentar')
             ayuda = 'Ejecuta la segmentación indicada sobre las imágenes cargadas.';
         elseif contains(clave, 'calibrar')
@@ -992,7 +992,7 @@ limpiarAxes();
     
     function SelecionarSTL_fij()
         [archivo, ruta] = uigetfile({'*.stl', 'Archivos STL (*.stl)'}, ...
-            'Selecciona el STL fijo', directorioInicial());
+            'Selecciona el STL reconstruido', directorioInicial());
 
         if isequal(archivo, 0)
             return;
@@ -1018,7 +1018,7 @@ limpiarAxes();
         patch(ax3D_1,'Faces',F_Fija,'Vertices',V_Fija,'FaceColor',[1 0 0],'EdgeColor','none','FaceAlpha',0.3);
         
         camlight(ax3D_1); lighting(ax3D_1, 'gouraud');
-        legend(ax3D_1,{'STL fijo','Reconstruido'});
+        legend(ax3D_1,{'Reconstruido','Simulado'});
         hold(ax3D_1,'on');
         actualizarBotonCalibrarSTL();
         
@@ -1026,7 +1026,7 @@ limpiarAxes();
 
     function SelecionarSTL_rot()
         [archivo, ruta] = uigetfile({'*.stl', 'Archivos STL (*.stl)'}, ...
-            'Selecciona el STL libre', directorioInicial());
+            'Selecciona el STL simulado', directorioInicial());
 
         if isequal(archivo, 0)
             return;
@@ -1051,7 +1051,7 @@ limpiarAxes();
         patch(ax3D_1,'Faces',F_lib,'Vertices',V_lib,'FaceColor',[0 0 1],'EdgeColor','none','FaceAlpha',0.6);
         
         camlight(ax3D_1); lighting(ax3D_1, 'gouraud');
-        legend(ax3D_1,{'STL fijo','Reconstruido'});
+        legend(ax3D_1,{'Reconstruido','Simulado'});
         hold(ax3D_1,'on');
 
         btnComparar.Enable = 'on';
@@ -1084,15 +1084,15 @@ limpiarAxes();
     function CalibrarSTLPorPuntos()
         if ~isfield(app,'V_Fija') || isempty(app.V_Fija) || ...
                 ~isfield(app,'V_lib') || isempty(app.V_lib)
-            uialert(fig, 'Carga primero el STL fijo y el STL libre.', 'STL incompletos');
+            uialert(fig, 'Carga primero el STL reconstruido y el STL simulado.', 'STL incompletos');
             return;
         end
 
         app.punto_cal_fijo = [];
         app.normal_cal_fijo = [];
-        dibujarSeleccionCalibracion('Seleccione punto equivalente en STL fijo', true, false);
+        dibujarSeleccionCalibracion('Seleccione punto equivalente en STL reconstruido', true, false);
         fig.Pointer = 'crosshair';
-        logEstado('Calibración STL: seleccione el punto equivalente en el STL fijo.');
+        logEstado('Calibración STL: seleccione el punto equivalente en el STL reconstruido.');
     end
 
     function dibujarSeleccionCalibracion(titulo, seleccionarFijo, seleccionarLibre)
@@ -1122,15 +1122,15 @@ limpiarAxes();
         end
 
         camlight(ax3D_1); lighting(ax3D_1, 'gouraud');
-        legend(ax3D_1,{'STL fijo','Reconstruido'}, 'Location','best');
+        legend(ax3D_1,{'Reconstruido','Simulado'}, 'Location','best');
         hold(ax3D_1,'on');
     end
 
     function capturarPuntoCalibracionFijo(~, evento)
         [app.punto_cal_fijo, app.normal_cal_fijo] = puntoNormalMasCercano( ...
             app.V_Fija, app.F_Fija, evento.IntersectionPoint);
-        dibujarSeleccionCalibracion('Seleccione el punto equivalente en STL libre', false, true);
-        logEstado('Punto fijo capturado. Seleccione el punto equivalente en el STL libre.');
+        dibujarSeleccionCalibracion('Seleccione el punto equivalente en STL simulado', false, true);
+        logEstado('Punto del reconstruido capturado. Seleccione el punto equivalente en el STL simulado.');
     end
 
     function capturarPuntoCalibracionLibre(~, evento)
@@ -1163,7 +1163,7 @@ limpiarAxes();
         patch(ax3D_1,'Faces',app.F_Fija,'Vertices',app.V_Fija,'FaceColor',[1 0 0],'EdgeColor','none','FaceAlpha',0.3);
         patch(ax3D_1,'Faces',app.F_lib,'Vertices',app.V_lib,'FaceColor',[0 0 1],'EdgeColor','none','FaceAlpha',0.6);
         camlight(ax3D_1); lighting(ax3D_1, 'gouraud');
-        legend(ax3D_1,{'STL fijo','Reconstruido'});
+        legend(ax3D_1,{'Reconstruido','Simulado'});
         hold(ax3D_1,'on');
     end
 
@@ -1229,7 +1229,7 @@ limpiarAxes();
         patch(ax3D_1,'Faces',app.F_lib,'Vertices',app.V_lib,'FaceColor',[0 0 1],'EdgeColor','none','FaceAlpha',0.6);
         
         camlight(ax3D_1); lighting(ax3D_1, 'gouraud');
-        legend(ax3D_1,{'STL fijo','Reconstruido'});
+        legend(ax3D_1,{'Reconstruido','Simulado'});
         hold(ax3D_1,'on');
     end
 
@@ -1277,7 +1277,7 @@ limpiarAxes();
         patch(ax3D_1,'Faces',app.F_lib,'Vertices',app.V_lib,'FaceColor',[0 0 1],'EdgeColor','none','FaceAlpha',0.6);
         
         camlight(ax3D_1); lighting(ax3D_1, 'gouraud');
-        legend(ax3D_1,{'STL fijo','Reconstruido'});
+        legend(ax3D_1,{'Reconstruido','Simulado'});
         hold(ax3D_1,'on');
     end
 
@@ -1294,7 +1294,7 @@ limpiarAxes();
         patch(ax3D_1,'Faces',app.F_lib,'Vertices',app.V_lib,'FaceColor',[0 0 1],'EdgeColor','none','FaceAlpha',0.6);
         
         camlight(ax3D_1); lighting(ax3D_1, 'gouraud');
-        legend(ax3D_1,{'STL fijo','Reconstruido'});
+        legend(ax3D_1,{'Reconstruido','Simulado'});
         hold(ax3D_1,'on');
     end
 
@@ -1311,7 +1311,7 @@ limpiarAxes();
         patch(ax3D_1,'Faces',app.F_lib,'Vertices',app.V_lib,'FaceColor',[0 0 1],'EdgeColor','none','FaceAlpha',0.6);
         
         camlight(ax3D_1); lighting(ax3D_1, 'gouraud');
-        legend(ax3D_1,{'STL fijo','Reconstruido'});
+        legend(ax3D_1,{'Reconstruido','Simulado'});
         hold(ax3D_1,'on');
     end
 
@@ -1328,7 +1328,7 @@ limpiarAxes();
         patch(ax3D_1,'Faces',app.F_lib,'Vertices',app.V_lib,'FaceColor',[0 0 1],'EdgeColor','none','FaceAlpha',0.6);
         
         camlight(ax3D_1); lighting(ax3D_1, 'gouraud');
-        legend(ax3D_1,{'STL fijo','Reconstruido'});
+        legend(ax3D_1,{'Reconstruido','Simulado'});
         hold(ax3D_1,'on');
     end
 
@@ -1345,7 +1345,7 @@ limpiarAxes();
         patch(ax3D_1,'Faces',app.F_lib,'Vertices',app.V_lib,'FaceColor',[0 0 1],'EdgeColor','none','FaceAlpha',0.6);
         
         camlight(ax3D_1); lighting(ax3D_1, 'gouraud');
-        legend(ax3D_1,{'STL fijo','Reconstruido'});
+        legend(ax3D_1,{'Reconstruido','Simulado'});
         hold(ax3D_1,'on');
     end
 
@@ -1362,7 +1362,7 @@ limpiarAxes();
         patch(ax3D_1,'Faces',app.F_lib,'Vertices',app.V_lib,'FaceColor',[0 0 1],'EdgeColor','none','FaceAlpha',0.6);
         
         camlight(ax3D_1); lighting(ax3D_1, 'gouraud');
-        legend(ax3D_1,{'STL fijo','Reconstruido'});
+        legend(ax3D_1,{'Reconstruido','Simulado'});
         hold(ax3D_1,'on');
     end
 
@@ -1379,7 +1379,7 @@ limpiarAxes();
             'PickableParts','visible','HitTest','on','ButtonDownFcn',@seleccionarPuntoParaZ);
 
         camlight(ax3D_1); lighting(ax3D_1, 'gouraud');
-        legend(ax3D_1,{'STL fijo','Reconstruido'});
+        legend(ax3D_1,{'Reconstruido','Simulado'});
         hold(ax3D_1,'on');
 
         function seleccionarPuntoParaZ(~, evento)
@@ -1430,7 +1430,7 @@ limpiarAxes();
         patch(ax3D_1,'Faces',app.F_lib,'Vertices',app.V_lib,'FaceColor',[0 0 1],'EdgeColor','none','FaceAlpha',0.6);
         
         camlight(ax3D_1); lighting(ax3D_1, 'gouraud');
-        legend(ax3D_1,{'STL fijo','Reconstruido'});
+        legend(ax3D_1,{'Reconstruido','Simulado'});
         hold(ax3D_1,'on');
     
         end
@@ -1480,8 +1480,8 @@ limpiarAxes();
         Vunion = Vtotal_gota + Vtotal_Fija - Vdentro;
         IoU = (Vdentro / Vunion)*100;
 
-        logEstado(['Volumen del STL Movil : ' num2str(Vtotal_gota) ' mm^3']);
-        logEstado(['Volumen del STL de Referencia : ' num2str(Vtotal_Fija) ' mm^3']);
+        logEstado(['Volumen del STL simulado : ' num2str(Vtotal_gota) ' mm^3']);
+        logEstado(['Volumen del STL reconstruido : ' num2str(Vtotal_Fija) ' mm^3']);
         logEstado(['Volumen interseccion:' num2str(Vdentro) ' mm^3']);
         logEstado(['Porcentaje cobertura: ' num2str(porc_ocup_Fija) ' %']);
         logEstado(['Volumen no coincidente : ' num2str(Vfuera) ' mm^3']);
@@ -1876,7 +1876,7 @@ for k = 1:length(BW_ablacion)
     y = y(1:paso:end) * mmPorPixel;
     z = ones(size(x)) * z_cortes(k);
 
-    puntos3D = [puntos3D; x y z]; %#ok<AGROW>
+    puntos3D = [puntos3D; x y z]; 
 end
 
 if size(puntos3D, 1) < 10

@@ -4,7 +4,7 @@ function optimizador_3d_final(varargin)
 % =========================================================================
 %
 %  FUNCIONALIDAD
-%  Carga una geometría tumoral STL, calibra el acceso, carga distribuciones térmicas preprocesadas y optimiza traslación/rotación mediante PSO para maximizar cobertura tumoral y penalizar ablación externa.
+%  Carga una geometría de tejido STL, calibra el acceso, carga distribuciones térmicas preprocesadas y optimiza traslación/rotación mediante PSO para maximizar cobertura del tejido y penalizar ablación externa.
 %
 %  ESTÁNDAR DE LIMPIEZA
 %  - Nombre principal y funciones auxiliares en snake_case.
@@ -168,14 +168,13 @@ pnl_sidebar = uipanel(gl_main, 'Title','Panel de control', ...
 pnl_sidebar.Layout.Row    = 1;
 pnl_sidebar.Layout.Column = 1;
 
-gl_sidebar = uigridlayout(pnl_sidebar, [17,1]);
+gl_sidebar = uigridlayout(pnl_sidebar, [16,1]);
 gl_sidebar.RowHeight = {
     22, 22, ...
     22, 170, 30, ...
     15, ...
     22, 22, ...
     22, 22, ...
-    24, ...
     15, ...
     35, 35, 35, 35, ...
     '1x'};
@@ -184,8 +183,8 @@ gl_sidebar.RowSpacing = 4;
 
 uilabel(gl_sidebar, 'Text','Voxelizado', 'FontWeight','bold', ...
     'Tooltip','Representación volumétrica usada para leer cada distribución térmica.');
-app.dd_metodo_voxel = uidropdown(gl_sidebar, 'Items',{'mascara','sdf','tsdf'}, ...
-    'Value','sdf', 'Tooltip','Máscara binaria, campo de distancia SDF o distancia truncada TSDF.');
+app.dd_metodo_voxel = uidropdown(gl_sidebar, 'Items',{'sdf'}, ...
+    'Value','sdf', 'Tooltip','Campo de distancia con signo (SDF).');
 
 uilabel(gl_sidebar, 'Text','Filtros', 'FontWeight','bold', ...
     'Tooltip','Metadata usada para limitar las distribuciones candidatas de la optimización.');
@@ -219,34 +218,37 @@ uibutton(gl_btn_sel, 'Text','Limpiar', 'Tooltip','Elimina todos los filtros acti
 uilabel(gl_sidebar, 'Text','');
 
 uilabel(gl_sidebar, 'Text','Resolución fina (mm)', 'FontWeight','bold', ...
-    'Tooltip','Paso espacial fino usado en la evaluación final del tumor.');
+    'Tooltip','Paso espacial fino usado en la evaluación final del tejido.');
 app.edt_res_fina = uieditfield(gl_sidebar, 'text', 'Value','0.5', ...
-    'Tooltip','Tamaño de voxel fino del tumor, en milímetros.');
+    'Tooltip','Tamaño de voxel fino del tejido, en milímetros.');
 uilabel(gl_sidebar, 'Text','Resolución gruesa (mm)', 'FontWeight','bold', ...
     'Tooltip','Paso espacial reducido usado durante la búsqueda para disminuir el costo.');
 app.edt_res_gruesa = uieditfield(gl_sidebar, 'text', 'Value','1.5', ...
-    'Tooltip','Tamaño de voxel grueso del tumor, en milímetros.');
+    'Tooltip','Tamaño de voxel grueso del tejido, en milímetros.');
 
+% Controles temporalmente ocultos; se usan sus valores predeterminados en la ejecucion.
+%{
 gl_estadisticas = uigridlayout(gl_sidebar, [1,3], ...
     'Padding',[0 0 0 0], 'ColumnSpacing',5);
-gl_estadisticas.ColumnWidth = {'1x', 55, 58};
+gl_estadisticas.ColumnWidth = {'1x', 115, 58};
 app.chk_estadisticas = uicheckbox(gl_estadisticas, ...
     'Text','Registrar métricas', ...
     'Value',false, ...
     'Tooltip',['Añade la traza detallada del PSO al historial MAT. ' ...
         'No ejecuta corridas adicionales.']);
-uilabel(gl_estadisticas, 'Text','Corridas', ...
+uilabel(gl_estadisticas, 'Text','Número de corridas', ...
     'HorizontalAlignment','right', ...
     'Tooltip','Número de ejecuciones completas del optimizador.');
 app.spn_corridas = uispinner(gl_estadisticas, ...
     'Limits',[1 1000], 'Step',1, 'Value',1, ...
     'ValueDisplayFormat','%.0f', ...
     'Tooltip','Cada corrida se guarda como una entrada independiente del historial.');
+%}
 
 uilabel(gl_sidebar, 'Text','');
 
 uibutton(gl_sidebar, 'Text','1. Cargar STL', ...
-    'Tooltip','Carga la geometría del tumor desde datasets/stl_optimizador.', ...
+    'Tooltip','Carga la geometría del tejido desde datasets/stl_optimizador.', ...
     'BackgroundColor',[0.25 0.33 0.4], 'FontColor','w', ...
     'ButtonPushedFcn', @cargar_tumor);
 uibutton(gl_sidebar, 'Text','2. Calibrar Acceso STL', ...
@@ -476,8 +478,8 @@ actualizar_catalogo_filtros();
                 meta_actual.raiz_mat = raiz.mat;
                 meta_actual.raiz_stl = raiz.stl;
 
-                carpetas_dataset = [carpetas_dataset; carpetas_raiz(idx_carpeta)]; %#ok<AGROW>
-                metadatos_dataset(end+1) = meta_actual; %#ok<AGROW>
+                carpetas_dataset = [carpetas_dataset; carpetas_raiz(idx_carpeta)]; 
+                metadatos_dataset(end+1) = meta_actual; 
             end
         end
 
@@ -599,7 +601,7 @@ actualizar_catalogo_filtros();
     end
 
     % ---------------------------------------------------------------- %
-    %  1. Cargar Tumor
+    %  1. Cargar Tejido
     % ---------------------------------------------------------------- %
     function cargar_tumor(~,~)
         insertar_separacion_log();
@@ -615,7 +617,7 @@ actualizar_catalogo_filtros();
     %  centrar_ejes
     % ---------------------------------------------------------------- %
     function centrar_ejes(~,~)
-        if ~isfield(app,'vertices_tumor'), registrar_mensaje('ERROR: Carga un tumor primero.'); return; end
+        if ~isfield(app,'vertices_tumor'), registrar_mensaje('ERROR: Carga un tejido primero.'); return; end
 
         preparar_geometria_base_apoyo_z0();
         app.R_calibracion = eye(3);
@@ -682,7 +684,7 @@ actualizar_catalogo_filtros();
     function patch_tumor = redibujar_geometria_actual(titulo)
         limpiar_eje_3d(titulo);
         patch_tumor = patch(app.ax, 'Faces',app.caras_tumor, 'Vertices',app.vertices_tumor_reorientado, ...
-            'FaceColor',[1 0 0], 'EdgeColor','none', 'FaceAlpha',0.3, 'DisplayName','Tumor');
+            'FaceColor',[1 0 0], 'EdgeColor','none', 'FaceAlpha',0.3, 'DisplayName','Tejido');
         hold(app.ax, 'on');
 
         if isfield(app,'vertices_musculo_reorientado') && ~isempty(app.vertices_musculo_reorientado) && isfield(app,'caras_musculo') && ~isempty(app.caras_musculo)
@@ -702,7 +704,7 @@ actualizar_catalogo_filtros();
     % ---------------------------------------------------------------- %
     function calibrar_acceso(~,~)
         if ~isfield(app,'vertices_tumor_reorientado')
-            registrar_mensaje('ERROR: Carga un tumor primero.'); return;
+            registrar_mensaje('ERROR: Carga un tejido primero.'); return;
         end
         insertar_separacion_log();
         restaurar_geometria_base_para_calibracion();
@@ -779,8 +781,7 @@ actualizar_catalogo_filtros();
     % ---------------------------------------------------------------- %
     function realizar_optimizacion(~,~)
         try
-            numero_corridas = max(1, round(app.spn_corridas.Value));
-            app.spn_corridas.Value = numero_corridas;
+            numero_corridas = 1; % Valor predeterminado mientras el control esta oculto.
             completadas = 0;
             for indice_corrida = 1:numero_corridas
                 contador_previo = app.contador_corridas;
@@ -806,7 +807,7 @@ actualizar_catalogo_filtros();
         cancelada = false;
         enableDefaultInteractivity(app.ax);
         if ~isfield(app,'vertices_tumor_reorientado')
-            registrar_mensaje('ERROR: Carga y centra el tumor primero.'); return;
+            registrar_mensaje('ERROR: Carga y centra el tejido primero.'); return;
         end
         insertar_separacion_log();
         if ~isfield(app,'profundidad_base_antena_mm') || isempty(app.profundidad_base_antena_mm)
@@ -824,7 +825,7 @@ actualizar_catalogo_filtros();
             return;
         end
 
-        registrar_estadisticas = logical(app.chk_estadisticas.Value);
+        registrar_estadisticas = false; % Valor predeterminado mientras el control esta oculto.
         estado_rng_inicio = [];
         if registrar_estadisticas
             estado_rng_inicio = rng;
@@ -1031,14 +1032,14 @@ actualizar_catalogo_filtros();
             mask_gruesa = datos_cache.mask_gruesa;
             registrar_mensaje('Voxelización cargada desde caché.');
         else
-            progDlg.Message = 'Voxelizando tumor (rejilla fina)...';
+            progDlg.Message = 'Voxelizando tejido (rejilla fina)...';
             [xg,yg,zg] = meshgrid(minGrid(1):resolucion_fina:maxGrid(1), ...
                                    minGrid(2):resolucion_fina:maxGrid(2), ...
                                    minGrid(3):resolucion_fina:maxGrid(3));
             grid_fino = [xg(:) yg(:) zg(:)];
             mask_fina = inpolyhedron(app.caras_tumor, app.vertices_tumor_reorientado, grid_fino);
 
-            progDlg.Message = 'Voxelizando tumor (rejilla gruesa)...';
+            progDlg.Message = 'Voxelizando tejido (rejilla gruesa)...';
             [xg_g,yg_g,zg_g] = meshgrid(minGrid(1):resolucion_gruesa:maxGrid(1), ...
                                           minGrid(2):resolucion_gruesa:maxGrid(2), ...
                                           minGrid(3):resolucion_gruesa:maxGrid(3));
@@ -1132,8 +1133,7 @@ actualizar_catalogo_filtros();
             'peso_fuga',        0.15, ...
             'peso_centroide',   0.02, ...
             'peso_profundidad', 0.05, ...
-            'escala_espacial',  max(norm(max_tumor - min_tumor), eps), ...
-            'escala_fitness',   1000);
+            'escala_espacial',  max(norm(max_tumor - min_tumor), eps));
         vol_tumor_grueso = sum(mask_gruesa) * resolucion_gruesa^3;
 
         for idx = 1:length(archivos_filtrados)
@@ -1244,7 +1244,7 @@ actualizar_catalogo_filtros();
             profundidad_total_mm = app.profundidad_base_antena_mm + profundidad_stl_mm;
             registrar_mensaje(sprintf('  V_gota=%.0f | V_inter=%.0f | V_ext=%.0f mm³', ...
                 vol_dist, vol_interior, vol_exterior));
-            registrar_mensaje(sprintf('  %%tumor=%.1f%% | %%fuera=%.1f%%', pct_interior, pct_exterior));
+            registrar_mensaje(sprintf('  %%tejido=%.1f%% | %%fuera=%.1f%%', pct_interior, pct_exterior));
             registrar_mensaje(sprintf('  Fitness fino=%.5f | fitness PSO=%.5f', ...
                 fitness_fino, mejor_fit_f2));
             registrar_mensaje(sprintf('  Profundidad antena 1: base=%.1f mm | STL=%.1f mm | total=%.1f mm', ...
@@ -1334,17 +1334,15 @@ actualizar_catalogo_filtros();
         end
 
         graficar_escena(app.vertices_tumor_reorientado, app.caras_tumor, ...
-            volumen_transformado, caras_stl, grafico_optimo, ...
-            'Mejor configuración encontrada', eye(3));
+            volumen_transformado, caras_stl, grafico_optimo, eye(3));
 
         tiempo_total = toc(reloj_total);
         registrar_mensaje(sprintf('Optimización completada en %.1f s.', tiempo_total));
 
-        mostrar_resultados_panel(parametros_optimizados, tiempo_total, false, -1, '');
+        mostrar_resultados_panel(parametros_optimizados, tiempo_total, false, -1);
 
         if ~isempty(historia_mejor)
-            graficar_convergencia(historia_mejor_f1, historia_mejor_f2, ...
-                parametros_optimizados.distribucion_termica);
+            graficar_convergencia(historia_mejor_f1, historia_mejor_f2);
         end
 
         % Guardar corrida
@@ -1404,16 +1402,15 @@ actualizar_catalogo_filtros();
     % ---------------------------------------------------------------- %
     %  Panel de resultados unificado
     % ---------------------------------------------------------------- %
-    function mostrar_resultados_panel(p, tiempo_total, es_importada, id_corrida, timestamp)
+    function mostrar_resultados_panel(p, tiempo_total, es_importada, id_corrida)
         [rx,ry,rz] = mapear_ejes(p.ejes_a_rotar, p.posicion(4), p.posicion(5));
 
+        enc2 = '         RESULTADOS DE OPTIMIZACIÓN              ';
         if es_importada
             enc1 = sprintf('=== CORRIDA #%d (PRECARGADA) ===', id_corrida);
-            enc2 = sprintf('Fecha         :  %s', timestamp);
             l_ant = sprintf('Antena        :  %s (%s)', p.tipo_antena, p.numero_antenas);
         else
             enc1  = '=================================================';
-            enc2  = '         RESULTADOS DE OPTIMIZACIÓN              ';
             l_ant = sprintf('Tipo Antena   :  %s (%s)', p.tipo_antena, p.numero_antenas);
         end
 
@@ -1472,13 +1469,13 @@ actualizar_catalogo_filtros();
             linea_prof_total;
             '';
             '--- Volúmenes (grid fino) ---';
-            sprintf('V tumor       :  %.0f mm³', p.volumen_tumor);
+            sprintf('V tejido      :  %.0f mm³', p.volumen_tumor);
             sprintf('V gota        :  %.0f mm³', p.volumen_distribucion_termica);
             sprintf('V intersección:  %.0f mm³', p.volumen_interior);
             linea_vext;
             '';
             '--- Desempeño ---';
-            sprintf('%% tumor cubierto :  %.1f %%', p.porcentaje_interior);
+            sprintf('%% tejido cubierto :  %.1f %%', p.porcentaje_interior);
             sprintf('%% gota fuera     :  %.1f %%', p.porcentaje_exterior);
             '';
             '--- Fitness ---';
@@ -1491,7 +1488,7 @@ actualizar_catalogo_filtros();
     % ---------------------------------------------------------------- %
     %  Graficar convergencia
     % ---------------------------------------------------------------- %
-    function graficar_convergencia(h_f1, h_f2, nombre_dist)
+    function graficar_convergencia(h_f1, h_f2)
         cla(app.ax_conv);
         hold(app.ax_conv,'on');
         n1 = length(h_f1); n2 = length(h_f2);
@@ -1506,7 +1503,7 @@ actualizar_catalogo_filtros();
         legend(app.ax_conv, 'Location','best');
         hold(app.ax_conv,'off');
         xlabel(app.ax_conv,'Iteración'); ylabel(app.ax_conv,'Fitness');
-        title(app.ax_conv, sprintf('Convergencia PSO: %s', nombre_dist));
+        title(app.ax_conv, 'Convergencia PSO');
     end
 
     % ---------------------------------------------------------------- %
@@ -1555,17 +1552,17 @@ actualizar_catalogo_filtros();
         go.vertices_hueso   = []; go.caras_hueso   = [];
 
         graficar_escena(c.vertices_tumor, c.caras_tumor, vt, cs, go, ...
-            sprintf('Corrida #%d — %s', c.id, p.distribucion_termica), eye(3));
+            eye(3));
 
         es_importada = isfield(c,'es_importada') && c.es_importada;
-        mostrar_resultados_panel(p, c.tiempo_total, es_importada, c.id, c.timestamp);
+        mostrar_resultados_panel(p, c.tiempo_total, es_importada, c.id);
 
         if isfield(c,'historia_f1') && ~isempty(c.historia_f1)
-            graficar_convergencia(c.historia_f1, c.historia_f2, p.distribucion_termica);
+            graficar_convergencia(c.historia_f1, c.historia_f2);
         elseif isfield(c,'historia_pso') && ~isempty(c.historia_pso)
             cla(app.ax_conv);
             plot(app.ax_conv, 1:length(c.historia_pso), c.historia_pso, 'b.-', 'LineWidth',1.5);
-            title(app.ax_conv, sprintf('Convergencia: %s', p.distribucion_termica));
+            title(app.ax_conv, 'Convergencia PSO');
         end
         registrar_mensaje(sprintf('Mostrando corrida #%d.', idx));
     end
@@ -1690,16 +1687,16 @@ actualizar_catalogo_filtros();
             'Profundidad base antena (mm)', obtener_campo_numerico_resultado(p, 'profundidad_base_antena_mm');
             'Profundidad STL (mm)',  obtener_campo_numerico_resultado(p, 'profundidad_stl_mm');
             'Profundidad total (mm)', obtener_campo_numerico_resultado(p, 'profundidad_total_mm');
-            '% dentro tumor',        p.porcentaje_interior;
+            '% dentro tejido',        p.porcentaje_interior;
             '% fuera gota',          p.porcentaje_exterior;
             'V inter (mm³)',         p.volumen_interior;
             'V gota (mm³)',          p.volumen_distribucion_termica;
-            'V tumor (mm³)',         p.volumen_tumor;
+            'V tejido (mm³)',         p.volumen_tumor;
             'V exterior (mm^3)',     p.volumen_exterior;
             'Fitness fino',          p.fitness_fino;
             'Fitness PSO',           p.fitness_pso};
 
-        reporte  = Report('Resultado_Tumor','pdf');
+        reporte  = Report('Resultado_Tejido','pdf');
         capitulo = Chapter('Title','Resultados de la Optimización');
         add(capitulo, Table(datos_tabla));
         add(reporte, capitulo);
@@ -1712,12 +1709,18 @@ actualizar_catalogo_filtros();
     %  graficar_escena
     % ---------------------------------------------------------------- %
     function graficar_escena(vertices_tumor, caras_tumor, volumen_distribucion, ...
-                             caras_distribucion, grafico, titulo, M_global)
-        if nargin < 7, M_global = eye(3); end
+                             caras_distribucion, grafico, M_global)
+        if nargin < 6, M_global = eye(3); end
 
+        numero_antenas = size(grafico.coordenadas_antenas, 1);
+        etiqueta_antenas = 'antenas';
+        if numero_antenas == 1, etiqueta_antenas = 'antena'; end
+        tipo_antena = strrep(char(grafico.tipo_antena), '_', ' ');
+        titulo = sprintf('Aplicación: %d %s — %s', ...
+            numero_antenas, etiqueta_antenas, tipo_antena);
         limpiar_eje_3d(titulo);
         patch(app.ax, 'Faces',caras_tumor, 'Vertices',vertices_tumor, ...
-            'FaceColor',[1 0 0], 'EdgeColor','none', 'FaceAlpha',0.3, 'DisplayName','Tumor');
+            'FaceColor',[1 0 0], 'EdgeColor','none', 'FaceAlpha',0.3, 'DisplayName','Tejido');
         hold(app.ax, 'on');
 
         if ~isempty(volumen_distribucion) && ~isempty(caras_distribucion)
@@ -1836,8 +1839,8 @@ actualizar_catalogo_filtros();
         penalizacion_centroide   = criterio_fitness.peso_centroide   * dist_centro_norm^2;
         penalizacion_profundidad = criterio_fitness.peso_profundidad * profundidad_norm^2;
 
-        fitness = criterio_fitness.escala_fitness * ( ...
-            -cobertura + penalizacion_fuga + penalizacion_centroide + penalizacion_profundidad);
+        fitness = -cobertura + penalizacion_fuga + ...
+            penalizacion_centroide + penalizacion_profundidad;
 
         metricas = struct( ...
             'fitness', fitness, ...

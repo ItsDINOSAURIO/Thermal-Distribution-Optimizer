@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Análisis profundo del procesador de datos térmicos</title>
+<script>
+window.MathJax={tex:{inlineMath:[['\\(','\\)']],displayMath:[['\\[','\\]']],tags:'ams'},options:{skipHtmlTags:['script','noscript','style','textarea','pre','code']}};
+</script>
+<script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script>
+<style>
+:root{--ink:#182235;--muted:#536174;--line:#d5dde8;--paper:#fff;--bg:#f4f7fa;--cyan:#0e7182;--cyanSoft:#e5f4f6;--warn:#fff5dc;--code:#101827}*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.65 system-ui,-apple-system,"Segoe UI",sans-serif}main{max-width:1200px;margin:0 auto;padding:42px 58px 90px;background:var(--paper);box-shadow:0 0 28px #1a273318}h1,h2,h3,h4{line-height:1.24;scroll-margin-top:18px}h1{font-size:2.25rem;margin:0 0 .5rem}h2{font-size:1.62rem;border-bottom:2px solid var(--cyan);padding-bottom:.32rem;margin-top:2.8rem}h3{font-size:1.25rem;margin-top:2rem}h4{font-size:1.05rem;margin-top:1.35rem}a{color:#00677b}code{font-family:"Cascadia Code",Consolas,monospace;font-size:.9em;background:#eef2f6;padding:.12em .3em;border-radius:4px}pre{overflow:auto;background:var(--code);color:#e8edf5;padding:1rem;border-radius:8px;font-size:.9em}pre code{padding:0;background:none}table{border-collapse:collapse;width:100%;display:block;overflow:auto;margin:1rem 0 1.45rem}th,td{border:1px solid var(--line);padding:.55rem .68rem;text-align:left;vertical-align:top}th{background:#edf5f6}tr:nth-child(even) td{background:#fbfcfd}.note,.warning,.implemented{padding:.85rem 1rem;border-radius:7px;margin:1rem 0}.note{background:#f3f6fa;border-left:4px solid #6c7c93}.warning{background:var(--warn);border-left:4px solid #b7791f}.implemented{background:var(--cyanSoft);border-left:4px solid var(--cyan)}.tag{font-weight:700;font-size:.86em;letter-spacing:.02em}.math{display:block;overflow-x:auto;text-align:center;margin:1rem 0;padding:.2rem}#toc{background:#f5fafb;border:1px solid var(--line);border-radius:8px;padding:1rem 1.25rem;margin:1.5rem 0 2rem}#toc summary{font-weight:700;cursor:pointer}#toc ol{columns:2;column-gap:2rem;padding-left:1.4rem}#toc li{break-inside:avoid;margin:.2rem 0}#toc a{text-decoration:none}.small{font-size:.92rem;color:var(--muted)}.zone{display:inline-block;background:var(--cyan);color:#fff;border-radius:999px;padding:.15rem .62rem;font-size:.75rem;font-weight:700;letter-spacing:.03em}.flow{background:#111827;color:#dce7f2;border-radius:8px;padding:1rem;white-space:pre-wrap;font-family:Consolas,monospace;font-size:.9rem}@media(max-width:760px){main{padding:25px 18px}h1{font-size:1.7rem}#toc ol{columns:1}}@media print{body{background:#fff;font-size:10pt}main{max-width:none;padding:0;box-shadow:none}#toc{display:none}a{color:inherit;text-decoration:none}h2,h3{break-after:avoid}table{display:table;font-size:8pt}}
+</style>
+</head>
+<body><main>
+<p class="small">Documento técnico del archivo <code>modulos/modulo_procesamiento_datos.m</code>. Revisado el 14 de agosto de 2026. Las ecuaciones se renderizan con MathJax; se requiere conexión sólo para cargar MathJax.</p>
+<h1>Análisis profundo del procesador de datos térmicos</h1>
+<p>Este documento reconstruye lo que el módulo <em>realmente ejecuta</em>, desde un dataset térmico extraído de COMSOL hasta STL, voxel, corrección térmica y campo 4D pronosticado. No sustituye una validación experimental, ni convierte en resultado clínico una aproximación numérica. Distingue con precisión entre una operación codificada, una consecuencia matemática y una decisión aún pendiente de validación.</p>
+<div class="implemented"><span class="tag">ETIQUETAS.</span> <strong>[IMPLEMENTADO]</strong>: existe en la rama activa. <strong>[INTERPRETACIÓN]</strong>: consecuencia directa de la matemática codificada. <strong>[LÍMITE]</strong>: restricción o riesgo del algoritmo. <strong>[NO IMPLEMENTADO]</strong>: método citado para contexto, pero que no participa en el resultado actual.</div>
+<details id="toc" open><summary>Contenido</summary><ol>
+<li><a href="#alcance">Alcance y mapa de zonas</a></li><li><a href="#contrato">Datos, unidades y cadena de salida</a></li><li><a href="#stl">STL: selección térmica, alpha shape y topología</a></li><li><a href="#suavizado">Suavizado laplaciano</a></li><li><a href="#voxel">Voxelización y representaciones</a></li><li><a href="#correlacion">Correlación y corrección térmica</a></li><li><a href="#zonal">Corrección por zonas y por sonda</a></li><li><a href="#malla4d">Malla 4D y puntos Nx=Ny=Nz</a></li><li><a href="#extrapolacion">Los cuatro métodos de extrapolación</a></li><li><a href="#parametros">Matriz de parámetros y efecto matemático</a></li><li><a href="#limitaciones">Límites, controles y decisiones de diseño</a></li><li><a href="#fuentes">Fuentes, consultas y referencias</a></li></ol></details>
+
+<h2 id="alcance">1. Alcance, filosofía y partición del script</h2>
+<p>El módulo es una aplicación MATLAB monolítica por razones de portabilidad: contiene funciones locales para no depender de scripts externos cuando la operación sólo la usa este módulo. Su interfaz no comparte estado vivo con los demás módulos; intercambia archivos <code>.mat</code>, <code>.stl</code>, <code>.txt</code>, índices y metadata persistente. Eso preserva independencia funcional, pero concentra mucha matemática en un mismo archivo.</p>
+<div class="flow">Dataset COMSOL original (puntos, T(x,t), snapshots, sondas)
+  ├─ filtrado por temperatura → alphaShape → malla STL → validación topológica
+  ├─ STL → rejilla regular → máscara / SDF / TSDF → optimizador
+  ├─ sondas simuladas + experimental → factor térmico y zonas z → dataset corregido
+  └─ campo térmico disperso → malla Nx×Ny×Nz → cuatro pronósticos → T(x,y,z,t)</div>
+<p>Se añadieron separadores documentales en el código. No modifican el comportamiento MATLAB; sirven para evaluar el archivo por responsabilidad.</p>
+<table><thead><tr><th>Zona comentada</th><th>Responsabilidad</th><th>Bloques principales</th></tr></thead><tbody>
+<tr><td>0</td><td>Arranque, rutas, self-tests y estado</td><td>Inicio de <code>modulo_procesamiento_datos</code>.</td></tr>
+<tr><td>1–3</td><td>Configuración de UI</td><td>Exportación STL/voxel, correlación, corrección y pronóstico.</td></tr>
+<tr><td>4–9</td><td>Catálogos, filtros, callbacks, trazado</td><td>Selección de archivos por metadata, vistas y reactividad.</td></tr>
+<tr><td>10</td><td>Núcleo de corrección</td><td><code>correccion_termica_canonica</code>, factor, offset, SSA local, topología.</td></tr>
+<tr><td>11</td><td>Exportación geométrica</td><td>MAT→STL y TXT de sondas; alpha shape y suavizado.</td></tr>
+<tr><td>12</td><td>Voxelización</td><td>STL→máscara, SDF o TSDF.</td></tr>
+<tr><td>13</td><td>Correlación y campo 4D</td><td>Sincronización, zonas, grilla e interpolación/extrapolación.</td></tr>
+<tr><td>14</td><td>Dataset corregido y metadata</td><td>Exportación de la corrección nativa, índices y compatibilidad.</td></tr>
+</tbody></table>
+
+<h2 id="contrato">2. Contrato numérico: datos, unidades y salidas</h2>
+<h3>2.1 Datos de entrada térmicos</h3>
+<p>El campo nativo esperado contiene, por solución, <code>snapshots(k).points</code> de tamaño (N_k\times3), <code>snapshots(k).T</code>, tiempo <code>t_min</code>, sondas y, preferentemente, <code>full_field.points</code> junto con <code>full_field.T_C</code>. Las coordenadas se tratan como milímetros y las temperaturas como °C. El campo completo se prefiere porque mantiene la temperatura basal espacial; una nube ya filtrada por ablación no basta para reconstruir la temperatura de referencia de cada punto.</p>
+<h3>2.2 Umbral de ablación frente a daño biológico</h3>
+<p><strong>[IMPLEMENTADO]</strong> <code>T_abl</code> segmenta geométricamente o contabiliza volumen como (T\geq T_{abl}). No se calcula daño de Arrhenius ni CEM43. Por tanto, una región denominada “ablación” es una isosuperficie/umbral de temperatura elegido, no una afirmación directa de necrosis acumulada.</p>
+<div class="warning"><strong>Consecuencia.</strong> Cambiar (T_{abl}) cambia el volumen reportado y la selección de puntos, aunque el campo de temperatura no cambie. Es un parámetro de segmentación térmica, no una propiedad intrínseca de la simulación.</div>
+
+<h2 id="stl">3. Generación STL: de puntos térmicos a una superficie cerrada</h2>
+<p><span class="zone">ZONA 11</span> La exportación recorre cada instante temporal, prioriza <code>points_ablacion_corregida</code> si existe y, en caso contrario, los puntos originales. Antes de reconstruir geometría aplica una ventana térmica:</p>
+<div class="math">\[\mathcal P_t=\{\mathbf x_i:\;T_{min}\leq T_i(t)\leq T_{max},\;\mathbf x_i\in\mathbb R^3\text{ finito}\}.\]</div>
+<p>La configuración del módulo establece (T_{min}=55\,^\circ\mathrm C) en el exportador integrado. El máximo depende del contexto: para datos corregidos y casos térmicos ordinarios se usa típicamente 120 °C; para el caso 0 no corregido puede permitirse 500 °C. Además, se corta la sucesión temporal cuando el máximo excede de manera sostenida el límite: busca el primer instante a partir del cual todos los posteriores también exceden (T_{max}). Esto evita continuar exportando geometrías de una fase térmica fuera de la ventana configurada.</p>
+
+<h3>3.1 Qué es un alpha shape de 3D</h3>
+<p>Un alpha shape es una familia de envolventes no convexas de una nube de puntos. Conceptualmente parte de la triangulación de Delaunay: los símplices cuyas esferas circunscritas satisfacen el criterio de radio definido por (alpha) forman el complejo; sus caras externas son la frontera. MATLAB materializa esa envolvente mediante <code>alphaShape(P,alpha)</code> y devuelve las caras triangulares con <code>boundaryFacets</code>. La documentación de MATLAB confirma que esas facetas son triángulos en 3D y que indexan los nodos de frontera [<a href="https://www.mathworks.com/help/matlab/ref/alphashape.html">MathWorks alphaShape</a>; <a href="https://www.mathworks.com/help/matlab/ref/alphashape.boundaryfacets.html">boundaryFacets</a>].</p>
+<div class="math">\[\mathcal A_{\alpha}(\mathcal P_t)\;\xrightarrow{\texttt{boundaryFacets}}\;(F,V),\qquad F\in\mathbb N^{M\times3},\;V\in\mathbb R^{Q\times3}.\]</div>
+<p><strong>[IMPLEMENTADO]</strong> el código no usa automáticamente <code>criticalAlpha(...,'one-region')</code>. Si el usuario da radio positivo, utiliza exactamente ese valor. Si es 0 o negativo, calcula:</p>
+<div class="math">\[d=\left(\frac{(\Delta x+\varepsilon)(\Delta y+\varepsilon)(\Delta z+\varepsilon)}{N}\right)^{1/3},\qquad \alpha_{auto}=\max(2.0,\;2.2d).\]</div>
+<p>Es una heurística de escala: (d) aproxima el espaciamiento lineal medio de una nube con (N) puntos dentro de su caja envolvente. El piso de 2 mm evita un radio demasiado pequeño. No es un estimador físico de la lesión ni una calibración con medición experimental.</p>
+
+<h3>3.2 Efecto del radio alpha</h3>
+<table><thead><tr><th>Elección de (alpha)</th><th>Efecto geométrico</th><th>Riesgo para este flujo</th></tr></thead><tbody>
+<tr><td>Pequeño respecto del espaciamiento</td><td>Se ajusta a huecos y ruido; puede fragmentar la nube.</td><td><code>numRegions&gt;1</code>; el STL se omite.</td></tr>
+<tr><td>Intermedio</td><td>Conserva concavidades resueltas por la nube y mantiene una región.</td><td>Depende densidad, anisotropía y ruido de los puntos de COMSOL.</td></tr>
+<tr><td>Grande</td><td>Rellena concavidades; al límite (alpha\to\infty), tiende al casco convexo.</td><td>Sobreestima la zona térmica, borra muescas y puede cerrar cavidades.</td></tr>
+</tbody></table>
+<p><strong>[IMPLEMENTADO]</strong> se exige primero una región con <code>numRegions(alphaShape)==1</code>. Después de extraer la frontera se valida topología. Para una malla triangular cerrada se cuentan aristas, componentes y se calcula:</p>
+<div class="math">\[\chi=V-E+F,\qquad g=\frac{2-\chi}{2},\qquad V_{malla}=\left|\frac16\sum_f\mathbf v_{f1}\cdot(\mathbf v_{f2}\times\mathbf v_{f3})\right|.\]</div>
+<p>Se acepta sólo una componente, cada arista incidente en exactamente dos caras (manifold cerrado), género (g=0) y volumen positivo. Así se excluyen regiones separadas, superficies abiertas, no-manifold y topologías con agujeros/toroides. Esta es la realización computable del criterio histórico que descartaba manualmente configuraciones de potencia/tiempo que generaban formas no útiles.</p>
+<div class="warning"><strong>[LÍMITE]</strong> la validación topológica elimina toroides después de crear la superficie; no usa <code>HoleThreshold</code> de <code>alphaShape</code> para rellenarlos. Por tanto, el radio puede seguir causar omisión aunque la nube provenga de un campo físicamente continuo.</div>
+
+<h2 id="suavizado">4. Suavizado laplaciano de la malla STL</h2>
+<p>Una vez obtenidos (F,V), <code>suavizar_malla_laplaciano</code> conserva las caras y actualiza síncronamente cada vértice al promedio de sus vecinos de una arista:</p>
+<div class="math">\[\mathbf v_i^{(q+1)}=\frac1{|\mathcal N(i)|}\sum_{j\in\mathcal N(i)}\mathbf v_j^{(q)},\qquad q=0,\ldots,n_{smooth}-1.\]</div>
+<p><strong>[IMPLEMENTADO]</strong> no hay parámetro de relajación (lambda), conservación de volumen, protección de bordes ni suavizado Taubin. Es el Laplaciano explícito más simple. Cada iteración sustituye el nodo completo por la media de los vecinos; por ello reduce irregularidad de alta frecuencia, pero también contrae y redondea la geometría.</p>
+<table><thead><tr><th>Iteraciones</th><th>Efecto esperado</th><th>Implicación</th></tr></thead><tbody>
+<tr><td>0</td><td>STL igual a la frontera alpha.</td><td>Máxima fidelidad al muestreo; mayor rugosidad y sensibilidad a ruido.</td></tr>
+<tr><td>1–pocas</td><td>Reduce aristas dentadas locales.</td><td>Compromiso habitual cuando la nube es discreta.</td></tr>
+<tr><td>Muchas</td><td>Difusión repetida de la posición; redondeo y contracción.</td><td>Puede reducir volumen, borrar cuellos y desplazar la isosuperficie efectiva.</td></tr>
+</tbody></table>
+<p>La referencia clásica de suavizado sin encogimiento es Taubin; se cita para delimitar que <em>no</em> es el algoritmo aplicado aquí [<a href="https://doi.org/10.1145/218380.218473">Taubin, 1995</a>]. Para una cuantificación reproducible, el módulo incorpora número de iteraciones y radio en la firma <code>.done</code>; cambiar uno invalida el STL anterior.</p>
+
+<h2 id="voxel">5. Voxelización: resolución y tres representaciones del sólido</h2>
+<p><span class="zone">ZONA 12</span> El preprocesador lee un STL binario, vuelve a exigir malla cerrada de género cero, lo centra por su centroide (\bar{\mathbf v}), y crea una rejilla cartesiana con un margen de un voxel:</p>
+<div class="math">\[\mathbf v_i'=\mathbf v_i-\bar{\mathbf v},\qquad x\in[x_{min}-h,x_{max}+h]:h:[x_{max}+h],\]</div>
+<p>con análogos para (y,z), donde (h=	exttt{resolucion}) en milímetros. La prueba <code>inpolyhedron</code> clasifica cada centro de voxel como interior o exterior del poliedro triangulado.</p>
+
+<h3>5.1 Qué cambia al disminuir la resolución</h3>
+<div class="math">\[N_x\approx\frac{L_x}{h}+1,\quad N_y\approx\frac{L_y}{h}+1,\quad N_z\approx\frac{L_z}{h}+1,\quad N_{vox}=N_xN_yN_z,\quad V_{vox}=h^3\;\text{(isotrópico)}.\]</div>
+<p>Si (h) se reduce a la mitad, (N_{vox}) crece aproximadamente ocho veces. Mejora la localización de bordes y reduce cuantización de volumen, pero aumenta memoria, tiempo de ray casting y coste del optimizador. No recupera detalle que el STL suavizado o la nube alpha ya eliminaron. Cerca de la frontera existe efecto de volumen parcial: un centro de voxel dentro representa todo el voxel como interior, aunque sólo una fracción esté dentro.</p>
+<h3>5.2 Máscara binaria</h3>
+<div class="math">\[M(\mathbf x)=\begin{cases}1,&\mathbf x\in\Omega\\0,&\mathbf x\notin\Omega.\end{cases}\]</div>
+<p><strong>[IMPLEMENTADO]</strong> guarda <code>mascara</code> y las tres matrices de coordenadas. Es compacta y adecuada para métricas de intersección, pero no comunica distancia a la frontera: dos puntos exteriores reciben el mismo 0 aunque uno esté a 0.01 mm y otro a 30 mm.</p>
+<h3>5.3 Campo de distancia con signo (SDF)</h3>
+<p>El código usa <code>bwdist</code>, transformada de distancia euclidiana binaria [<a href="https://www.mathworks.com/help/images/ref/bwdist.html">MathWorks bwdist</a>], y guarda:</p>
+<div class="math">\[D(\mathbf x)=h\,[\operatorname{bwdist}(M)-\operatorname{bwdist}(\neg M)].\]</div>
+<p>Con esta convención, (D&lt;0) dentro, (D&gt;0) fuera y el cero aproxima la frontera. Aporta gradiente de distancia útil para interpolar, alinear o penalizar proximidad; consume más memoria que una máscara.</p>
+<h3>5.4 TSDF</h3>
+<div class="math">\[D_{trunc}(\mathbf x)=\max(-\tau,\min(\tau,D(\mathbf x))),\qquad \tau=2h.\]</div>
+<p><strong>[IMPLEMENTADO]</strong> el truncamiento está fijo a dos resoluciones. Conserva detalle de la banda cercana a la superficie y satura el interior/exterior lejano. Esta idea procede de la representación de distancia truncada usada en reconstrucción volumétrica; la implementación actual es posterior a una máscara cerrada, no fusión incremental de profundidades [<a href="https://doi.org/10.1145/237170.237269">Curless y Levoy, 1996</a>; <a href="https://www.mathworks.com/help/nav/ref/signeddistancemap3d.html">MathWorks signedDistanceMap3D</a>].</p>
+<table><thead><tr><th>Tipo</th><th>Información</th><th>Uso adecuado</th><th>Decisión codificada</th></tr></thead><tbody>
+<tr><td>Máscara</td><td>Ocupación</td><td>Conteo/intersección discretos</td><td>Sin distancia; mínimo almacenamiento conceptual.</td></tr>
+<tr><td>SDF</td><td>Distancia firmada global</td><td>Interpolación/transformaciones suaves</td><td>Distancia euclidiana derivada de la máscara.</td></tr>
+<tr><td>TSDF</td><td>Distancia firmada local</td><td>Operaciones centradas en superficie</td><td>(	au=2h), no editable desde el flujo principal.</td></tr>
+</tbody></table>
+
+<h2 id="correlacion">6. Correlación simulación–experimento y corrección térmica</h2>
+<p><span class="zone">ZONA 13</span> El experimental se lee como tiempo y columnas de temperatura; el TXT simulado aporta tiempo y sondas. Para una sonda seleccionada, ambas series se recortan, desplazan a inicio local y se limpian de valores no finitos/tiempos repetidos. Luego se define un eje común:</p>
+<div class="math">\[t_j=\operatorname{linspace}(0,\min(\max t_{exp},\max t_{sim}),n_{común}),\qquad n_{común}\geq20.\]</div>
+<p>Las temperaturas se interpolan con PCHIP, interpolación cúbica Hermite preservadora de forma. PCHIP evita el sobreimpulso frecuente de un spline cúbico convencional cuando las curvas tienen crecimientos fuertes, pero no añade observaciones: una muestra común densa sólo remuestrea las mismas series.</p>
+
+<h3>6.1 Delta y polinomio</h3>
+<div class="math">\[\Delta T(t_j)=T_{sim}(t_j)-T_{exp}(t_j),\qquad \hat{\Delta T}(t)=\sum_{q=0}^{g}a_qt^q.\]</div>
+<p>El ajuste se obtiene con <code>polyfit</code> por mínimos cuadrados y grado efectivo:</p>
+<div class="math">\[g_{efectivo}=\min(g_{UI},12,n_{común}-1).\]</div>
+<p><strong>Distinción crítica [IMPLEMENTADO].</strong> El polinomio se guarda como <code>p_arreglo</code>, se usa para calcular <code>rmse_polinomio_C</code> y conserva compatibilidad/diagnóstico. <strong>No es el mecanismo que corrige el campo.</strong> La corrección aplicada usa el factor de incrementos descrito a continuación. Por ello cambiar el grado modifica el ajuste de (Delta T) documentado y cada estructura zonal, pero no entra directamente en la fórmula de <code>factor_enfriamiento</code>.</p>
+<table><thead><tr><th>Grado</th><th>Consecuencia</th></tr></thead><tbody><tr><td>Bajo</td><td>Sesgo hacia una diferencia temporal lisa; puede no capturar transitorios.</td></tr><tr><td>Alto</td><td>Menor error aparente en muestras, mayor oscilación y peor extrapolación (fenómeno de sobreajuste).</td></tr><tr><td>Límite 12</td><td>Guardarraíl codificado para no permitir polinomios arbitrariamente altos.</td></tr></tbody></table>
+<h3>6.2 Factor sobre incremento térmico</h3>
+<p>Para cada curva interpolada se fija la basal inicial de esa curva:</p>
+<div class="math">\[T_{0,exp}=T_{exp}(0),\quad T_{0,sim}=T_{sim}(0),\quad \delta_{exp}=T_{exp}-T_{0,exp},\quad\delta_{sim}=T_{sim}-T_{0,sim}.\]</div>
+<p>Se descartan tiempos cuyo incremento simulado sea demasiado pequeño, para no dividir por valores cercanos a cero:</p>
+<div class="math">\[u=\max(0.5,0.01\max_t|\delta_{sim}(t)|),\qquad \mathcal I=\{t:\delta_{sim}(t)\geq u\}.\]</div>
+<p>En (mathcal I), se calcula (r(t)=\delta_{exp}(t)/\delta_{sim}(t)), se recorta a ([0,1]), se interpola PCHIP a todo el eje y vuelve a recortarse:</p>
+<div class="math">\[f(t)=\operatorname{clip}_{[0,1]}\left[\operatorname{PCHIP}\left(t_{\mathcal I},\operatorname{clip}_{[0,1]}r(t_{\mathcal I}),t\right)\right].\]</div>
+<p>El umbral elimina inestabilidad al inicio, donde un cambio basal pequeño haría explotar el cociente. El recorte impone que la corrección no amplifique el incremento simulado: (f&gt;1) se convierte en 1 y (f&lt;0) en 0. Esto es una decisión conservadora; implica que el método puede enfriar/atenuar la elevación simulada, pero no modelar un experimento cuyo incremento sea sistemáticamente mayor que el simulado.</p>
+<h3>6.3 Offset basal e intensidad</h3>
+<div class="math">\[o=T_{0,exp}-T_{0,sim},\qquad T_{corr}(\mathbf x,t)=T_b(\mathbf x)+\eta o+\left[1+\eta(f(t)-1)\right]\,[T(\mathbf x,t)-T_b(\mathbf x)].\]</div>
+<p>(T_b(\mathbf x)) es la primera temperatura del punto espacial; no es una temperatura basal global única. (o) corrige la discrepancia inicial de la sonda/curva. (eta\in[0,1]) permite mezclar identidad ((eta=0)) y corrección plena ((eta=1)). Si se desactiva el offset, sólo se escala el incremento. Finalmente se limita el resultado por el mínimo entre el máximo configurado (nunca superior a 120 °C) y la máxima temperatura experimental disponible.</p>
+
+<h2 id="zonal">7. Corrección zonal: factor de cada sonda aplicado a una banda z</h2>
+<p>Cuando hay al menos dos columnas en ambos datasets, se construyen hasta cuatro zonas. El código contiene explícitamente:</p>
+<div class="math">\[z_{sim}=[18.6,25.2,31.8,38.4]\;\mathrm{mm},\qquad z_{exp}=[26.4,19.8,13.2,6.6]\;\mathrm{mm}.\]</div>
+<p>Para cada (k), se correlaciona columna simulada (k) con columna experimental (k), se calcula su propio (f_k(t)), offset (o_k), serie interpolada, polinomio diagnóstico y modelo SSA del factor. Los límites espaciales proceden de puntos medios de profundidades simuladas:</p>
+<div class="math">\[[-\infty,21.9),\;[21.9,28.5),\;[28.5,35.1),\;[35.1,\infty)\;\mathrm{mm}.\]</div>
+<p>Un voxel o punto de coordenada (z) recibe sólo el modelo de la zona que contiene (z). Así, el campo no usa P1 para corregir todo el volumen cuando las coordenadas espaciales son válidas.</p>
+<div class="warning"><strong>[LÍMITE de trazabilidad física].</strong> La correspondencia es por índice P1↔P1, P2↔P2, etc.; no se infiere a partir de coordenadas experimentales. Dado que los arreglos de profundidad están en orden opuesto, la validez física depende de que el etiquetado de sondas ya codifique esa correspondencia. Debe verificarse contra el montaje experimental antes de interpretar una zona como “la misma profundidad anatómica”. Si faltan puntos/coordenadas, el núcleo cae al factor global seleccionado.</div>
+
+<h2 id="malla4d">8. Campo 4D y significado de Nx=Ny=Nz</h2>
+<p>El pronóstico espacial no altera el dataset nativo corregido: construye un producto distinto, una función interpolable (T(x,y,z,t)). A partir de los puntos de dominio calcula una caja envolvente y añade 5% de margen en cada eje. Luego define:</p>
+<div class="math">\[x_g=\operatorname{linspace}(x_{min},x_{max},N_x),\quad y_g=\operatorname{linspace}(y_{min},y_{max},N_y),\quad z_g=\operatorname{linspace}(z_{min},z_{max},N_z).\]</div>
+<p>El total es (N_g=N_xN_yN_z). En la UI actual se ofrece una sola cantidad <code>Nx=Ny=Nz</code>, por lo que (N_g=N^3), aunque las funciones internas aceptan valores distintos. La separación real es:</p>
+<div class="math">\[h_x=\frac{x_{max}-x_{min}}{N_x-1},\quad h_y=\frac{y_{max}-y_{min}}{N_y-1},\quad h_z=\frac{z_{max}-z_{min}}{N_z-1},\quad V_{vox}=h_xh_yh_z.\]</div>
+<p>Cada instante se interpola desde puntos dispersos mediante <code>scatteredInterpolant(...,'linear','linear')</code>. MATLAB usa triangulación de Delaunay; el modo lineal es (C^0) y la extrapolación espacial lineal usa gradientes de frontera [<a href="https://www.mathworks.com/help/matlab/ref/scatteredinterpolant.html">MathWorks scatteredInterpolant</a>; <a href="https://www.mathworks.com/help/matlab/math/scattered-data-extrapolation.html">extrapolación de datos dispersos</a>].</p>
+<p>Después se reorganiza el vector en un tensor (N_x\times N_y\times N_z\times N_t) y se encapsula en <code>griddedInterpolant</code> con interpolación lineal. El volumen térmico reportado es:</p>
+<div class="math">\[V(t)=V_{vox}\sum_{i=1}^{N_g}\mathbf1\{T_i(t)\geq T_{abl}\}.\]</div>
+<p><strong>[LÍMITE]</strong> aumentar (N) refina el muestreo del interpolante; no agrega datos físicos. El coste de memoria para una matriz de doble precisión es aproximadamente (8N_xN_yN_zN_t) bytes por campo, antes de guardar los cuatro pronósticos y las variantes corregidas.</p>
+
+<h2 id="extrapolacion">9. Los cuatro métodos de extrapolación temporal</h2>
+<p>El código conserva los tiempos reales disponibles; no hace remuestreo temporal fino global. Sólo extrapola si <code>t_extra_max</code> es mayor que el último instante nativo. Su semántica es <strong>horizonte final absoluto</strong>, no “número de minutos que se agregan”. Los tiempos nuevos son enteros desde el minuto posterior hasta (lfloor t_{extra,max}\rfloor).</p>
+<p>Los cuatro métodos se calculan para comparación y se exportan en el MAT; la selección UI sólo decide cuál se muestra como principal. La incertidumbre (sigma) es una heurística basada en residuales de gradiente/LOWESS, no un intervalo de confianza calibrado ni validado clínicamente.</p>
+<h3>9.1 Gradiente local</h3>
+<p>Usa la ventana final de hasta 12 muestras. Para cada voxel ancla la recta en el último valor (a=T(t_L)) y estima por mínimos cuadrados la pendiente:</p>
+<div class="math">\[b=\frac{\sum_j[T(t_j)-a](t_j-t_L)}{\sum_j(t_j-t_L)^2},\qquad \hat T(t_L+\Delta t)=a+b\Delta t.\]</div>
+<p>Es el primer término de Taylor/local lineal. Tiene varianza baja y es fácil de auditar, pero presupone pendiente constante: puede continuar calentamiento o enfriamiento linealmente fuera del régimen observado. Es apropiado como línea base matemática, no como modelo fisiológico.</p>
+<h3>9.2 LOWESS cuadrático de ventana terminal</h3>
+<p>El nombre UI dice LOWESS. La implementación concreta no recalcula una vecindad por cada tiempo futuro; ajusta una sola parábola ponderada en la ventana final. Normaliza (u=(t-t_L)/\operatorname{span}) y usa pesos tricúbicos:</p>
+<div class="math">\[w(u)=(1-|u|^3)_+^3,\qquad \boldsymbol\beta=(\Phi^TW\Phi+10^{-8}I)^{-1}\Phi^TW\mathbf T^T,\qquad \Phi=[1,t_c,t_c^2].\]</div>
+<p>Después fuerza el intercepto a la última temperatura observada, con continuidad en (t_L), y evalúa (1,\Delta t,\Delta t^2). La regularización (10^{-8}I) evita singularidad. LOWESS/LOESS clásico usa regresión local ponderada de bajo orden; la variante implementada es una aproximación global en la ventana final, por lo que es menos flexible pero más barata [<a href="https://doi.org/10.1080/00401706.1979.10489786">Cleveland, 1979</a>]. Puede capturar curvatura local; fuera de ventana el término cuadrático puede crecer de modo no físico.</p>
+<h3>9.3 POD/SVD + tendencia modal</h3>
+<p>Se centra el campo (X\in\mathbb R^{N_g\times N_t}) con la media espacial por voxel y se descompone:</p>
+<div class="math">\[X-\bar X=U\Sigma V^T,\qquad E_r=\frac{\sum_{i=1}^{r}\sigma_i^2}{\sum_i\sigma_i^2}.\]</div>
+<p>Se retiene el menor (r) con (E_r\geq0.99), pero se fuerza como mínimo hasta tres modos si existen. Los coeficientes modales (c_r(t)=\Sigma_rV_r^T) se prolongan con la pendiente entre los dos últimos tiempos. La reconstrucción es (ar X+U_r\hat c_r(t)) y se corrige un residuo de continuidad para igualar el último campo observado.</p>
+<p>POD/PCA es relevante porque comprime un campo térmico de cientos/miles de voxeles a pocas series temporales. En terapia térmica ya se ha usado POD para identificar modelos reducidos desde imágenes térmicas y predecir respuesta distribuida [<a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC3703956/">Identificación de modelos térmicos reducidos con MR térmica</a>]. Aquí, sin embargo, no se integra la ecuación bio-térmica ni se reidentifica un modelo físico: sólo se extrapolan coeficientes de una base empírica.</p>
+<h3>9.4 POD/SVD + SSA recurrente</h3>
+<p>La base espacial es la misma POD. Cada coeficiente modal se pronostica mediante SSA recurrente. La serie se re-muestrea uniformemente con PCHIP, se centra, y se forma la matriz de trayectoria (Hankel):</p>
+<div class="math">\[X_H=\begin{bmatrix}y_1&y_2&\cdots&y_K\\y_2&y_3&\cdots&y_{K+1}\\\vdots&\vdots&&\vdots\\y_L&y_{L+1}&\cdots&y_N\end{bmatrix},\qquad K=N-L+1.\]</div>
+<p>El código elige (L=\min(\lfloor N/3\rfloor,N-2,80)), con mínimo 4. Descompone (X_H=U\Sigma V^T), guarda los modos hasta 99% de energía, máximo 8 y como mucho (L-2), reconstruye por promedio diagonal (hankelización) y obtiene una recurrencia lineal. El siguiente valor centrado es:</p>
+<div class="math">\[\tilde y_{n+1}=\sum_{i=1}^{L-1}r_i\tilde y_{n-L+1+i},\qquad r=\frac{U_r^{(1:L-1,:)}\pi}{1-\|\pi\|_2^2},\quad\pi=U_r^{(L,:)}.\]</div>
+<p>SSA separa componentes dominantes de ruido en una serie corta y permite una recurrencia sin imponer una familia paramétrica fija. La elección de SSA recurrente es matemática/empírica: no es una validación clínica de MWA. Una referencia moderna formaliza pronóstico recurrente y vectorial de series funcionales [<a href="https://doi.org/10.1002/sta4.621">Trinka et al., 2023</a>]. Si hay menos de 8 muestras, energía degenerada o denominador inestable, el código cae a una extrapolación lineal de las cuatro últimas muestras.</p>
+<table><thead><tr><th>Método</th><th>Supuesto dominante</th><th>Fortaleza</th><th>Falla probable</th></tr></thead><tbody>
+<tr><td>Gradiente</td><td>Pendiente final constante</td><td>Auditable, estable, referencia base</td><td>Ignora curvatura/saturación</td></tr><tr><td>LOWESS cuadrático</td><td>Curvatura local suave</td><td>Modela aceleración/desaceleración</td><td>Parábola diverge lejos del soporte</td></tr><tr><td>POD + tendencia</td><td>Pocos patrones espaciales dominantes y tendencia modal lineal</td><td>Compresión espacial fuerte</td><td>Modos futuros no lineales/ nuevos patrones</td></tr><tr><td>POD + SSA</td><td>Coeficientes con estructura recurrente de baja dimensión</td><td>Denoising y dinámica modal más rica</td><td>Ventana corta; recurrencia inestable a horizonte largo</td></tr>
+</tbody></table>
+<p>Como contexto médico, los modelos predictivos térmicos son valiosos para planeación de MWA pero dependen de propiedades de tejido, perfusión y validación específica. Collins et al. mostraron en 2020 la relevancia de vincular datos de imagen con modelado predictivo para MWA, no validaron estos cuatro pronósticos exactos [<a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC7365264/">Collins et al., IEEE TBME 2020</a>]. La revisión de Melnik et al. resume la necesidad de modelos acoplados y validación frente a la complejidad del tejido [<a href="https://doi.org/10.1080/15368378.2020.1741383">Melnik et al., 2020</a>].</p>
+
+<h2 id="parametros">10. Parámetros: qué afecta cada control y qué no</h2>
+<table><thead><tr><th>Control</th><th>Se usa en</th><th>Efecto matemático directo</th><th>No afecta</th></tr></thead><tbody>
+<tr><td>Temperatura mínima STL</td><td>MAT→STL</td><td>Selecciona (mathcal P_t).</td><td>Voxel 4D, factor de corrección.</td></tr>
+<tr><td>Radio alpha</td><td>MAT→STL</td><td>Complejo alpha, conectividad y concavidad.</td><td>Temperaturas, voxelización de un STL ya creado.</td></tr>
+<tr><td>Iteraciones de suavizado</td><td>MAT→STL</td><td>Aplicaciones del promedio de vecinos.</td><td>Caras/metadata térmica; no conserva volumen explícitamente.</td></tr>
+<tr><td>Resolución voxel (h)</td><td>STL→MAT</td><td>Rejilla, distancia, memoria y cuantización.</td><td>La superficie STL fuente.</td></tr>
+<tr><td>Máscara/SDF/TSDF</td><td>STL→MAT</td><td>Codificación del mismo sólido discretizado.</td><td>La topología del STL validado.</td></tr>
+<tr><td>Grado polinómico</td><td>Correlación</td><td>Diagnóstico (hat\Delta T), RMSE y metadata.</td><td>Factor (f(t)) directamente.</td></tr>
+<tr><td>Muestras comunes</td><td>Correlación</td><td>Densidad de remuestreo PCHIP y puntos del cociente.</td><td>Nueva información experimental; no alarga intervalo común.</td></tr>
+<tr><td>Offset basal</td><td>Corrección</td><td>Desplaza (T) por (T_{0,exp}-T_{0,sim}).</td><td>Forma relativa del factor si se desactiva.</td></tr>
+<tr><td>Intensidad (eta)</td><td>Corrección</td><td>Mezcla identidad y corrección completa.</td><td>El modelo de factor guardado.</td></tr>
+<tr><td>Nx=Ny=Nz</td><td>Campo 4D</td><td>Resolución de muestreo y (V_{vox}).</td><td>El dataset nativo corregido y la exportación STL nativa.</td></tr>
+<tr><td>Método de extrapolación</td><td>Campo 4D futuro</td><td>Define (hat T) sólo después del último tiempo nativo.</td><td>Los tiempos nativos observados.</td></tr>
+</tbody></table>
+
+<h2 id="limitaciones">11. Límites y decisiones que deben conservarse en la interpretación</h2>
+<ol>
+<li>La ventana térmica, (T_{abl}), radio alpha y resolución son decisiones de reconstrucción; no son estimadores directos de daño biológico.</li>
+<li>El suavizado laplaciano puede contraer superficie. Si el volumen STL es una métrica primaria, se debe medir antes/después y validar sensibilidad frente a iteraciones.</li>
+<li>El factor (f\in[0,1]) no permite amplificar incrementos simulados. Es una restricción deliberada, no una inferencia de que el experimento nunca sea más caliente.</li>
+<li>Las cuatro zonas están codificadas para profundidades concretas y asociación por índice de sonda. Cambiar montaje, orden o número de sondas exige recalibrar esos vectores y validar la correspondencia.</li>
+<li>La extrapolación espacial de <code>scatteredInterpolant</code> ocurre incluso antes de la extrapolación temporal: si la grilla consulta fuera del casco convexo, los valores dependen de gradientes de frontera. MATLAB advierte que la calidad depende del muestreo y debe inspeccionarse [<a href="https://www.mathworks.com/help/matlab/math/scattered-data-extrapolation.html">MathWorks</a>].</li>
+<li>Los cuatro pronósticos deben compararse contra tiempos retenidos: entrenar con los primeros (k) instantes, predecir (k+1\ldots21), medir RMSE/volumen/solapamiento y sólo después justificar horizonte &gt;21.</li>
+</ol>
+
+<h2 id="fuentes">12. Fuentes, lugares de búsqueda y referencias</h2>
+<p><strong>Lugares consultados el 14 de agosto de 2026:</strong> documentación oficial de MathWorks; PubMed y PubMed Central para terapia térmica/MWA; Wiley <em>Stat</em> para SSA funcional; DOI/páginas de revista para LOWESS, alpha shapes, TSDF y suavizado. Consultas ejecutadas: <code>alphaShape alpha radius boundaryFacets documentation</code>; <code>bwdist signed distance field voxel documentation</code>; <code>POD SVD thermal ablation prediction model</code>; <code>singular spectrum analysis temperature forecasting biomedical</code>; <code>voxel size resolution partial volume thermal ablation</code>. Se descartaron resultados que sólo afirmaban una aplicación sin describir método, y no se usa una referencia como prueba de validación del código si estudia un algoritmo distinto.</p>
+<ol>
+<li>MathWorks. <a href="https://www.mathworks.com/help/matlab/ref/alphashape.html"><em>alphaShape: polygons and polyhedra from points in 2-D and 3-D</em></a>. Consultado 2026-08-14.</li>
+<li>MathWorks. <a href="https://www.mathworks.com/help/matlab/ref/alphashape.boundaryfacets.html"><em>boundaryFacets</em></a>. Consultado 2026-08-14.</li>
+<li>Edelsbrunner H, Mücke EP. Three-dimensional alpha shapes. <em>ACM Transactions on Graphics</em>. 1994. <a href="https://doi.org/10.1145/174462.156635">doi:10.1145/174462.156635</a>.</li>
+<li>Taubin G. A signal processing approach to fair surface design. <em>SIGGRAPH</em>. 1995. <a href="https://doi.org/10.1145/218380.218473">doi:10.1145/218380.218473</a>.</li>
+<li>MathWorks. <a href="https://www.mathworks.com/help/images/ref/bwdist.html"><em>bwdist</em></a>. Consultado 2026-08-14.</li>
+<li>Curless B, Levoy M. A volumetric method for building complex models from range images. <em>SIGGRAPH</em>. 1996. <a href="https://doi.org/10.1145/237170.237269">doi:10.1145/237170.237269</a>.</li>
+<li>MathWorks. <a href="https://www.mathworks.com/help/matlab/ref/scatteredinterpolant.html"><em>scatteredInterpolant</em></a> y <a href="https://www.mathworks.com/help/matlab/math/scattered-data-extrapolation.html"><em>Extrapolating Scattered Data</em></a>. Consultados 2026-08-14.</li>
+<li>Cleveland WS. Robust locally weighted regression and smoothing scatterplots. <em>JASA</em>. 1979. <a href="https://doi.org/10.1080/00401706.1979.10489786">doi:10.1080/00401706.1979.10489786</a>.</li>
+<li>Trinka J, Haghbin H, Shang HL, Maadooliat M. Functional time series forecasting: Functional singular spectrum analysis approaches. <em>Stat</em>. 2023;12:e621. <a href="https://doi.org/10.1002/sta4.621">doi:10.1002/sta4.621</a>.</li>
+<li>Ghazal M et al. Identification of reduced-order thermal therapy models using thermal MR images: theory and validation. <em>IEEE TBME</em>. 2013. <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC3703956/">PMC3703956</a>. Se usa como antecedente médico de POD, no como validación del pronóstico actual.</li>
+<li>Collins JA et al. Toward image data-driven predictive modeling for guiding thermal ablative therapy. <em>IEEE TBME</em>. 2020;67:1548–1557. <a href="https://doi.org/10.1109/TBME.2019.2939686">doi:10.1109/TBME.2019.2939686</a>.</li>
+<li>Melnik R et al. Thermal ablation of biological tissues in disease treatment: a review of computational models and future directions. <em>Electromagnetic Biology and Medicine</em>. 2020. <a href="https://doi.org/10.1080/15368378.2020.1741383">doi:10.1080/15368378.2020.1741383</a>.</li>
+</ol>
+<p class="small">Fuente de trazabilidad interna: <code>modulos/modulo_procesamiento_datos.m</code>, en particular exportación STL (~3219–3874), voxelización (~4125–4824), correlación y zonas (~5865–6205), núcleo canónico (~2446–2700), y volumen/extrapolación (~6506–7247). Las líneas exactas pueden desplazarse al evolucionar el archivo; los encabezados de zona añadidos permiten localizar cada bloque sin depender de una numeración fija.</p>
+</main></body></html>

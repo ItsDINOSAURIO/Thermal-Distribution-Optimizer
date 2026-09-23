@@ -6,12 +6,10 @@ function preprocesar_stl_a_mat(varargin)
 %  FUNCIONALIDAD
 %  Convierte archivos STL de distribuciones térmicas en archivos .mat para
 %  uso posterior en optimización espacial. El usuario selecciona una carpeta,
-%  una resolución de voxelizado y un método de representación volumétrica.
+%  una resolución de voxelizado; la representación disponible es SDF.
 %
-%  MÉTODOS SOPORTADOS
-%  - mascara : ocupación binaria del volumen.
+%  REPRESENTACIÓN DISPONIBLE
 %  - sdf     : campo de distancia con signo.
-%  - tsdf    : campo de distancia con signo truncado.
 %
 %  CONVENCIONES
 %  - Las geometrías se centran respecto a su centroide antes de voxelizar.
@@ -69,6 +67,10 @@ function preprocesar_stl_a_mat(varargin)
     else
         tipo_procesamiento = seleccionar_tipo_procesamiento();
     end
+    if ~strcmpi(tipo_procesamiento, 'sdf')
+        error('Voxelizacion:SoloSDF', 'La voxelizacion disponible es SDF. Selecciona sdf en la configuracion.');
+    end
+    tipo_procesamiento = 'sdf';
     archivos_stl = dir(fullfile(carpeta_stl, '**', '*.stl'));
     if isempty(archivos_stl)
         error('No se encontraron archivos .stl en la carpeta especificada.');
@@ -170,7 +172,7 @@ function lanzar_ui_preprocesar_stl_a_mat()
         'filter', {'*.*', '', ''}, ...
         'title', {'Selecciona la carpeta raiz con archivos STL', '', ''}, ...
         'default', {'', 'sdf', 0.5}, ...
-        'items', {{}, {'sdf', 'mascara', 'tsdf'}, {}}, ...
+        'items', {{}, {'sdf'}, {}}, ...
         'limits', {[], [], [eps Inf]});
 
     tesis_auxiliares('crear_dashboard_modulo',  ...
@@ -195,22 +197,7 @@ function lanzar_ui_preprocesar_stl_a_mat()
 end
 
 function tipo_procesamiento = seleccionar_tipo_procesamiento()
-    log_preprocesador(['Seleccione el método deseado:\n', ...
-             '1. sdf\n', ...
-             '2. mascara\n', ...
-             '3. tsdf\n']);
-    opcion = input('Opción: ');
-
-    switch opcion
-        case 1
-            tipo_procesamiento = 'sdf';
-        case 2
-            tipo_procesamiento = 'mascara';
-        case 3
-            tipo_procesamiento = 'tsdf';
-        otherwise
-            error('Seleccione una opción válida del 1 al 3.');
-    end
+    tipo_procesamiento = 'sdf';
 end
 
 function [es_util, motivo] = ruta_stl_tiene_metadata_util(ruta_relativa)

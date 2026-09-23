@@ -19,7 +19,7 @@ function modulo_manejador_visual_datos(varargin)
         'dataset_meta_math', [], 'catalogo_math', [], 'catalogo_filtrado_math', [], ...
         'catalogo_dataset_indices_math', [], 'catalogo_base_math', [], ...
         'actualizando_filtros_math', false, 'corr', [], 'vol', [], ...
-        'vol_pares', struct());
+        'vol_pares', struct(), 'clase', '', 'historial', [], 'ruta_manual', '');
 
     fig = uifigure('Name', 'Manejador visual de datos', ...
         'Position', [50 35 1420 850], 'Color', theme.colors.bg);
@@ -35,6 +35,11 @@ function modulo_manejador_visual_datos(varargin)
     glog = uigridlayout(plog, [1, 1]); glog.Padding = [6 6 6 6]; activar_scroll(glog);
     logbox = uitextarea(glog, 'Editable', 'off', 'Value', {'Listo.'}); tesis_auxiliares('tema_ui', 'textarea', logbox);
     tesis_auxiliares('tema_ui', 'apply', fig); logmsg('Manejador visual iniciado como app unica.');
+    if nargin >= 1 && strcmpi(char(varargin{1}), 'selftest_formatos')
+        limpieza_fig = onCleanup(@() delete(fig));
+        ejecutar_selftest_formatos_visual();
+        return;
+    end
     load_dataset_math(false);
     actualizar_controles_modo_math();
 
@@ -51,8 +56,9 @@ function modulo_manejador_visual_datos(varargin)
         ctrl.Layout.Column = 1;
         tesis_auxiliares('tema_ui', 'panel', ctrl);
         activar_scroll(ctrl);
-        g = crear_grid_control(ctrl, 18);
-        c.fuente = drop(g, 1, 'Fuente', {'Corregidos', 'Simulados'});
+        g = crear_grid_control(ctrl, 19);
+        c.fuente = drop(g, 1, 'Fuente', {'Corregidos', 'Simulados', 'Correlaciones', ...
+            'Voxeles corregidos', 'Voxeles simulados', 'Volumenes 4D', 'Archivo MAT'});
         c.fuente.ValueChangedFcn = @(~,~) aplicar_fuente_math();
         c.modo = drop(g, 2, 'Vista', {'Correcciones 2D', 'Campo termico / artefacto 4D'});
         c.modo.ItemsData = {'correccion', 'termico'};
@@ -64,7 +70,7 @@ function modulo_manejador_visual_datos(varargin)
         c.campo.ItemsData = {'corregido', 'sin_correccion'};
         c.campo.Value = 'corregido';
         c.campo.ValueChangedFcn = @(~,~) cambiar_campo_guardado_math();
-        c.vista3d = drop(g, 5, 'Vista 3D', {'AlphaShape/STL', 'Puntos termicos', 'Ambos'});
+        c.vista3d = drop(g, 5, 'Vista 3D', {'AlphaShape', 'Nube de puntos', 'Ambos'});
         c.vista3d.ItemsData = {'alpha', 'puntos', 'ambos'};
         c.vista3d.Value = 'ambos';
         c.vista3d.ValueChangedFcn = @(~,~) actualizar_vista_math();
@@ -75,7 +81,7 @@ function modulo_manejador_visual_datos(varargin)
         c.fecha = drop(g, 10, 'Fecha', {'Todos'}); c.fecha.ValueChangedFcn = @(~,~) aplicar_filtros_catalogo_math();
         c.tiempo_corr = drop(g, 11, 'Duración', {'Todos'}); c.tiempo_corr.ValueChangedFcn = @(~,~) aplicar_filtros_catalogo_math();
         c.prueba = drop(g, 12, 'Prueba', {'Todos'}); c.prueba.ValueChangedFcn = @(~,~) aplicar_filtros_catalogo_math();
-        c.zonas = drop(g, 13, 'Zonas', {'Todos'}); c.zonas.ValueChangedFcn = @(~,~) aplicar_filtros_catalogo_math();
+        c.zonas = drop(g, 13, 'Zona / pareja', {'Todos'}); c.zonas.ValueChangedFcn = @(~,~) aplicar_filtros_catalogo_math();
         c.modelo = drop(g, 14, 'Modelo', {'(sin dataset)'}); c.modelo.ValueChangedFcn = @(~,~) datasets_math();
         c.ds = drop(g, 15, 'Dataset', {'(sin dataset)'}); c.ds.ValueChangedFcn = @(~,~) cargar_dataset_seleccionado_math();
         c.tiempo = drop(g, 16, 'Tiempo', {'(sin volumen)'});
@@ -100,6 +106,12 @@ function modulo_manejador_visual_datos(varargin)
         set_tag(c.ds, 'math_dataset_selector');
         set_tag(c.tiempo, 'math_tiempo_selector');
         set_tag(c.tlabel, 'math_tiempo_label');
+        botones = uigridlayout(g, [1 2]); botones.Layout.Row = 18; botones.Layout.Column = [1 3];
+        botones.Padding = [0 0 0 0]; botones.RowHeight = {28};
+        uibutton(botones, 'Text', 'Abrir MAT', 'Tag', 'math_abrir_mat', ...
+            'ButtonPushedFcn', @(~,~) abrir_mat_math());
+        uibutton(botones, 'Text', 'Actualizar', ...
+            'ButtonPushedFcn', @(~,~) load_dataset_math(true));
 
         plots = uipanel(gp, 'Title', 'Paneles matematicos y visuales', ...
             'TitlePosition', 'centertop');
@@ -115,13 +127,14 @@ function modulo_manejador_visual_datos(varargin)
         c.panel_2d.Layout.Row = 1; c.panel_2d.Layout.Column = 1;
         tesis_auxiliares('tema_ui', 'panel', c.panel_2d);
         g2d = uigridlayout(c.panel_2d, [4, 1]);
-        g2d.RowHeight = {'1x', '1x', '1x', '1x'};
+        g2d.RowHeight = {'1x', '1x', '1x', 0};
         g2d.Padding = [6 6 6 6];
         g2d.RowSpacing = 6;
         c.ax_factor = axes_panel(g2d, 1, 1, 'Correlacion simulacion vs experimento');
         c.ax_func = axes_panel(g2d, 2, 1, 'Funcion de correccion');
         c.ax_zonas = axes_panel(g2d, 3, 1, 'Zonas de correccion');
         c.ax_vol = axes_panel(g2d, 4, 1, 'Volumen 4D');
+        c.ax_vol.Parent.Parent.Visible = 'off';
 
         c.panel_thermal = uipanel(g2, 'Title', 'Graficas termicas y 3D', ...
             'TitlePosition', 'centertop');
@@ -259,11 +272,15 @@ function modulo_manejador_visual_datos(varargin)
         set_enable(c_math.campo, ~es_corr);
         set_enable(c_math.vista3d, ~es_corr);
         set_enable(c_math.tiempo, ~es_corr);
+        if strcmp(state.clase, 'voxel')
+            set_enable(c_math.campo, false); set_enable(c_math.vista3d, false);
+        end
     end
 
     function ok = asegurar_volumen_math()
         ok = ~isempty(state.vol);
         if ok, return; end
+        if any(strcmp(state.clase, {'correccion', 'historial'})), return; end
         if isempty(state.catalogo_math)
             load_dataset_math(false);
         end
@@ -282,6 +299,9 @@ function modulo_manejador_visual_datos(varargin)
         state.dataset_math_path = '';
         state.dataset_meta_math = [];
         state.corr = [];
+        state.historial = [];
+        state.clase = '';
+        mostrar_panel_volumen_math(false);
     end
 
     function aplicar_fuente_math()
@@ -294,6 +314,17 @@ function modulo_manejador_visual_datos(varargin)
         load_dataset_math(true);
     end
 
+    function abrir_mat_math()
+        [nombre, carpeta] = uigetfile('*.mat', 'Abrir dataset, correccion, voxel o volumen', paths.root);
+        if isequal(nombre, 0), return; end
+        state.ruta_manual = fullfile(carpeta, nombre);
+        c_math.fuente.Value = 'Archivo MAT';
+        controles = controles_filtros_catalogo_math();
+        for k = 1:numel(controles), controles(k).control.Value = 'Todos'; end
+        invalidar_volumen_math();
+        load_dataset_math(true);
+    end
+
     function load_dataset_math(varargin)
         graficar = false;
         if nargin >= 1 && (islogical(varargin{1}) || isnumeric(varargin{1}))
@@ -301,17 +332,24 @@ function modulo_manejador_visual_datos(varargin)
         end
         try
             ruta = ruta_catalogo_math();
+            invalidar_volumen_math();
             state.dataset_math = [];
             state.dataset_math_path = '';
             state.dataset_meta_math = [];
             state.catalogo_math = [];
             state.catalogo_filtrado_math = [];
             state.catalogo_dataset_indices_math = [];
-            if isfolder(ruta) || isfile(ruta)
+            if iscell(ruta) || isfolder(ruta) || isfile(ruta)
                 state.catalogo_math = catalogar_datasets_visual(ruta);
+            end
+            if strcmp(c_math.fuente.Value, 'Volumenes 4D')
+                state.catalogo_math = state.catalogo_math(strcmp({state.catalogo_math.clase}, 'volumen'));
+                ruta = strjoin(ruta, ' | ');
             end
             if isempty(state.catalogo_math)
                 modelos_math(false);
+                limpiar_math_corr('Sin archivos visualizables para esta fuente.');
+                limpiar_math_vol('Sin archivos visualizables para esta fuente.');
                 logmsg('Catalogo matematico sin particiones: %s', ruta);
                 return;
             end
@@ -388,6 +426,9 @@ function modulo_manejador_visual_datos(varargin)
         if nargin < 1, graficar = true; end
         catalogo = catalogo_math_actual();
         if isempty(catalogo)
+            invalidar_volumen_math();
+            limpiar_math_corr('Sin datos para los filtros seleccionados.');
+            limpiar_math_vol('Sin datos para los filtros seleccionados.');
             c_math.modelo.Items = {'(sin dataset)'};
             c_math.modelo.Value = '(sin dataset)';
             c_math.ds.Items = {'(sin dataset)'};
@@ -425,18 +466,35 @@ function modulo_manejador_visual_datos(varargin)
     function cargar_dataset_seleccionado_math(graficar)
         if nargin < 1, graficar = true; end
         try
+            invalidar_volumen_math();
             [ds, entrada] = current_ds_math();
             if isempty(ds)
                 limpiar_math_vol('No se pudo cargar el dataset seleccionado.');
                 return;
             end
+            state.clase = entrada.clase;
+            if strcmp(entrada.clase, 'correccion')
+                state.corr = normalizar_correccion_vis(ds);
+                c_math.modo.Value = 'correccion';
+                poblar_zonas_math(); actualizar_controles_modo_math();
+                if graficar, plot_corr_math(); end
+                return;
+            elseif strcmp(entrada.clase, 'historial')
+                state.historial = ds.hs;
+                c_math.modo.Value = 'correccion'; actualizar_controles_modo_math();
+                if graficar, plot_historial_math(); end
+                return;
+            end
             cargar_correccion_particion_math();
             state.vol = volumen_desde_dataset_math(ds, entrada);
             state.vol_pares = struct();
-            state.vol_pares.(state.vol.tipo_campo_puntos) = state.vol;
-            if entrada.dataset_corregido
+            if isfield(state.vol, 'tipo_campo_puntos')
+                state.vol_pares.(state.vol.tipo_campo_puntos) = state.vol;
+            end
+            if entrada.dataset_corregido && strcmp(entrada.clase, 'dataset')
                 cargar_par_sin_correccion_math(entrada);
             end
+            if isempty(state.corr), c_math.modo.Value = 'termico'; end
             actualizar_controles_volumen_math();
             actualizar_campo_termico_math();
             if graficar
@@ -449,6 +507,17 @@ function modulo_manejador_visual_datos(varargin)
 
     function actualizar_campo_termico_math()
         if ~isfield(c_math, 'campo') || isempty(state.vol), return; end
+        if isfield(state.vol, 'voxel')
+            formatos = {'sdf','tsdf','mascara'};
+            formato = formatos{find(isfield(state.vol.voxel,formatos),1)};
+            c_math.campo.ItemsData = {};
+            c_math.campo.Items = {upper(formato)};
+            c_math.campo.ItemsData = {'voxel'}; c_math.campo.Value = 'voxel';
+            c_math.vista3d.ItemsData = {};
+            c_math.vista3d.Items = {'Isosuperficie'};
+            c_math.vista3d.ItemsData = {'isosuperficie'}; c_math.vista3d.Value = 'isosuperficie';
+            return;
+        end
         previo = c_math.campo.Value;
         items = {};
         data = {};
@@ -458,7 +527,9 @@ function modulo_manejador_visual_datos(varargin)
         if volumen_tiene_campo_math(state.vol, 'sin_correccion')
             items{end+1} = 'Simulado/base'; data{end+1} = 'sin_correccion';
         end
-        if isempty(items), return; end
+        if isempty(items)
+            items = {'Campo guardado'}; data = {'corregido'};
+        end
         c_math.campo.Items = items;
         c_math.campo.ItemsData = data;
         if any(strcmp(data, previo))
@@ -477,23 +548,23 @@ function modulo_manejador_visual_datos(varargin)
 
     function actualizar_opciones_vista3d_math()
         if ~isfield(c_math, 'vista3d'), return; end
-        v = volumen_campo_activo_math();
-        if isfield(v, 'puntos_termicos')
-            c_math.vista3d.Items = {'Puntos termicos guardados'};
-            c_math.vista3d.ItemsData = {'puntos'};
-            c_math.vista3d.Value = 'puntos';
-        else
-            c_math.vista3d.Items = {'AlphaShape/STL', 'Puntos termicos', 'Ambos'};
-            c_math.vista3d.ItemsData = {'alpha', 'puntos', 'ambos'};
-            c_math.vista3d.Value = 'ambos';
-        end
+        modo = c_math.vista3d.Value;
+        if ~any(strcmp(modo, {'alpha', 'puntos', 'ambos'})), modo = 'ambos'; end
+        c_math.vista3d.ItemsData = {};
+        c_math.vista3d.Items = {'AlphaShape', 'Nube de puntos', 'Ambos'};
+        c_math.vista3d.ItemsData = {'alpha', 'puntos', 'ambos'};
+        c_math.vista3d.Value = modo;
     end
 
     function ruta = ruta_catalogo_math()
-        if ~isfield(c_math, 'fuente') || strcmp(c_math.fuente.Value, 'Corregidos')
-            ruta = paths.datasets_corregidos_por_metadata;
-        else
-            ruta = dataset_dist_default;
+        switch c_math.fuente.Value
+            case 'Corregidos', ruta = paths.datasets_corregidos_por_metadata;
+            case 'Simulados', ruta = dataset_dist_default;
+            case 'Correlaciones', ruta = paths.correlaciones;
+            case 'Voxeles corregidos', ruta = paths.distribuciones_mat_corregidas;
+            case 'Voxeles simulados', ruta = paths.distribuciones_mat;
+            case 'Volumenes 4D', ruta = {paths.volumen_4d, paths.datasets_corregidos_por_metadata};
+            otherwise, ruta = state.ruta_manual;
         end
     end
 
@@ -532,11 +603,15 @@ function modulo_manejador_visual_datos(varargin)
         if idx_catalogo > numel(catalogo), return; end
         entrada = catalogo(idx_catalogo);
         if isempty(state.dataset_math) || ~strcmp(state.dataset_math_path, entrada.ruta)
-            [state.dataset_math, state.dataset_meta_math] = load_dataset_con_meta(entrada.ruta);
+            [state.dataset_math, state.dataset_meta_math] = load_dataset_con_meta(entrada.ruta, entrada.clase);
             state.dataset_math_path = entrada.ruta;
             logmsg('Particion matematica cargada: %s', entrada.ruta);
         end
         ds = resolver_dataset_particion_visual(state.dataset_math, entrada);
+        if strcmp(entrada.clase, 'dataset') && isstruct(ds) && isfield(ds, 'metadata') && ...
+                ~isfield(state.dataset_meta_math, 'correccion_termica')
+            state.dataset_meta_math = ds.metadata;
+        end
     end
 
     function cargar_correccion_particion_math()
@@ -655,6 +730,7 @@ function modulo_manejador_visual_datos(varargin)
     end
     function ds = resolver_dataset_particion_visual(dataset_particion, entrada)
         ds = [];
+        if ~strcmp(entrada.clase, 'dataset'), ds = dataset_particion; return; end
         if isfield(dataset_particion, entrada.modelo)
             md = dataset_particion.(entrada.modelo);
             if isfield(md, entrada.dataset)
@@ -679,8 +755,60 @@ function modulo_manejador_visual_datos(varargin)
             end
         end
     end
+    function plot_historial_math()
+        hs = state.historial;
+        if isstruct(hs), hs = num2cell(hs); end
+        ejes = [c_math.ax_factor, c_math.ax_func, c_math.ax_zonas];
+        campos = {'historia_f1', 'historia_f2', 'historia_pso'};
+        for ai = 1:numel(ejes)
+            ax = ejes(ai); cla(ax, 'reset'); hold(ax, 'on');
+            for hi = 1:numel(hs)
+                if isstruct(hs{hi}) && isfield(hs{hi}, campos{ai}) && ~isempty(hs{hi}.(campos{ai}))
+                    plot(ax, hs{hi}.(campos{ai}), 'DisplayName', sprintf('Corrida %d', hi));
+                end
+            end
+            title(ax, strrep(campos{ai}, '_', ' ')); xlabel(ax, 'Iteracion'); ylabel(ax, 'Fitness guardado');
+            grid(ax, 'on'); hold(ax, 'off');
+            if ~isempty(findall(ax, 'Type', 'line')), legend(ax, 'show'); end
+        end
+        mostrar_panel_volumen_math(true);
+        limpiar_axis_mensaje_math(c_math.ax_vol, sprintf('Historial: %d corrida(s) almacenadas', numel(hs)));
+    end
+
+    function plot_voxel_math()
+        s = state.vol.voxel;
+        formatos = {'sdf', 'tsdf', 'mascara'};
+        nombre = formatos{find(isfield(s, formatos), 1)};
+        V = double(s.(nombre));
+        gx = campo_meta_visual(s, 'gridX', campo_meta_visual(s, 'grid_x', []));
+        gy = campo_meta_visual(s, 'gridY', campo_meta_visual(s, 'grid_y', []));
+        gz = campo_meta_visual(s, 'gridZ', campo_meta_visual(s, 'grid_z', []));
+        assert(~isempty(gx) && isequal(size(V),size(gx),size(gy),size(gz)), ...
+            'El voxel no contiene rejillas compatibles.');
+        centro = campo_meta_visual(s, 'centro', [0 0 0]);
+        x = double(gx(1,:,1)) + centro(1); y = double(gy(:,1,1)) + centro(2);
+        z = double(squeeze(gz(1,1,:))) + centro(3);
+        ix = ceil(numel(x)/2); iy = ceil(numel(y)/2); iz = ceil(numel(z)/2);
+        unidades = 'distancia (mm)'; nivel = 0;
+        if strcmp(nombre, 'mascara'), unidades = 'ocupacion binaria'; nivel = 0.5; end
+        plot_plane_math(c_math.ax_xy, x, y, V(:,:,iz), 'X (mm)', 'Y (mm)', ['XY | ' unidades]);
+        plot_plane_math(c_math.ax_xz, x, z, squeeze(V(iy,:,:))', 'X (mm)', 'Z (mm)', ['XZ | ' unidades]);
+        plot_plane_math(c_math.ax_yz, y, z, squeeze(V(:,ix,:))', 'Y (mm)', 'Z (mm)', ['YZ | ' unidades]);
+        ax = c_math.ax_3d; cla(ax, 'reset');
+        superficie = isosurface(gx + centro(1), gy + centro(2), gz + centro(3), V, nivel);
+        if ~isempty(superficie.vertices)
+            patch(ax, superficie, 'FaceColor', [0.2 0.65 0.8], 'EdgeColor', 'none');
+            view(ax, 3); axis(ax, 'equal'); grid(ax, 'on'); camlight(ax);
+        else
+            text(ax, .05, .5, 'Sin superficie para este nivel.', 'Units', 'normalized');
+        end
+        xlabel(ax, 'X (mm)'); ylabel(ax, 'Y (mm)'); zlabel(ax, 'Z (mm)');
+        title(ax, sprintf('Voxel %s | isosuperficie %g', upper(nombre), nivel));
+    end
+
     function plot_corr_math()
         try
+            if ~isempty(state.historial), plot_historial_math(); return; end
             if isempty(state.corr)
                 limpiar_math_corr('Selecciona un dataset corregido mediante los filtros.');
                 return;
@@ -698,10 +826,6 @@ function modulo_manejador_visual_datos(varargin)
             if isfield(corr, 't_comun') && isfield(corr, 'y_exp_interp') && isfield(corr, 'y_sim_interp')
                 plot(c_math.ax_factor, corr.t_comun(:), corr.y_exp_interp(:), '-', 'LineWidth', 1.0); ley{end+1} = 'Experimental';
                 plot(c_math.ax_factor, corr.t_comun(:), corr.y_sim_interp(:), '-', 'LineWidth', 1.0); ley{end+1} = 'Simulada';
-            end
-            if isfield(ct, 'simulacion_corregida_factor_C') && isfield(corr, 't_comun') && ...
-                    numel(ct.simulacion_corregida_factor_C) == numel(corr.t_comun)
-                plot(c_math.ax_factor, corr.t_comun(:), ct.simulacion_corregida_factor_C(:), 'LineWidth', 1.4); ley{end+1} = 'Sim corregida';
             end
             if isempty(ley)
                 text(c_math.ax_factor, 0.05, 0.55, 'Sin curvas exp/sim reconocidas.', 'Units', 'normalized');
@@ -757,6 +881,8 @@ function modulo_manejador_visual_datos(varargin)
             ct = ct_base;
             corr = corr_base;
             etiqueta = 'Global';
+            md = tesis_auxiliares('metadata_ruta', '', ct_base);
+            if ~isempty(md.zona_experimental), etiqueta = md.zona_experimental; end
         end
     end
 
@@ -849,26 +975,30 @@ function modulo_manejador_visual_datos(varargin)
         set_axis_panel_title(c_math.ax_func, 'Funcion de correccion');
         cla(c_math.ax_func, 'reset'); tesis_auxiliares('tema_ui', 'axes', c_math.ax_func);
         hay = false;
+        ley = {};
         yyaxis(c_math.ax_func, 'left'); hold(c_math.ax_func, 'on');
         if isfield(ct, 'delta_T_C') && isfield(ct, 't_rel_min')
             plot(c_math.ax_func, ct.t_rel_min(:), ct.delta_T_C(:), '--', 'LineWidth', 1.1);
             hay = true;
+            ley{end+1} = 'Delta T';
         elseif isfield(corr, 'y_delta') && isfield(corr, 't_comun')
             plot(c_math.ax_func, corr.t_comun(:), corr.y_delta(:), '--', 'LineWidth', 1.1);
             hay = true;
+            ley{end+1} = 'Delta T';
         end
         ylabel(c_math.ax_func, 'Delta T (C)');
         yyaxis(c_math.ax_func, 'right');
         if isfield(ct, 'factor_enfriamiento') && isfield(ct, 't_rel_min')
             plot(c_math.ax_func, ct.t_rel_min(:), ct.factor_enfriamiento(:), ':', 'LineWidth', 1.5);
             hay = true;
+            ley{end+1} = 'Factor';
         end
         ylabel(c_math.ax_func, 'Factor');
         yyaxis(c_math.ax_func, 'left');
         if ~hay
             text(c_math.ax_func, 0.05, 0.55, 'Sin funcion de correccion reconocida.', 'Units', 'normalized');
         else
-            legend(c_math.ax_func, {'Delta T', 'Factor'}, 'Location', 'best');
+            legend(c_math.ax_func, ley, 'Location', 'best');
         end
         grid(c_math.ax_func, 'on'); xlabel(c_math.ax_func, 'Tiempo relativo (min)'); title(c_math.ax_func, 'Funcion de correccion');
         hold(c_math.ax_func, 'off');
@@ -897,8 +1027,8 @@ function modulo_manejador_visual_datos(varargin)
         if isfield(state.vol, 'metodos_extrapolacion') && isstruct(state.vol.metodos_extrapolacion)
             nombres = fieldnames(state.vol.metodos_extrapolacion);
             for mi = 1:numel(nombres)
-                data{end+1} = nombres{mi}; %#ok<AGROW>
-                items{end+1} = etiqueta_metodo_vol_math(nombres{mi}); %#ok<AGROW>
+                data{end+1} = nombres{mi};
+                items{end+1} = etiqueta_metodo_vol_math(nombres{mi});
             end
         end
         if isfield(c_math, 'metodo')
@@ -927,18 +1057,16 @@ function modulo_manejador_visual_datos(varargin)
         c_math.tiempo.Items = items;
         idx = min(max(1, idx_previo), numel(items));
         c_math.tiempo.Value = items{idx};
+        if isfield(state.vol, 'voxel')
+            c_math.tlabel.Text = sprintf('Voxel guardado | tiempo: %.4g min', t(idx));
+            return;
+        end
         c_math.tlabel.Text = sprintf('Tiempo guardado: %.4g min | %s | %s', ...
             t(idx), etiqueta_metodo_vol_math(sel.metodo), etiqueta_campo_vol_math(sel.campo));
     end
 
     function actualizar_tiempo_vol_math()
-        sel = seleccionar_volumen_math();
-        idx = indice_tiempo_math();
-        if ~isempty(sel.t)
-            idx = min(max(1, idx), numel(sel.t));
-            c_math.tlabel.Text = sprintf('Tiempo guardado: %.4g min | %s | %s', ...
-                sel.t(idx), etiqueta_metodo_vol_math(sel.metodo), etiqueta_campo_vol_math(sel.campo));
-        end
+        actualizar_tiempos_vol_math();
         plot_vol_math();
     end
 
@@ -963,12 +1091,13 @@ function modulo_manejador_visual_datos(varargin)
                     return;
                 end
             end
+            if isfield(state.vol, 'voxel'), plot_voxel_math(); return; end
             sel = seleccionar_volumen_math();
             idx_t = indice_tiempo_math();
             if ~isempty(sel.t), idx_t = min(max(1, idx_t), numel(sel.t)); end
             vol_activo = volumen_campo_activo_math();
             if isfield(vol_activo, 'puntos_termicos')
-                plot_resumen_temperatura_archivo_math();
+                mostrar_panel_volumen_math(false);
             else
                 plot_volumen_curva_math(sel, idx_t);
             end
@@ -983,12 +1112,12 @@ function modulo_manejador_visual_datos(varargin)
 
     function plot_volumen_2d_math()
         if ~asegurar_volumen_math()
-            limpiar_axis_mensaje_math(c_math.ax_vol, 'Sin volumen 4D disponible para el dataset seleccionado.');
+            mostrar_panel_volumen_math(false);
             return;
         end
         vol_activo = volumen_campo_activo_math();
         if isfield(vol_activo, 'puntos_termicos')
-            plot_resumen_temperatura_archivo_math();
+            mostrar_panel_volumen_math(false);
             return;
         end
         sel = seleccionar_volumen_math();
@@ -997,7 +1126,16 @@ function modulo_manejador_visual_datos(varargin)
         plot_volumen_curva_math(sel, idx_t);
     end
 
+    function mostrar_panel_volumen_math(mostrar)
+        pnl = c_math.ax_vol.Parent.Parent;
+        pnl.Visible = vis(mostrar);
+        alturas = {'1x', '1x', '1x', 0};
+        if mostrar, alturas{4} = '1x'; end
+        pnl.Parent.RowHeight = alturas;
+    end
+
     function plot_volumen_curva_math(sel, idx_t)
+        mostrar_panel_volumen_math(true);
         set_tag(c_math.ax_vol, 'math_ax_volumen_4d');
         set_axis_panel_title(c_math.ax_vol, 'Volumen 4D');
         cla(c_math.ax_vol, 'reset'); tesis_auxiliares('tema_ui', 'axes', c_math.ax_vol); hold(c_math.ax_vol, 'on');
@@ -1036,7 +1174,7 @@ function modulo_manejador_visual_datos(varargin)
                     if strcmp(nombres{mi}, sel.metodo), estilo = '-'; ancho = 1.8; end
                     plot(c_math.ax_vol, tiempo_compatible_vis(msel.t, msel.V), msel.V(:), estilo, ...
                         'LineWidth', ancho, 'DisplayName', etiqueta_metodo_vol_math(nombres{mi}));
-                    ley{end+1} = nombres{mi}; %#ok<AGROW>
+                    ley{end+1} = nombres{mi};
                 end
             end
         end
@@ -1138,34 +1276,26 @@ function modulo_manejador_visual_datos(varargin)
 
     function draw_volumen_3d_math(sel, idx_t)
         set_tag(c_math.ax_3d, 'math_ax_volumen_3d');
-        set_axis_panel_title(c_math.ax_3d, 'Volumen 3D');
         cla(c_math.ax_3d, 'reset'); tesis_auxiliares('tema_ui', 'axes', c_math.ax_3d);
+        titulo = 'Distribución térmica corregida';
+        if strcmp(c_math.campo.Value, 'sin_correccion')
+            titulo = 'Distribución térmica simulada';
+        end
+        set_axis_panel_title(c_math.ax_3d, titulo);
+        title(c_math.ax_3d, titulo);
+        colorbar(c_math.ax_3d, 'off');
         vol_activo = volumen_campo_activo_math();
-        if isfield(vol_activo, 'puntos_termicos')
-            [P, T, tval] = puntos_archivo_math(idx_t, 50000);
-            umbral = vol_activo.T_abl_exp;
-            mask = T >= umbral;
-            if any(mask)
-                scatter3(c_math.ax_3d, P(mask,1), P(mask,2), P(mask,3), ...
-                    7, T(mask), 'filled');
-                axis(c_math.ax_3d, 'equal'); grid(c_math.ax_3d, 'on'); ...
-                    view(c_math.ax_3d, 3); colorbar(c_math.ax_3d);
-                xlabel(c_math.ax_3d, 'X (mm)'); ylabel(c_math.ax_3d, 'Y (mm)'); ...
-                    zlabel(c_math.ax_3d, 'Z (mm)');
-            else
-                text(c_math.ax_3d, 0.05, 0.55, sprintf('Sin puntos >= %.1f C.', umbral), ...
-                    'Units', 'normalized');
-            end
-            title(c_math.ax_3d, sprintf('Puntos guardados | t=%.2f min | umbral visual %.1f C', ...
-                tval, umbral));
-            return;
-        end
-        if isempty(sel.F)
-            text(c_math.ax_3d, 0.05, 0.55, 'Sin campo 4D', 'Units', 'normalized');
-            axis(c_math.ax_3d, 'off'); title(c_math.ax_3d, 'Volumen 3D / Isosuperficie');
-            return;
-        end
         try
+            if isfield(vol_activo, 'puntos_termicos')
+                [P, T] = puntos_archivo_math(idx_t, inf);
+                dibujar_nube_3d_math(P, T, vol_activo.T_abl_exp, 50000);
+                return;
+            end
+            if isempty(sel.F)
+                text(c_math.ax_3d, 0.05, 0.55, 'Sin campo 4D', 'Units', 'normalized');
+                axis(c_math.ax_3d, 'off');
+                return;
+            end
             [F, x, y, z, t] = volumen_grid_vectors_math(sel);
             idx_t = min(max(1, idx_t), numel(t));
             tval = t(idx_t);
@@ -1174,62 +1304,58 @@ function modulo_manejador_visual_datos(varargin)
             T = F(X, Y, Z, tval .* ones(size(X)));
             umbral = sel.T_abl;
             if ~isfinite(umbral), umbral = 55; end
-            mask = isfinite(T) & T >= umbral;
-            if nnz(mask) < 8
-                text(c_math.ax_3d, 0.05, 0.55, sprintf('Sin volumen >= %.1f C en este instante.', umbral), 'Units', 'normalized');
-                axis(c_math.ax_3d, 'off'); title(c_math.ax_3d, 'Volumen 3D');
-                return;
-            end
-            modo3d = 'ambos';
-            if isfield(c_math, 'vista3d'), modo3d = c_math.vista3d.Value; end
-            dibujar_superficie = any(strcmp(modo3d, {'alpha', 'ambos'}));
-            dibujar_puntos = any(strcmp(modo3d, {'puntos', 'ambos'}));
-            hay = false;
-            if dibujar_superficie
-                fv = isosurface(X, Y, Z, T, umbral);
-                if ~isempty(fv.vertices)
-                    patch(c_math.ax_3d, fv, 'FaceColor', [0.9 0.25 0.12], ...
-                        'EdgeColor', 'none', 'FaceAlpha', 0.42, 'DisplayName', 'AlphaShape/STL');
-                    hay = true;
-                end
-            end
-            hold(c_math.ax_3d, 'on');
-            if dibujar_puntos
-                P = [X(mask), Y(mask), Z(mask)];
-                C = T(mask);
-                nshow = min(2500, size(P, 1));
-                idxp = unique(round(linspace(1, size(P, 1), nshow)));
-                scatter3(c_math.ax_3d, P(idxp,1), P(idxp,2), P(idxp,3), 7, C(idxp), ...
-                    'filled', 'DisplayName', 'Puntos termicos');
-                hay = true;
-            end
-            if ~hay
-                text(c_math.ax_3d, 0.05, 0.55, 'Vista 3D vacia.', 'Units', 'normalized');
-                axis(c_math.ax_3d, 'off'); title(c_math.ax_3d, 'Volumen 3D');
-                return;
-            end
-            hold(c_math.ax_3d, 'off');
-            axis(c_math.ax_3d, 'equal'); grid(c_math.ax_3d, 'on'); view(c_math.ax_3d, 3);
-            camlight(c_math.ax_3d, 'headlight'); lighting(c_math.ax_3d, 'gouraud');
-            xlabel(c_math.ax_3d, 'X (mm)'); ylabel(c_math.ax_3d, 'Y (mm)'); zlabel(c_math.ax_3d, 'Z (mm)');
-            colorbar(c_math.ax_3d);
-            title(c_math.ax_3d, sprintf('3D %s | %.1f C | t=%.2f min', etiqueta_vista3d_math(modo3d), umbral, tval));
+            dibujar_nube_3d_math([X(:), Y(:), Z(:)], T(:), umbral, 2500);
         catch ME
             text(c_math.ax_3d, 0.05, 0.55, 'No se pudo graficar 3D.', 'Units', 'normalized');
-            axis(c_math.ax_3d, 'off'); title(c_math.ax_3d, 'Volumen 3D / Isosuperficie');
+            axis(c_math.ax_3d, 'off');
             logmsg('AVISO volumen 3D: %s', ME.message);
         end
     end
 
-    function txt = etiqueta_vista3d_math(modo3d)
-        switch char(modo3d)
-            case 'alpha'
-                txt = 'AlphaShape/STL';
-            case 'puntos'
-                txt = 'puntos termicos';
-            otherwise
-                txt = 'AlphaShape/STL + puntos';
+    function dibujar_nube_3d_math(P, T, umbral, nmax)
+        modo3d = c_math.vista3d.Value;
+        mask = all(isfinite(P), 2) & isfinite(T) & T >= umbral;
+        P = P(mask,:); T = T(mask);
+        if isempty(P)
+            text(c_math.ax_3d, 0.05, 0.55, sprintf('Sin puntos >= %.1f C.', umbral), ...
+                'Units', 'normalized');
+            axis(c_math.ax_3d, 'off');
+            return;
         end
+        hold(c_math.ax_3d, 'on');
+        view(c_math.ax_3d, 3);
+        if any(strcmp(modo3d, {'alpha', 'ambos'}))
+            caras = []; nodos = [];
+            if size(P,1) >= 4 && rank(P-P(1,:)) == 3
+                try
+                    % Mismo radio automatico del exportador, sin generar archivos STL.
+                    dimensiones = max(P,[],1)-min(P,[],1);
+                    radio = max(2.0, 2.2*(prod(dimensiones+eps)/size(P,1))^(1/3));
+                    forma = alphaShape(P(:,1), P(:,2), P(:,3), radio);
+                    [caras, nodos] = boundaryFacets(forma);
+                catch ME
+                    logmsg('AVISO AlphaShape: %s', ME.message);
+                end
+            end
+            if isempty(caras)
+                text(c_math.ax_3d, 0.05, 0.95, 'Sin superficie AlphaShape 3D para estos puntos.', ...
+                    'Units', 'normalized');
+            else
+                patch(c_math.ax_3d, 'Faces', caras, 'Vertices', nodos, ...
+                    'FaceColor', [0.9 0.25 0.12], 'EdgeColor', 'none', ...
+                    'FaceAlpha', 0.42, 'DisplayName', 'AlphaShape');
+                camlight(c_math.ax_3d, 'headlight'); lighting(c_math.ax_3d, 'gouraud');
+            end
+        end
+        if any(strcmp(modo3d, {'puntos', 'ambos'}))
+            idxp = unique(round(linspace(1, size(P,1), min(nmax, size(P,1)))));
+            scatter3(c_math.ax_3d, P(idxp,1), P(idxp,2), P(idxp,3), 7, T(idxp), ...
+                'filled', 'DisplayName', 'Nube de puntos');
+            colorbar(c_math.ax_3d);
+        end
+        hold(c_math.ax_3d, 'off');
+        axis(c_math.ax_3d, 'equal'); grid(c_math.ax_3d, 'on'); view(c_math.ax_3d, 3);
+        xlabel(c_math.ax_3d, 'X (mm)'); ylabel(c_math.ax_3d, 'Y (mm)'); zlabel(c_math.ax_3d, 'Z (mm)');
     end
 
     function [F, x, y, z, t] = volumen_grid_vectors_math(sel)
@@ -1419,29 +1545,33 @@ function modulo_manejador_visual_datos(varargin)
 
     function catalogo = catalogar_datasets_visual(ruta)
         catalogo = crear_catalogo_visual(0);
+        if iscell(ruta)
+            for ri = 1:numel(ruta), catalogo = [catalogo, catalogar_datasets_visual(ruta{ri})]; end
+            catalogo = deduplicar_catalogo_visual(catalogo);
+            return;
+        end
         if isfolder(ruta)
             catalogo = catalogar_indice_visual(ruta);
-            if ~isempty(catalogo)
-                return;
-            end
             archivos = dir(fullfile(ruta, '**', '*.mat'));
             archivos = archivos(~[archivos.isdir]);
             archivos = archivos(~arrayfun(@(a) ruta_repetida_visual( ...
                 fullfile(a.folder, a.name)), archivos));
             rutas = arrayfun(@(a) fullfile(a.folder, a.name), archivos, 'UniformOutput', false);
         elseif isfile(ruta)
-            if ruta_repetida_visual(ruta)
-                rutas = {};
-            else
-                rutas = {ruta};
+            [carpeta, nombre] = fileparts(ruta);
+            if strcmpi(nombre, 'Indice_Datasets_Metadata')
+                catalogo = catalogar_indice_visual(carpeta);
+                return;
             end
+            rutas = {ruta};
         else
             rutas = {};
         end
         for ri = 1:numel(rutas)
+            if any(strcmpi({catalogo.ruta}, rutas{ri})), continue; end
             [ok, entrada] = leer_catalogo_particion_visual(rutas{ri});
             if ok
-                catalogo(end + 1) = entrada; %#ok<AGROW>
+                catalogo = [catalogo, entrada(:)'];
             end
         end
         catalogo = deduplicar_catalogo_visual(catalogo);
@@ -1476,9 +1606,13 @@ function modulo_manejador_visual_datos(varargin)
                 entrada.tag_correccion = campo_meta_visual(p, 'tag_correccion', '');
                 [entrada.fecha, entrada.tiempo_corr, entrada.prueba, entrada.zonas] = ...
                     metadata_adquisicion_visual(p, entrada.ruta);
+                if entrada.dataset_corregido && (isempty(entrada.fecha) || isempty(entrada.zonas))
+                    [ok, real] = leer_catalogo_particion_visual(entrada.ruta);
+                    if ok && isscalar(real), entrada = real; end
+                end
                 entrada.clave = clave_catalogo_visual(entrada);
                 if ~isempty(entrada.modelo) && ~isempty(entrada.dataset)
-                    catalogo(end + 1) = entrada; %#ok<AGROW>
+                    catalogo(end + 1) = entrada;
                 end
             end
             catalogo = deduplicar_catalogo_visual(catalogo);
@@ -1492,11 +1626,16 @@ function modulo_manejador_visual_datos(varargin)
         entrada = crear_catalogo_visual(1);
         [~, nombre, ~] = fileparts(ruta);
         nombre_lower = lower(nombre);
-        if startsWith(nombre_lower, 'indice_') || startsWith(nombre_lower, 'reporte_') || ...
-                contains(nombre_lower, 'historial')
+        if startsWith(nombre_lower, 'indice_') || startsWith(nombre_lower, 'reporte_')
             return;
         end
         try
+            variables = whos('-file', ruta);
+            if ~any(strcmp({variables.name}, 'partition_meta'))
+                entrada = catalogar_mat_sin_particion(ruta, {variables.name});
+                ok = ~isempty(entrada);
+                return;
+            end
             raw = load(ruta, 'partition_meta');
             if ~isfield(raw, 'partition_meta') || ~isstruct(raw.partition_meta)
                 return;
@@ -1524,12 +1663,77 @@ function modulo_manejador_visual_datos(varargin)
         end
     end
 
+    function catalogo = catalogar_mat_sin_particion(ruta, variables)
+        catalogo = crear_catalogo_visual(0);
+        clase = '';
+        if any(ismember(variables, {'sdf', 'mascara', 'tsdf'}))
+            clase = 'voxel';
+        elseif any(ismember(variables, {'Fgrid_ext', 'Fgrid_corregido', 'Fgrid_base'})) || ...
+                all(ismember({'pts4D_rbf', 'w_rbf'}, variables))
+            clase = 'volumen';
+        elseif any(strcmp(variables, 'correccion_termica')) || ...
+                all(ismember({'t_rel_min', 'factor_enfriamiento'}, variables))
+            clase = 'correccion';
+        elseif any(strcmp(variables, 'hs'))
+            clase = 'historial';
+        end
+        if ~isempty(clase)
+            meta = struct();
+            for campo = {'metadata', 'metadata_correlacion'}
+                if any(strcmp(variables, campo{1}))
+                    s = load(ruta, campo{1}); meta = s.(campo{1});
+                end
+            end
+            e = entrada_visual_desde_metadata(ruta, meta, clase);
+            [~, e.dataset] = fileparts(ruta);
+            if isempty(e.modelo), e.modelo = clase; end
+            e.clave = clave_catalogo_visual(e);
+            catalogo = e;
+            return;
+        end
+        % Los datasets antiguos pueden contener varias soluciones sin partition_meta.
+        [data, ~] = load_dataset_con_meta(ruta);
+        modelos = fieldnames(data);
+        for mi = 1:numel(modelos)
+            m = data.(modelos{mi});
+            if ~isstruct(m) || ~isscalar(m), continue; end
+            nombres = fieldnames(m);
+            for di = 1:numel(nombres)
+                ds = m.(nombres{di});
+                if ~isstruct(ds) || ~isscalar(ds) || ...
+                        ~(isfield(ds, 'full_field') || isfield(ds, 'snapshots')), continue; end
+                md = campo_meta_visual(ds, 'metadata', struct());
+                if isfield(md, 'partition_meta'), md = md.partition_meta; end
+                e = entrada_visual_desde_metadata(ruta, md, 'dataset');
+                e.modelo = modelos{mi}; e.dataset = nombres{di};
+                e.clave = clave_catalogo_visual(e);
+                catalogo(end+1) = e;
+            end
+        end
+    end
+
+    function entrada = entrada_visual_desde_metadata(ruta, meta, clase)
+        entrada = crear_catalogo_visual(1);
+        md = tesis_auxiliares('metadata_ruta', ruta, meta);
+        entrada.ruta = ruta; entrada.clase = clase;
+        entrada.tipo = md.tipo; entrada.antena = md.antena;
+        entrada.caso = texto_num_meta_visual(md.caso, 'Caso_%g');
+        entrada.potencia = texto_num_meta_visual(md.potencia_W, 'Potencia_%gW');
+        entrada.modelo = strjoin({md.tipo, md.antena}, '_');
+        if strcmp(entrada.modelo, '_'), entrada.modelo = ''; end
+        entrada.tag_correccion = campo_meta_visual(meta, 'tag_correccion', '');
+        entrada.dataset_corregido = bool_meta_visual(campo_meta_visual(meta, 'dataset_corregido', false)) || ...
+            ~isempty(md.fecha_adquisicion) || contains(lower(ruta), 'corregid');
+        [entrada.fecha, entrada.tiempo_corr, entrada.prueba, entrada.zonas] = ...
+            metadata_adquisicion_visual(meta, ruta);
+    end
+
     function catalogo = crear_catalogo_visual(n)
         plantilla = struct('ruta', '', 'modelo', '', 'dataset', '', ...
             'tipo', '', 'antena', '', 'caso', '', 'potencia', '', ...
             'fecha', '', 'tiempo_corr', '', 'prueba', '', 'zonas', '', ...
             'tag_correccion', '', 'fuente', '', ...
-            'dataset_corregido', false, 'clave', '');
+            'dataset_corregido', false, 'clave', '', 'clase', 'dataset');
         if n == 0
             catalogo = plantilla([]);
         else
@@ -1557,7 +1761,9 @@ function modulo_manejador_visual_datos(varargin)
             identidad_correccion = strjoin({entrada.fecha, entrada.tiempo_corr, ...
                 entrada.prueba, entrada.zonas}, '__');
         end
-        partes = {entrada.modelo, entrada.dataset, identidad_correccion};
+        partes = {entrada.clase, entrada.modelo, entrada.dataset, entrada.tipo, ...
+            entrada.antena, entrada.caso, entrada.potencia, identidad_correccion, ...
+            entrada.fecha, entrada.tiempo_corr, entrada.prueba, entrada.zonas};
         partes = partes(~cellfun(@isempty, partes));
         clave = lower(strjoin(partes, '__'));
     end
@@ -1594,23 +1800,17 @@ function modulo_manejador_visual_datos(varargin)
         end
     end
 
-    function plot_resumen_temperatura_archivo_math()
-        v = volumen_campo_activo_math();
-        T = double(v.temperaturas_termicas);
-        t = double(v.t_full(:));
-        set_axis_panel_title(c_math.ax_vol, 'Temperaturas almacenadas');
-        cla(c_math.ax_vol, 'reset'); tesis_auxiliares('tema_ui', 'axes', c_math.ax_vol);
-        plot(c_math.ax_vol, t, min(T, [], 1, 'omitnan'), '--', ...
-            t, mean(T, 1, 'omitnan'), '-', t, max(T, [], 1, 'omitnan'), '-.', ...
-            'LineWidth', 1.2);
-        grid(c_math.ax_vol, 'on'); xlabel(c_math.ax_vol, 'Tiempo (min)'); ...
-            ylabel(c_math.ax_vol, 'Temperatura (C)');
-        legend(c_math.ax_vol, {'min', 'media', 'max'}, 'Location', 'best');
-        title(c_math.ax_vol, 'Lectura directa del campo guardado; sin reconstruccion 4D');
-    end
-
     function [P, T, tval] = puntos_archivo_math(idx_t, nmax)
         v = volumen_campo_activo_math();
+        if isfield(v, 'snapshots')
+            s = v.snapshots(idx_t);
+            P = double(s.points); T = double(s.T(:)); tval = s.t_min;
+            validos = all(isfinite(P),2) & isfinite(T); P = P(validos,:); T = T(validos);
+            if size(P,1) > nmax
+                idx = round(linspace(1,size(P,1),nmax)); P = P(idx,:); T = T(idx);
+            end
+            return;
+        end
         P = double(v.puntos_termicos);
         M = double(v.temperaturas_termicas);
         idx_t = max(1, min(size(M,2), idx_t));
@@ -1623,13 +1823,29 @@ function modulo_manejador_visual_datos(varargin)
 
     function [fecha, tiempo, prueba, zonas] = metadata_adquisicion_visual(meta, ruta)
         md = tesis_auxiliares('metadata_ruta', ruta, meta);
+        if isfield(meta, 'correccion_termica') && isstruct(meta.correccion_termica) && ...
+                (isempty(md.fecha_adquisicion) || isempty(md.zona_experimental) || ...
+                ~isfinite(md.numero_prueba) || ~isfinite(md.tiempo_ejecucion_min))
+            ruta_corr = resolver_ruta_correccion_math(campo_meta_visual(meta.correccion_termica, 'ruta_correccion', ''));
+            if isfile(ruta_corr)
+                info = whos('-file', ruta_corr);
+                if any(strcmp({info.name}, 'metadata_correlacion'))
+                    raw = load(ruta_corr, 'metadata_correlacion');
+                    inferida = tesis_auxiliares('metadata_ruta', ruta_corr, raw.metadata_correlacion);
+                    for campo = {'fecha_adquisicion','zona_experimental','tiempo_ejecucion_min','numero_prueba','num_zonas'}
+                        val = md.(campo{1});
+                        if isempty(val) || (isnumeric(val) && ~isfinite(val)), md.(campo{1}) = inferida.(campo{1}); end
+                    end
+                end
+            end
+        end
         fecha = char(md.fecha_adquisicion);
         if isempty(fecha)
             fecha = campo_meta_visual(meta, 'fecha_experimento', '');
         end
         tiempo = '';
         prueba = '';
-        zonas = '';
+        zonas = md.zona_experimental;
         if isfinite(md.tiempo_ejecucion_min)
             tiempo = sprintf('Tiempo_%gmin', md.tiempo_ejecucion_min);
         end
@@ -1652,11 +1868,16 @@ function modulo_manejador_visual_datos(varargin)
         etiqueta = strjoin(partes, ' | ');
     end
 
-    function [data, meta] = load_dataset_con_meta(ruta)
+    function [data, meta] = load_dataset_con_meta(ruta, clase)
+        if nargin < 2, clase = 'dataset'; end
         S = load(ruta);
         meta = struct();
         if isfield(S, 'partition_meta') && isstruct(S.partition_meta)
             meta = S.partition_meta;
+        end
+        if ~strcmp(clase, 'dataset'), data = S; return; end
+        if isfield(S, 'full_field') || isfield(S, 'snapshots')
+            data = struct('Archivo', struct('datos', S)); return;
         end
         if isfield(S, 'dataset')
             data = S.dataset;
@@ -1710,9 +1931,34 @@ function modulo_manejador_visual_datos(varargin)
     end
 
     function v = volumen_desde_dataset_math(ds, entrada)
+        if strcmp(entrada.clase, 'voxel')
+            v = struct('voxel', ds, 't_exp', 0);
+            token = regexp(entrada.ruta, 'Geometria_Ablacion_t([\d.]+)min', 'tokens', 'once');
+            if ~isempty(token), v.t_exp = str2double(token{1}); end
+            return;
+        elseif strcmp(entrada.clase, 'volumen')
+            v = ds;
+            if isfield(v, 'V_corr_exp'), v.V_corr = v.V_corr_exp; end
+            if isfield(v, 'pts4D_rbf') && isfield(v, 'w_rbf')
+                centros = double(v.pts4D_rbf); pesos = double(v.w_rbf(:));
+                assert(size(centros,2)==4 && size(centros,1)==numel(pesos), ...
+                    'El archivo RBF no contiene centros y pesos compatibles.');
+                v.Fgrid_ext = @(x,y,z,t) evaluar_rbf_visual(centros, pesos, x,y,z,t);
+            end
+            return;
+        end
         if ~isfield(ds, 'full_field') || ~isfield(ds.full_field, 'points') || ...
                 ~isfield(ds.full_field, 'T_C')
-            error('El dataset seleccionado no contiene full_field legible.');
+            if isfield(ds, 'snapshots') && ~isempty(ds.snapshots)
+                tiempos = arrayfun(@(s) campo_meta_visual(s, 't_min', NaN), ds.snapshots(:));
+                if any(~isfinite(tiempos)), error('Los snapshots no contienen tiempos validos.'); end
+                v = struct('snapshots', ds.snapshots, 'puntos_termicos', [], ...
+                    'temperaturas_termicas', [], 't_full', tiempos, 't_exp', tiempos, ...
+                    'T_abl_exp', 55, 'tipo_campo_puntos', 'sin_correccion');
+                if entrada.dataset_corregido, v.tipo_campo_puntos = 'corregido'; end
+                return;
+            end
+            error('El dataset no contiene full_field ni snapshots legibles.');
         end
         puntos = double(ds.full_field.points);
         temperaturas = double(ds.full_field.T_C);
@@ -1764,6 +2010,127 @@ function modulo_manejador_visual_datos(varargin)
 
     function val = getfield_default(s, field, def)
         if isfield(s, field), val = s.(field); else, val = def; end
+    end
+
+    function T = evaluar_rbf_visual(centros, pesos, x,y,z,t)
+        % Mismo kernel que el exportador; acumular evita una matriz puntos x centros.
+        puntos = [x(:), y(:), z(:), t(:)];
+        valores = zeros(size(puntos,1),1);
+        for ci = 1:numel(pesos)
+            r2 = sum((puntos-centros(ci,:)).^2,2);
+            valores = valores + pesos(ci) .* r2 .* log(sqrt(r2)+1e-10);
+        end
+        T = reshape(valores,size(x));
+    end
+
+    function ejecutar_selftest_formatos_visual()
+        carpeta = tempname; mkdir(carpeta);
+        limpieza = onCleanup(@() limpiar_temporal_visual(carpeta));
+        a = struct('modo', 'manual', 'indice_experimental', 4, 'indice_simulado', 1);
+        ct = struct('t_rel_min', [0;1;2], 'factor_enfriamiento', [1;.9;.8], ...
+            'asignacion_sondas', a, 'temperatura_base_sim_C', 37, 'temperatura_base_exp_C', 37, ...
+            'incremento_sim_C', [0;10;20], 'incremento_exp_C', [0;9;16]);
+        md = struct('tipo', 'Monopolo', 'num_antenas', 1, 'caso', 0, 'potencia_W', 30, ...
+            'fecha_adquisicion', 'mayo_14', 'tiempo_ejecucion_min', 2, 'numero_prueba', 2, ...
+            'asignacion_sondas', a);
+        c = struct('correccion_termica', ct, 'metadata_correlacion', md);
+        save(fullfile(carpeta, 'correccion_manual.mat'), '-struct', 'c');
+        c.correccion_termica.zonas = repmat(ct, 1, 4);
+        save(fullfile(carpeta, 'correccion_zonal.mat'), '-struct', 'c');
+        [X,Y,Z] = meshgrid(-2:2);
+        vox = struct('gridX', X, 'gridY', Y, 'gridZ', Z, 'centro', [10 20 30], 'metadata', md);
+        vox.sdf = sqrt(X.^2+Y.^2+Z.^2)-1.5;
+        save(fullfile(carpeta, 'voxel_sdf.mat'), '-struct', 'vox');
+        carpeta_otro_caso = fullfile(carpeta,'Caso_1'); mkdir(carpeta_otro_caso);
+        vox.metadata.caso = 1;
+        save(fullfile(carpeta_otro_caso, 'voxel_sdf.mat'), '-struct', 'vox');
+        vox.metadata.caso = 0;
+        vox.mascara = vox.sdf<=0; vox = rmfield(vox,'sdf');
+        save(fullfile(carpeta, 'voxel_mascara.mat'), '-struct', 'vox');
+        vox.tsdf = double(vox.mascara)*(-2)+1; vox = rmfield(vox,'mascara');
+        save(fullfile(carpeta, 'voxel_tsdf.mat'), '-struct', 'vox');
+        v = struct('Fgrid_ext', griddedInterpolant({-2:2,-2:2,-2:2,[0 1]}, ...
+            repmat(60-X.^2-Y.^2-Z.^2,1,1,1,2)), 't_exp', [0;1], ...
+            'xg_exp', -2:2, 'yg_exp', -2:2, 'zg_exp', -2:2, 'T_abl_exp', 55);
+        save(fullfile(carpeta, 'T4D_prueba.mat'), '-struct', 'v');
+        rbf = rmfield(v, 'Fgrid_ext'); rbf.pts4D_rbf = [0 0 0 0]; rbf.w_rbf = 2;
+        save(fullfile(carpeta, 'RBF_prueba.mat'), '-struct', 'rbf');
+        assert(abs(evaluar_rbf_visual(rbf.pts4D_rbf,2,2,0,0,0)-8*log(2+1e-10))<1e-12);
+        P = [X(:),Y(:),Z(:)]; T = [37+zeros(numel(X),1), 65-X(:).^2-Y(:).^2-Z(:).^2];
+        ds = struct('full_field', struct('points', P, 'T_C', T), 't_min', [0 1]);
+        dataset = struct('Modelo', struct('Completo', ds, 'Snapshots', ...
+            struct('snapshots', struct('points', P, 'T', T(:,2), 't_min', 1))));
+        save(fullfile(carpeta, 'dataset_legacy.mat'), 'dataset');
+        ruta_particion = fullfile(carpeta, 'particion.mat');
+        partition_meta = struct('modelo','Modelo','tag_dataset','Completo', ...
+            'caso',2,'tipo','Monopolo','antena','1ant','potencia_W',30);
+        dataset = struct('Modelo',struct('Completo',ds));
+        save(ruta_particion,'dataset','partition_meta');
+        particiones = partition_meta; particiones.dataset = 'Completo'; particiones.ruta = ruta_particion;
+        ruta_indice = fullfile(carpeta,'Indice_Datasets_Metadata.mat'); save(ruta_indice,'particiones');
+        assert(numel(catalogar_datasets_visual(ruta_indice))==1);
+        hs = {struct('historia_f1', [3 2 1], 'historia_f2', [1 .9 .8], 'historia_pso', [3 2 1 .9 .8])};
+        save(fullfile(carpeta, 'historial.mat'), 'hs');
+        state.ruta_manual = carpeta; c_math.fuente.Value = 'Archivo MAT';
+        load_dataset_math(false);
+        catalogo = state.catalogo_math;
+        assert(numel(catalogo)==12, 'Faltan formatos, casos o soluciones en el catalogo visual.');
+        orden = [find(strcmp({catalogo.clase},'voxel')), find(~strcmp({catalogo.clase},'voxel'))];
+        for k = orden
+            e = catalogo(k); c_math.modelo.Value = e.modelo; datasets_math(false);
+            c_math.ds.Value = etiqueta_catalogo_visual(e);
+            cargar_dataset_seleccionado_math();
+            assert(strcmp(state.clase,e.clase));
+            assert(~any(contains(string(logbox.Value), 'ERROR')), strjoin(logbox.Value, newline));
+            panel_volumen = c_math.ax_vol.Parent.Parent;
+            if any(strcmp(e.clase, {'dataset','correccion'}))
+                assert(strcmp(panel_volumen.Visible,'off') && panel_volumen.Parent.RowHeight{4}==0, ...
+                    'La grafica de temperaturas almacenadas no debe ocupar espacio.');
+            elseif any(strcmp(e.clase, {'volumen','historial'}))
+                assert(strcmp(panel_volumen.Visible,'on'), 'Se debe conservar el panel de volumen/historial.');
+            end
+            if any(strcmp(e.clase, {'dataset','volumen','voxel'}))
+                assert(~isempty(findall(c_math.ax_xy,'Type','image')), ...
+                    'No se dibujo el corte XY del archivo %s.',e.ruta);
+                assert(strcmp(c_math.campo.Value,'voxel') == strcmp(e.clase,'voxel'));
+                if strcmp(e.clase,'dataset') || strcmp(e.dataset,'T4D_prueba')
+                    c_math.tiempo.Value = c_math.tiempo.Items{end};
+                    for modo = {'alpha', 'puntos', 'ambos'}
+                        c_math.vista3d.Value = modo{1};
+                        actualizar_opciones_vista3d_math();
+                        assert(strcmp(c_math.vista3d.Value,modo{1}), 'Se perdio la vista 3D elegida.');
+                        c_math.vista3d.ValueChangedFcn([],[]);
+                        assert(~isempty(findall(c_math.ax_3d,'Type','patch')) == ~strcmp(modo{1},'puntos'), ...
+                            'Superficie incorrecta en modo %s: %s.',modo{1},e.ruta);
+                        assert(~isempty(findall(c_math.ax_3d,'Type','scatter')) == ~strcmp(modo{1},'alpha'), ...
+                            'Nube incorrecta en modo %s: %s.',modo{1},e.ruta);
+                    end
+                    if strcmp(e.clase,'dataset') && numel(c_math.tiempo.Items)>1
+                        c_math.tiempo.Value = c_math.tiempo.Items{1};
+                        c_math.vista3d.ValueChangedFcn([],[]);
+                        assert(isempty(findall(c_math.ax_3d,'Type','patch')) && ...
+                            isempty(findall(c_math.ax_3d,'Type','scatter')), ...
+                            'Quedaron objetos 3D de otro tiempo sin puntos sobre el umbral.');
+                    end
+                end
+            else
+                assert(~isempty(findall(c_math.ax_factor,'Type','line')), ...
+                    'No se dibujaron las curvas del archivo %s.',e.ruta);
+            end
+        end
+        manual = catalogo(strcmp({catalogo.dataset}, 'correccion_manual'));
+        assert(strcmp(manual.zonas,'Global: Exp4 -> Sim1 (sin altura)') && strcmp(manual.prueba,'Prueba_2'));
+        md_manual = tesis_auxiliares('metadata_ruta', ...
+            'Correccion_correccion_mayo_14_10min_prueba_2_manual_exp4_sim1');
+        assert(strcmp(md_manual.fecha_adquisicion,'mayo_14') && md_manual.numero_prueba==2);
+        fprintf('SELFTEST_VISUAL_FORMATOS_OK %d entradas, carga y graficas\n', numel(catalogo));
+    end
+
+    function limpiar_temporal_visual(carpeta)
+        destino = char(java.io.File(carpeta).getCanonicalPath());
+        raiz = char(java.io.File(tempdir).getCanonicalPath());
+        assert(startsWith(destino,[raiz filesep],'IgnoreCase',true));
+        if isfolder(destino), rmdir(destino,'s'); end
     end
 
     function ejecutar_selftest_fecha_catalogo_visual()
@@ -1828,7 +2195,7 @@ function modulo_manejador_visual_datos(varargin)
             msg = char(fmt);
         end
         parts = regexp(char(msg), '\r\n|\n|\r', 'split'); stamp = char(datetime('now', 'Format', 'HH:mm:ss')); add = {};
-        for k = 1:numel(parts), s = strtrim(parts{k}); if ~isempty(s), add{end+1,1} = sprintf('[%s] %s', stamp, s); end, end %#ok<AGROW>
+        for k = 1:numel(parts), s = strtrim(parts{k}); if ~isempty(s), add{end+1,1} = sprintf('[%s] %s', stamp, s); end, end
         if isempty(add), return; end
         logbox.Value = [add; logbox.Value(:)]; if numel(logbox.Value) > 600, logbox.Value = logbox.Value(1:600); end
         drawnow limitrate;

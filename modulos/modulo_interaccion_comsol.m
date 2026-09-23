@@ -1,5 +1,5 @@
 function modulo_interaccion_comsol(varargin)
-%MODULO_INTERACCION_COMSOL App unica para generacion y extraccion COMSOL.
+%MODULO_INTERACCION_COMSOL: generacion y extraccion COMSOL.
 
     bootstrap_modulo();
     if nargin >= 1 && ischar(varargin{1}) && ...
@@ -98,11 +98,11 @@ function modulo_interaccion_comsol(varargin)
         crear_franja_seccion(g, 1, [1 4], 'Parámetros');
         encabezado_rangos(g, 2);
 
-        [c.ed_caso_ini, c.ed_caso_fin] = campos_rango(g, 3, 'Caso', 0, 8);
-        [c.ed_pot_ini, c.ed_pot_fin] = campos_rango(g, 4, 'Potencia (W)', 5, 100);
-        [c.ed_nant_ini, c.ed_nant_fin] = campos_rango(g, 5, 'Antenas', 1, 4);
-        c.ed_pot_paso = campo_valor(g, 6, 'Paso (W)', 5);
-        c.ed_tiempo = campo_valor(g, 7, 'Tiempo (min)', 20);
+        [c.ed_caso_ini, c.ed_caso_fin] = campos_rango(g, 3, 'Caso termodependiente', 0, 8);
+        [c.ed_pot_ini, c.ed_pot_fin] = campos_rango(g, 4, 'Potencia por antena (W)', 5, 100);
+        [c.ed_nant_ini, c.ed_nant_fin] = campos_rango(g, 5, 'Número de antenas', 1, 4);
+        c.ed_pot_paso = campo_valor(g, 6, 'Incremento de potencia (W)', 5);
+        c.ed_tiempo = campo_valor(g, 7, 'Duración de simulación (min)', 20);
 
         restricciones = uilabel(g, ...
             'Text', ['Restricciones: casos y antenas enteros; potencia total maxima ', ...
@@ -178,9 +178,9 @@ function modulo_interaccion_comsol(varargin)
         tesis_auxiliares('tema_ui', 'dropdown', c.dd_tipo);
 
         encabezado_rangos(g, 3);
-        [c.ed_caso_ini, c.ed_caso_fin] = campos_rango(g, 4, 'Caso', 0, 8);
-        [c.ed_pot_ini, c.ed_pot_fin] = campos_rango(g, 5, 'Potencia (W)', 5, 100);
-        [c.ed_nant_ini, c.ed_nant_fin] = campos_rango(g, 6, 'Antenas', 1, 4);
+        [c.ed_caso_ini, c.ed_caso_fin] = campos_rango(g, 4, 'Caso termodependiente', 0, 8);
+        [c.ed_pot_ini, c.ed_pot_fin] = campos_rango(g, 5, 'Potencia por antena (W)', 5, 100);
+        [c.ed_nant_ini, c.ed_nant_fin] = campos_rango(g, 6, 'Número de antenas', 1, 4);
 
         restricciones = uilabel(g, ...
             'Text', 'Restricciones de filtros: casos y antenas enteros; potencia no negativa.', ...
@@ -188,9 +188,9 @@ function modulo_interaccion_comsol(varargin)
         restricciones.Layout.Row = 7; restricciones.Layout.Column = [1 4];
         tesis_auxiliares('tema_ui', 'label', restricciones, 'muted');
 
-        c.ed_grilla = campo_valor(g, 8, 'Grilla', 60);
+        c.ed_grilla = campo_valor(g, 8, 'Puntos de grilla por eje', 60);
         encabezado_rangos(g, 9, 'X', 'Y');
-        [c.ed_desfase_x, c.ed_desfase_y] = campos_rango(g, 10, 'Desfase', 1, 1);
+        [c.ed_desfase_x, c.ed_desfase_y] = campos_rango(g, 10, 'Desfase de sondas (mm)', 1, 1);
 
         crear_franja_seccion(g, 11, [1 4], 'Sondas');
 
@@ -275,13 +275,13 @@ function modulo_interaccion_comsol(varargin)
         clave = lower(char(etiqueta));
         if contains(clave, 'caso')
             ayuda = 'Índices inicial y final del caso termodependiente de COMSOL, entre 0 y 8.';
+        elseif contains(clave, 'incremento') || contains(clave, 'paso')
+            ayuda = 'Incremento de potencia por antena entre soluciones consecutivas.';
         elseif contains(clave, 'potencia')
             ayuda = 'Potencia aplicada a cada antena. El generador limita la potencia total a 100 W para 1–3 antenas y 120 W para 4.';
         elseif contains(clave, 'antenas')
             ayuda = 'Cantidad inicial y final de antenas que se incluirán en la generación o extracción.';
-        elseif contains(clave, 'paso')
-            ayuda = 'Incremento de potencia por antena entre soluciones consecutivas.';
-        elseif contains(clave, 'tiempo')
+        elseif contains(clave, 'tiempo') || contains(clave, 'duración')
             ayuda = 'Duración total de cada simulación transitoria, expresada en minutos.';
         elseif contains(clave, 'grilla')
             ayuda = 'Número de muestras por eje usado para extraer el campo térmico tridimensional.';
@@ -632,7 +632,7 @@ function modulo_interaccion_comsol(varargin)
         for k = 1:numel(partes)
             linea = strtrim(partes{k});
             if isempty(linea), continue; end
-            nuevas{end+1, 1} = sprintf('[%s] %s', marca, linea); %#ok<AGROW>
+            nuevas{end+1, 1} = sprintf('[%s] %s', marca, linea); 
         end
         if isempty(nuevas), return; end
         txt_log.Value = [nuevas; txt_log.Value(:)];
@@ -1806,7 +1806,7 @@ function config = normalizar_config_generador(config_ui, nombres_tipos)
         if isempty(idx)
             error('Tipo de antena no reconocido: %s', char(tipos_seleccionados{k}));
         end
-        idx_tipos(end+1) = idx; %#ok<AGROW>
+        idx_tipos(end+1) = idx; 
     end
     idx_tipos = unique(idx_tipos, 'stable');
 
@@ -1872,7 +1872,7 @@ function disponibles = detectar_antenas_disponibles(ruta_antenas)
         'Un_slot',    'Antena_un_slot_12cm_3D.mphbin'};
     for k = 1:size(patrones, 1)
         if isfile(fullfile(ruta_antenas, patrones{k, 2}))
-            disponibles{end+1} = patrones{k, 1}; %#ok<AGROW>
+            disponibles{end+1} = patrones{k, 1}; 
         end
     end
 end
@@ -1915,7 +1915,7 @@ function lineas = inspeccionar_simulaciones_generador(ruta_raiz)
                 tabla = struct([]);
             end
         catch ME
-            lineas{end+1} = sprintf('[ERROR] %s: %s', ruta_indice, ME.message); %#ok<AGROW>
+            lineas{end+1} = sprintf('[ERROR] %s: %s', ruta_indice, ME.message); 
             continue;
         end
 
@@ -1935,13 +1935,13 @@ function lineas = inspeccionar_simulaciones_generador(ruta_raiz)
         pot = valores_unicos_tabla(tabla, 'P_ant');
         ptot = valores_unicos_tabla(tabla, 'P_tot');
         lineas{end+1} = sprintf('%s | soluciones: %d | estados: %s', ...
-            modelo, n, formatear_estados(estados)); %#ok<AGROW>
+            modelo, n, formatear_estados(estados)); 
         lineas{end+1} = sprintf('  Casos: %s | P_ant: %s W | P_tot: %s W', ...
-            mat2str(casos), mat2str(pot), mat2str(ptot)); %#ok<AGROW>
-        lineas{end+1} = sprintf('  MAT contiene variables: %s', strjoin(campos, ', ')); %#ok<AGROW>
+            mat2str(casos), mat2str(pot), mat2str(ptot)); 
+        lineas{end+1} = sprintf('  MAT contiene variables: %s', strjoin(campos, ', ')); 
         if ~isempty(tabla)
             lineas{end+1} = sprintf('  tags_completos contiene campos: %s', ...
-                strjoin(fieldnames(tabla), ', ')); %#ok<AGROW>
+                strjoin(fieldnames(tabla), ', ')); 
         end
     end
     lineas{2} = sprintf('%s | soluciones registradas: %d | estados globales: %s', ...
@@ -2192,7 +2192,7 @@ function extractor_comsol_por_solucion(varargin)
                     'tag_dataset', tag, ...
                     'motivo', motivo_omision, ...
                     'caso', metadata_dataset.caso, ...
-                    'potencia_W', metadata_dataset.potencia_W); %#ok<AGROW>
+                    'potencia_W', metadata_dataset.potencia_W); 
                 log_extractor('  [DS %d/%d %s] Omitido: %s\n', ...
                     di, numel(ds_tags), tag, motivo_omision);
                 continue;
@@ -2232,7 +2232,7 @@ function extractor_comsol_por_solucion(varargin)
                     'tag_dataset', tag, ...
                     'motivo', 'sin vector temporal transitorio util', ...
                     'caso', metadata_dataset.caso, ...
-                    'potencia_W', metadata_dataset.potencia_W); %#ok<AGROW>
+                    'potencia_W', metadata_dataset.potencia_W); 
                 continue;
             end
             t_sol_min = t_sol_s / 60;
