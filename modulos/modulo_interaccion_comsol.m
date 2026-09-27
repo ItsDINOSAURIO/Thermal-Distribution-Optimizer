@@ -1,15 +1,27 @@
-function modulo_interaccion_comsol(varargin)
-%MODULO_INTERACCION_COMSOL: generacion y extraccion COMSOL.
+% modulo_interaccion_comsol: generacion y extraccion de simulaciones COMSOL.
+% Configura antenas, casos, potencias, tiempos y sondas desde una interfaz.
+% Genera y reanuda modelos sin tumor con control de carbonizacion.
+% Extrae campos termicos y sondas; guarda particiones MAT e indices.
+% Valida los resultados guardados antes de reutilizarlos.
 
-    bootstrap_modulo();
+% Prepara la interfaz de generacion y extraccion COMSOL.
+function modulo_interaccion_comsol(varargin)
+
+    carpeta_modulo = fileparts(mfilename('fullpath'));
+    addpath(fullfile(carpeta_modulo, '..', 'aux_codes'));
+    tesis_auxiliares('configurar_paths', carpeta_modulo);
     if nargin >= 1 && ischar(varargin{1}) && ...
             strcmpi(varargin{1}, 'selftest_particiones')
-        extractor_comsol_por_solucion('selftest_particiones');
+        ejecutar_selftest_particiones_extractor();
         return;
     end
     theme = tesis_auxiliares('tema_ui');
     paths = tesis_auxiliares('dataset_paths');
-    defaults = detectar_rutas_comsol_default(paths);
+    defaults = struct( ...
+        'root_simulaciones', paths.root, ...
+        'root_mph', paths.root, ...
+        'antenas3d', fullfile(paths.root, 'Antenas3D'), ...
+        'datos_tejidos', fullfile(paths.root, 'DatosTejidos.mat'));
     color_seccion_cyan = [0.12 0.34 0.36];
 
     fig = uifigure('Name', 'Interacción con COMSOL', ...
@@ -70,14 +82,29 @@ function modulo_interaccion_comsol(varargin)
     glog.Padding = [6 6 6 6];
     activar_scroll(glog);
     txt_log = uitextarea(glog, 'Editable', 'off', 'Value', {'Listo.'});
-    tesis_auxiliares('tema_ui', 'textarea', txt_log);
 
     tesis_auxiliares('tema_ui', 'apply', fig);
-    tesis_auxiliares('tema_ui', 'textarea', txt_log);
-    actualizar_antenas_generador(false);
+    try
+        antenas_detectadas = detectar_antenas_disponibles(defaults.antenas3d);
+        if isempty(antenas_detectadas)
+            controles_generador.lb_antenas_disp.Items = {'(sin antenas detectadas)'};
+            controles_generador.lb_antenas_disp.Value = '(sin antenas detectadas)';
+            controles_generador.lb_antenas_sel.Items = {'(ninguna seleccionada)'};
+            controles_generador.lb_antenas_sel.Value = '(ninguna seleccionada)';
+        else
+            if any(strcmp(antenas_detectadas, 'Monopolo'))
+                antenas_iniciales = {'Monopolo'};
+            else
+                antenas_iniciales = antenas_detectadas(1);
+            end
+            aplicar_listas_antenas(antenas_detectadas, antenas_iniciales);
+        end
+    catch
+    end
     cambiar_panel();
     log_evento('Modulo COMSOL iniciado en modo de app unica.');
 
+    % Crea el contenedor de cada etapa COMSOL.
     function pnl = crear_panel_contenido(parent, titulo)
         pnl = uipanel(parent, 'Title', titulo, 'TitlePosition', 'centertop');
         pnl.Layout.Row = 2;
@@ -86,6 +113,7 @@ function modulo_interaccion_comsol(varargin)
         activar_scroll(pnl);
     end
 
+    % Construye los controles de generacion de simulaciones.
     function c = construir_panel_generador(parent)
         g = uigridlayout(parent, [12, 4]);
         g.RowHeight = {28, 22, 28, 28, 28, 28, 28, 42, 28, 96, 30, 32};
@@ -139,6 +167,7 @@ function modulo_interaccion_comsol(varargin)
         tesis_auxiliares('tema_ui', 'button', c.btn_run, 'success');
     end
 
+    % Construye los filtros y controles de extraccion.
     function c = construir_panel_extractor(parent)
         g = uigridlayout(parent, [14, 4]);
         g.RowHeight = {30, 28, 22, 28, 28, 28, 36, 28, 22, 28, 28, 122, 30, 32};
@@ -208,11 +237,12 @@ function modulo_interaccion_comsol(varargin)
         tesis_auxiliares('tema_ui', 'button', c.btn_rm_sonda, 'secondary');
 
         c.btn_run = uibutton(g, 'Text', 'Extraer datasets por solucion', ...
-            'ButtonPushedFcn', @(~,~) ejecutar_extractor('dataset'));
+            'ButtonPushedFcn', @(~,~) ejecutar_extractor());
         c.btn_run.Layout.Row = 14; c.btn_run.Layout.Column = [1 4];
         tesis_auxiliares('tema_ui', 'button', c.btn_run, 'success');
     end
 
+    % Etiqueta los extremos de los rangos configurables.
     function encabezado_rangos(g, fila, etiqueta_inicial, etiqueta_final)
         if nargin < 3
             etiqueta_inicial = 'Inicial';
@@ -232,6 +262,7 @@ function modulo_interaccion_comsol(varargin)
         tesis_auxiliares('tema_ui', 'label', lbl_final, 'muted');
     end
 
+    % Crea controles numericos para un rango.
     function [ed_inicial, ed_final] = campos_rango(g, fila, etiqueta, valor_inicial, valor_final)
         grango = uigridlayout(g, [1, 3]);
         grango.Layout.Row = fila; grango.Layout.Column = [1 4];
@@ -248,6 +279,7 @@ function modulo_interaccion_comsol(varargin)
         tesis_auxiliares('tema_ui', 'edit', ed_final);
     end
 
+    % Crea un control numerico de configuracion.
     function ed = campo_valor(g, fila, etiqueta, valor)
         gfiltro = uigridlayout(g, [1, 3]);
         gfiltro.Layout.Row = fila; gfiltro.Layout.Column = [1 4];
@@ -262,7 +294,8 @@ function modulo_interaccion_comsol(varargin)
         tesis_auxiliares('tema_ui', 'edit', ed);
     end
 
-    function lbl = crear_franja_seccion(parent, fila, columnas, texto)
+    % Identifica visualmente una seccion del panel.
+    function crear_franja_seccion(parent, fila, columnas, texto)
         lbl = uilabel(parent, 'Text', texto, 'HorizontalAlignment', 'center');
         lbl.Layout.Row = fila; lbl.Layout.Column = columnas;
         tesis_auxiliares('tema_ui', 'label', lbl, 'section');
@@ -271,6 +304,7 @@ function modulo_interaccion_comsol(varargin)
         lbl.FontWeight = 'bold';
     end
 
+    % Describe el significado de cada control COMSOL.
     function ayuda = descripcion_control_comsol(etiqueta)
         clave = lower(char(etiqueta));
         if contains(clave, 'caso')
@@ -292,10 +326,11 @@ function modulo_interaccion_comsol(varargin)
         end
     end
 
+    % Alterna entre las etapas de generacion y extraccion.
     function cambiar_panel()
         modo = dd_modo.Value;
-        pnl_generador.Visible = visible_si(strcmp(modo, 'Generador COMSOL'));
-        pnl_extractor.Visible = visible_si(strcmp(modo, 'Extractor COMSOL'));
+        pnl_generador.Visible = strcmp(modo, 'Generador COMSOL');
+        pnl_extractor.Visible = strcmp(modo, 'Extractor COMSOL');
         switch modo
             case 'Generador COMSOL'
                 lbl_estado.Text = 'Vista generador activa.';
@@ -305,57 +340,7 @@ function modulo_interaccion_comsol(varargin)
         log_evento('Vista activa: %s', modo);
     end
 
-    function cfg = obtener_config_generador()
-        cfg = struct( ...
-            'ruta_raiz', defaults.root_simulaciones, ...
-            'ruta_antenas', defaults.antenas3d, ...
-            'ruta_datos_tejidos', defaults.datos_tejidos, ...
-            'caso_inicio', controles_generador.ed_caso_ini.Value, ...
-            'caso_fin', controles_generador.ed_caso_fin.Value, ...
-            'num_antenas_inicio', controles_generador.ed_nant_ini.Value, ...
-            'num_antenas_fin', controles_generador.ed_nant_fin.Value, ...
-            'potencia_inicio', controles_generador.ed_pot_ini.Value, ...
-            'potencia_fin', controles_generador.ed_pot_fin.Value, ...
-            'potencia_paso', controles_generador.ed_pot_paso.Value, ...
-            'tiempo_simulacion_min', controles_generador.ed_tiempo.Value, ...
-            'paso_tiempo_min', 1, ...
-            'tipos_antena', {antenas_seleccionadas_generador()});
-    end
-
-    function cfg = obtener_config_extractor()
-        puntos = controles_extractor.tbl_sondas.Data;
-        if istable(puntos), puntos = table2array(puntos); end
-        n_sondas = size(puntos, 1);
-        cfg = struct( ...
-            'ruta_raiz', defaults.root_mph, ...
-            'ruta_salida_particiones', paths.datasets_masivos_por_metadata, ...
-            'numero_grilla', controles_extractor.ed_grilla.Value, ...
-            'extraer_solo_hueso', controles_extractor.chk_hueso.Value, ...
-            'hueso_z_min_mm', 0, ...
-            'hueso_z_max_mm', 45, ...
-            'hueso_radio_mm', 50, ...
-            'puntos_sonda', puntos, ...
-            'etiquetas_sonda', {arrayfun(@(k) sprintf('P%d', k), 1:n_sondas, 'UniformOutput', false)}, ...
-            'ignorar_filtros_modelo', controles_extractor.chk_ignorar.Value, ...
-            'desfase_1antena_habilitado', true, ...
-            'desfase_1antena_x_mm', controles_extractor.ed_desfase_x.Value, ...
-            'desfase_1antena_y_mm', controles_extractor.ed_desfase_y.Value, ...
-            'desfase_1antena_aplicar_a_todo_eje', true, ...
-            'logfn', @log_evento);
-        if ~controles_extractor.chk_ignorar.Value
-            if ~strcmp(controles_extractor.dd_tipo.Value, 'Todos')
-                cfg.tipos_antena = {controles_extractor.dd_tipo.Value};
-            end
-            cfg.num_antenas_inicio = controles_extractor.ed_nant_ini.Value;
-            cfg.num_antenas_fin = controles_extractor.ed_nant_fin.Value;
-            cfg.potencia_inicio = controles_extractor.ed_pot_ini.Value;
-            cfg.potencia_fin = controles_extractor.ed_pot_fin.Value;
-            cfg.potencia_paso = 5;
-            cfg.caso_inicio = controles_extractor.ed_caso_ini.Value;
-            cfg.caso_fin = controles_extractor.ed_caso_fin.Value;
-        end
-    end
-
+    % Habilita el desplazamiento de los contenedores.
     function activar_scroll(obj)
         if isprop(obj, 'Scrollable')
             try
@@ -366,6 +351,7 @@ function modulo_interaccion_comsol(varargin)
         end
     end
 
+    % Habilita o deshabilita los filtros de modelos.
     function actualizar_estado_filtros_extractor()
         if ~isfield(controles_extractor, 'chk_ignorar')
             return;
@@ -387,54 +373,21 @@ function modulo_interaccion_comsol(varargin)
         end
     end
 
-    function actualizar_antenas_generador(mostrar_log)
-        if nargin < 1, mostrar_log = true; end
-        try
-            disponibles = ejecutar_generador_comsol_integrado('detectar_antenas', defaults.antenas3d);
-            seleccion_actual = antenas_seleccionadas_generador(false);
-            if isempty(disponibles)
-                controles_generador.lb_antenas_disp.Items = {'(sin antenas detectadas)'};
-                controles_generador.lb_antenas_disp.Value = '(sin antenas detectadas)';
-                controles_generador.lb_antenas_sel.Items = {'(ninguna seleccionada)'};
-                controles_generador.lb_antenas_sel.Value = '(ninguna seleccionada)';
-                if mostrar_log
-                    log_evento('No se detectaron antenas soportadas en: %s', defaults.antenas3d);
-                end
-                return;
-            end
-            if isempty(seleccion_actual)
-                if any(strcmp(disponibles, 'Monopolo'))
-                    seleccion_actual = {'Monopolo'};
-                else
-                    seleccion_actual = disponibles(1);
-                end
-            end
-            seleccion_actual = seleccion_actual(ismember(seleccion_actual, disponibles));
-            aplicar_listas_antenas(disponibles, seleccion_actual);
-            if mostrar_log
-                log_evento('Antenas detectadas: %s', strjoin(disponibles, ', '));
-                log_evento('Antenas seleccionadas: %s', strjoin(antenas_seleccionadas_generador(false), ', '));
-            end
-        catch ME
-            if mostrar_log
-                log_evento('ERROR al detectar antenas: %s', ME.message);
-            end
-        end
-    end
-
+    % Incorpora antenas a la seleccion de generacion.
     function agregar_antenas_generador()
         disponibles = antenas_desde_listbox(controles_generador.lb_antenas_disp.Value);
         if isempty(disponibles), return; end
-        todas = ejecutar_generador_comsol_integrado('detectar_antenas', defaults.antenas3d);
+        todas = detectar_antenas_disponibles(defaults.antenas3d);
         seleccion = unique([antenas_seleccionadas_generador(false), disponibles], 'stable');
         aplicar_listas_antenas(todas, seleccion);
         log_evento('Antenas seleccionadas: %s', strjoin(antenas_seleccionadas_generador(false), ', '));
     end
 
+    % Retira antenas de la seleccion de generacion.
     function remover_antenas_generador()
         quitar = antenas_desde_listbox(controles_generador.lb_antenas_sel.Value);
         if isempty(quitar), return; end
-        todas = ejecutar_generador_comsol_integrado('detectar_antenas', defaults.antenas3d);
+        todas = detectar_antenas_disponibles(defaults.antenas3d);
         seleccion = antenas_seleccionadas_generador(false);
         seleccion = seleccion(~ismember(seleccion, quitar));
         aplicar_listas_antenas(todas, seleccion);
@@ -446,6 +399,7 @@ function modulo_interaccion_comsol(varargin)
         end
     end
 
+    % Actualiza las listas de antenas disponibles y seleccionadas.
     function aplicar_listas_antenas(todas, seleccion)
         seleccion = seleccion(ismember(seleccion, todas));
         disponibles = todas(~ismember(todas, seleccion));
@@ -465,6 +419,7 @@ function modulo_interaccion_comsol(varargin)
         end
     end
 
+    % Obtiene y valida las antenas seleccionadas.
     function antenas = antenas_seleccionadas_generador(lanzar_error)
         if nargin < 1, lanzar_error = true; end
         antenas = antenas_desde_listbox(controles_generador.lb_antenas_sel.Items);
@@ -473,13 +428,23 @@ function modulo_interaccion_comsol(varargin)
         end
     end
 
+    % Normaliza la seleccion y excluye etiquetas informativas.
     function antenas = antenas_desde_listbox(valor)
-        antenas = normalizar_lista_ui(valor);
+        if isempty(valor)
+            antenas = {};
+        elseif ischar(valor)
+            antenas = {valor};
+        elseif isstring(valor)
+            antenas = cellstr(valor(:));
+        else
+            antenas = valor(:)';
+        end
         if isempty(antenas), return; end
         es_placeholder = cellfun(@(s) startsWith(char(s), '('), antenas);
         antenas = antenas(~es_placeholder);
     end
 
+    % Incorpora una sonda a la tabla de extraccion.
     function agregar_sonda_extractor()
         datos = controles_extractor.tbl_sondas.Data;
         if istable(datos), datos = table2array(datos); end
@@ -493,6 +458,7 @@ function modulo_interaccion_comsol(varargin)
         log_evento('Sonda agregada: [%.4g %.4g %.4g] mm', nueva(1), nueva(2), nueva(3));
     end
 
+    % Retira las sondas seleccionadas de la tabla.
     function remover_sonda_extractor()
         datos = controles_extractor.tbl_sondas.Data;
         if istable(datos), datos = table2array(datos); end
@@ -514,16 +480,44 @@ function modulo_interaccion_comsol(varargin)
         controles_extractor.tbl_sondas.Data = datos;
         log_evento('Sondas removidas: %s', mat2str(filas(:)'));
     end
+
+    % Valida los controles e inicia las simulaciones.
     function ejecutar_generador()
         try
-            cfg = obtener_config_generador();
-            validar_ruta_generador(cfg);
+            cfg = struct( ...
+                'ruta_raiz', defaults.root_simulaciones, ...
+                'ruta_antenas', defaults.antenas3d, ...
+                'ruta_datos_tejidos', defaults.datos_tejidos, ...
+                'caso_inicio', controles_generador.ed_caso_ini.Value, ...
+                'caso_fin', controles_generador.ed_caso_fin.Value, ...
+                'num_antenas_inicio', controles_generador.ed_nant_ini.Value, ...
+                'num_antenas_fin', controles_generador.ed_nant_fin.Value, ...
+                'potencia_inicio', controles_generador.ed_pot_ini.Value, ...
+                'potencia_fin', controles_generador.ed_pot_fin.Value, ...
+                'potencia_paso', controles_generador.ed_pot_paso.Value, ...
+                'tiempo_simulacion_min', controles_generador.ed_tiempo.Value, ...
+                'paso_tiempo_min', 1, ...
+                'tipos_antena', {antenas_seleccionadas_generador()});
+            if isempty(cfg.ruta_raiz) || ~isfolder(cfg.ruta_raiz)
+                error('No existe la ruta fija del generador: %s', cfg.ruta_raiz);
+            end
+            if isempty(cfg.ruta_datos_tejidos) || ~isfile(cfg.ruta_datos_tejidos)
+                error('No existe el archivo fijo DatosTejidos.mat: %s', cfg.ruta_datos_tejidos);
+            end
             insertar_separacion_log();
-            informar_limites_potencia_generador(cfg);
+            if cfg.potencia_fin > 100
+                if cfg.num_antenas_fin < 4
+                    log_evento(['AVISO: la selección supera el límite de los arreglos de 1–3 antenas; ', ...
+                        'las combinaciones mayores de 100 W totales se omitirán.']);
+                else
+                    log_evento(['AVISO: se ejecutarán las combinaciones válidas; los arreglos de 1–3 ', ...
+                        'antenas se limitan a 100 W totales y los de 4 antenas a 120 W totales.']);
+                end
+            end
             log_evento('Ejecutando generador con tipos: %s', strjoin(cfg.tipos_antena, ', '));
             lbl_estado.Text = 'Generador en ejecucion...';
             drawnow limitrate;
-            ejecutar_generador_comsol_integrado('run', cfg);
+            generar_modelos_comsol(cfg);
             lbl_estado.Text = 'Generador finalizado.';
             log_evento('Generador finalizado.');
         catch ME
@@ -533,20 +527,48 @@ function modulo_interaccion_comsol(varargin)
         end
     end
 
-    function ejecutar_extractor(modo)
+    % Configura e inicia la extraccion por solucion.
+    function ejecutar_extractor()
         try
-            if nargin < 1 || ~strcmp(modo, 'dataset')
-                modo = 'dataset';
+            puntos = controles_extractor.tbl_sondas.Data;
+            if istable(puntos), puntos = table2array(puntos); end
+            n_sondas = size(puntos, 1);
+            cfg = struct( ...
+                'ruta_raiz', defaults.root_mph, ...
+                'ruta_salida_particiones', paths.datasets_masivos_por_metadata, ...
+                'numero_grilla', controles_extractor.ed_grilla.Value, ...
+                'extraer_solo_hueso', controles_extractor.chk_hueso.Value, ...
+                'hueso_z_min_mm', 0, ...
+                'hueso_z_max_mm', 45, ...
+                'hueso_radio_mm', 50, ...
+                'puntos_sonda', puntos, ...
+                'etiquetas_sonda', {arrayfun(@(k) sprintf('P%d', k), 1:n_sondas, 'UniformOutput', false)}, ...
+                'ignorar_filtros_modelo', controles_extractor.chk_ignorar.Value, ...
+                'desfase_1antena_habilitado', true, ...
+                'desfase_1antena_x_mm', controles_extractor.ed_desfase_x.Value, ...
+                'desfase_1antena_y_mm', controles_extractor.ed_desfase_y.Value, ...
+                'desfase_1antena_aplicar_a_todo_eje', true, ...
+                'logfn', @log_evento);
+            if ~controles_extractor.chk_ignorar.Value
+                if ~strcmp(controles_extractor.dd_tipo.Value, 'Todos')
+                    cfg.tipos_antena = {controles_extractor.dd_tipo.Value};
+                end
+                cfg.num_antenas_inicio = controles_extractor.ed_nant_ini.Value;
+                cfg.num_antenas_fin = controles_extractor.ed_nant_fin.Value;
+                cfg.potencia_inicio = controles_extractor.ed_pot_ini.Value;
+                cfg.potencia_fin = controles_extractor.ed_pot_fin.Value;
+                cfg.potencia_paso = 5;
+                cfg.caso_inicio = controles_extractor.ed_caso_ini.Value;
+                cfg.caso_fin = controles_extractor.ed_caso_fin.Value;
             end
-            cfg = obtener_config_extractor();
             insertar_separacion_log();
-            log_evento('Ejecutando extractor COMSOL. Modo: %s', modo);
+            log_evento('Ejecutando extractor COMSOL. Modo: dataset');
             lbl_estado.Text = 'Extractor en ejecucion...';
             drawnow limitrate;
-            extractor_comsol_por_solucion('run', cfg);
+            extractor_comsol_por_solucion(cfg);
             lbl_estado.Text = 'Extractor finalizado.';
             log_evento('Datasets COMSOL por solucion actualizados en: %s', ...
-                obtener_ruta_particiones_salida(cfg));
+                cfg.ruta_salida_particiones);
         catch ME
             lbl_estado.Text = 'Error en extractor.';
             log_evento('ERROR extractor: %s', ME.message);
@@ -554,30 +576,11 @@ function modulo_interaccion_comsol(varargin)
         end
     end
 
-    function ruta_salida = obtener_ruta_particiones_salida(cfg)
-        ruta_salida = cfg.ruta_salida_particiones;
-        if isempty(ruta_salida)
-            ruta_salida = paths.datasets_masivos_por_metadata;
-        end
-    end
-
-    function informar_limites_potencia_generador(cfg)
-        if cfg.potencia_fin <= 100
-            return;
-        end
-        if cfg.num_antenas_fin < 4
-            log_evento(['AVISO: la selección supera el límite de los arreglos de 1–3 antenas; ', ...
-                'las combinaciones mayores de 100 W totales se omitirán.']);
-        else
-            log_evento(['AVISO: se ejecutarán las combinaciones válidas; los arreglos de 1–3 ', ...
-                'antenas se limitan a 100 W totales y los de 4 antenas a 120 W totales.']);
-        end
-    end
-
+    % Muestra el estado de las simulaciones guardadas.
     function verificar_simulaciones()
         try
             insertar_separacion_log();
-            lineas = ejecutar_generador_comsol_integrado('inspeccionar', defaults.root_simulaciones);
+            lineas = inspeccionar_simulaciones_generador(defaults.root_simulaciones);
             for i = 1:numel(lineas), log_evento('%s', lineas{i}); end
             lbl_estado.Text = 'Verificacion de simulaciones finalizada.';
         catch ME
@@ -586,40 +589,13 @@ function modulo_interaccion_comsol(varargin)
         end
     end
 
-    function validar_ruta_generador(cfg)
-        if isempty(cfg.ruta_raiz) || ~isfolder(cfg.ruta_raiz)
-            error('No existe la ruta fija del generador: %s', cfg.ruta_raiz);
-        end
-        if isempty(cfg.ruta_datos_tejidos) || ~isfile(cfg.ruta_datos_tejidos)
-            error('No existe el archivo fijo DatosTejidos.mat: %s', cfg.ruta_datos_tejidos);
-        end
-    end
-
-    function lista = normalizar_lista_ui(valor)
-        if isempty(valor)
-            lista = {};
-        elseif ischar(valor)
-            lista = {valor};
-        elseif isstring(valor)
-            lista = cellstr(valor(:));
-        else
-            lista = valor(:)';
-        end
-    end
-
-    function valor = visible_si(condicion)
-        if condicion
-            valor = 'on';
-        else
-            valor = 'off';
-        end
-    end
-
+    % Separa visualmente las ejecuciones en el registro.
     function insertar_separacion_log()
         txt_log.Value = [repmat({''}, 5, 1); txt_log.Value(:)];
         drawnow limitrate;
     end
 
+    % Registra los eventos recientes de la interfaz.
     function log_evento(formato, varargin)
         try
             msg = sprintf(formato, varargin{:});
@@ -632,7 +608,7 @@ function modulo_interaccion_comsol(varargin)
         for k = 1:numel(partes)
             linea = strtrim(partes{k});
             if isempty(linea), continue; end
-            nuevas{end+1, 1} = sprintf('[%s] %s', marca, linea); 
+            nuevas{end+1, 1} = sprintf('[%s] %s', marca, linea);
         end
         if isempty(nuevas), return; end
         txt_log.Value = [nuevas; txt_log.Value(:)];
@@ -642,90 +618,15 @@ function modulo_interaccion_comsol(varargin)
         drawnow limitrate;
     end
 end
-function defaults = detectar_rutas_comsol_default(paths)
-    defaults = struct( ...
-        'root_simulaciones', paths.root, ...
-        'root_mph', paths.root, ...
-        'antenas3d', fullfile(paths.root, 'Antenas3D'), ...
-        'datos_tejidos', fullfile(paths.root, 'DatosTejidos.mat'));
-end
-function bootstrap_modulo()
-    carpeta_modulo = fileparts(mfilename('fullpath'));
-    candidatos_aux = {fullfile(carpeta_modulo, '..', 'aux_codes')};
-    for k_aux = 1:numel(candidatos_aux)
-        if isfolder(candidatos_aux{k_aux}), addpath(candidatos_aux{k_aux}); end
-    end
-    if exist('tesis_auxiliares', 'file') == 2
-        tesis_auxiliares('configurar_paths', carpeta_modulo);
-    end
-end
 
-% =========================================================================
-% LOGICA INTEGRADA LOCAL
-% =========================================================================
-
-function varargout = ejecutar_generador_comsol_integrado(varargin)
-    if nargin >= 1 && ischar(varargin{1}) && strcmpi(varargin{1}, 'inspeccionar')
-        if nargin >= 2, ruta = varargin{2}; else, ruta = pwd; end
-        varargout{1} = inspeccionar_simulaciones_generador(ruta);
-        return;
-    end
-    if nargin >= 1 && ischar(varargin{1}) && strcmpi(varargin{1}, 'detectar_antenas')
-        if nargin >= 2, ruta = varargin{2}; else, ruta = ''; end
-        varargout{1} = detectar_antenas_disponibles(ruta);
-        return;
-    end
-    generador_sin_metales_multi_solucion_sin_tumor(varargin{:});
-    if nargout > 0, varargout{1} = []; end
-
-% ---- Inicio copia local: generador_sin_metales_multi_solucion_sin_tumor.m ----
-function generador_sin_metales_multi_solucion_sin_tumor(varargin)
-% =========================================================================
-%  GENERADOR SIN METALES MULTISOLUCIÓN SIN TUMOR
-% =========================================================================
-%
-%  FUNCIONALIDAD
-%  Genera modelos COMSOL por tipo de antena, número de antenas, caso
-%  termodependiente y potencia. Mantiene un índice de soluciones para evitar
-%  recomputar combinaciones ya finalizadas y registra fallos o carbonización.
-%
-%  ESTÁNDAR DE LIMPIEZA
-%  - Archivo convertido de script a función ejecutable.
-%  - Funciones auxiliares en snake_case/español cuando no afectan COMSOL.
-%  - Se conserva la lógica original de construcción, simulación e índice.
-% =========================================================================
-
-% =========================================================
-%  Generador_SinMetales_MultiSolucion_SinTumor.m
-%  Genera los 12 modelos (3 tipos x 4 arreglos) SIN TUMOR
-%  con multiples soluciones (9 casos x N potencias) en un
-%  unico .mph por combinacion.
-%
-%  Salida por modelo:
-%    <ruta_raiz>\simulaciones_comsol\<Tipo>\<nombre_modelo>\
-%      <nombre_modelo>.mph
-%      Indice_Soluciones.mat
-%      Coordenadas_Antenas.txt
-% =========================================================
-
-if nargin == 0
-    error('Use modulo_interaccion_comsol para abrir la UI integrada o pase ''run'', config.');
-end
-
+% Genera o reanuda simulaciones por caso, antenas y potencia.
+function generar_modelos_comsol(config_ui)
 clc
-config_ui = struct();
-if nargin >= 2 && strcmpi(varargin{1}, 'run')
-    config_ui = varargin{2};
-end
 import com.comsol.model.*
 import com.comsol.model.util.*
 
-%% ── RUTAS BASE ────────────────────────────────────────────────────────────
-ruta_raiz    = 'D:\UPIITA\TT\TT2\Simulaciones';
-ruta_antenas = fullfile(ruta_raiz, 'Antenas3D');
-ruta_raiz = obtener_campo_config(config_ui, 'ruta_raiz', ruta_raiz);
-ruta_antenas = obtener_campo_config(config_ui, 'ruta_antenas', ruta_antenas);
-%%
+ruta_raiz = config_ui.ruta_raiz;
+ruta_antenas = config_ui.ruta_antenas;
 
 ruta_salida = fullfile(ruta_raiz, 'simulaciones_comsol');
 if ~exist(ruta_salida, 'dir'), mkdir(ruta_salida); end
@@ -733,7 +634,7 @@ if ~exist(ruta_salida, 'dir'), mkdir(ruta_salida); end
 tipos_validos = {'a',          'b',        'c'      };
 nombres_tipos = {'Doble_slot', 'Monopolo', 'Un_slot'};
 
-mat_path = obtener_campo_config(config_ui, 'ruta_datos_tejidos', fullfile(ruta_raiz, 'DatosTejidos.mat'));
+mat_path = config_ui.ruta_datos_tejidos;
 config_gen = normalizar_config_generador(config_ui, nombres_tipos);
 idx_tipos_a_simular = config_gen.idx_tipos;
 casos_a_simular = config_gen.casos;
@@ -756,14 +657,17 @@ fprintf('\n======================================================\n');
 fprintf('  GENERADOR SIN METALES SIN TUMOR — ORDEN POR CASO\n');
 fprintf('======================================================\n\n');
 
-%% ── BUCLE PRINCIPAL ───────────────────────────────────────────────────────
 for idx_caso = casos_a_simular
 
     fprintf('\n######################################################\n');
     fprintf('  CASO %d / 8\n', idx_caso);
     fprintf('######################################################\n');
-    temperatura_carbonizacion = umbral_carbonizacion_generador( ...
-        umbrales_carbonizacion_por_caso, idx_caso);
+    posicion = idx_caso + 1;
+    if posicion < 1 || posicion > numel(umbrales_carbonizacion_por_caso)
+        error('No existe umbral de carbonizacion para el caso %d.', ...
+            idx_caso);
+    end
+    temperatura_carbonizacion = umbrales_carbonizacion_por_caso(posicion);
 
     for idx_tipo = idx_tipos_a_simular
         tipo_antena = tipos_validos{idx_tipo};
@@ -781,9 +685,11 @@ for idx_caso = casos_a_simular
             ruta_mph    = fullfile(carpeta_modelo, [nombre_modelo, '.mph']);
             ruta_indice = fullfile(carpeta_modelo, 'Indice_Soluciones.mat');
 
-            potencia_total_max = potencia_total_maxima_generador( ...
-                num_antenas, potencia_total_max_1a3, ...
-                potencia_total_max_4ant);
+            if num_antenas == 4
+                potencia_total_max = potencia_total_max_4ant;
+            else
+                potencia_total_max = potencia_total_max_1a3;
+            end
             mascara_potencia = potencias_configuradas * num_antenas <= ...
                 potencia_total_max;
             potencias = potencias_configuradas(mascara_potencia);
@@ -801,8 +707,7 @@ for idx_caso = casos_a_simular
                 fprintf('   [SKIP] No hay potencias validas para este arreglo.\n');
                 continue;
             end
- 
-            % ── Pre-verificacion rapida por .mat ──────────────────
+
             [ya_completo, pend] = verificar_modelo_mat( ...
                 ruta_indice, potencias, idx_caso);
             if ya_completo
@@ -810,8 +715,7 @@ for idx_caso = casos_a_simular
                 continue
             end
             fprintf('   Pendientes: %d simulaciones\n', length(pend));
-            % ── Fin pre-verificacion ──────────────────────────────
- 
+
             if exist(ruta_mph, 'file') && exist(ruta_indice, 'file')
                 fprintf('   Cargando modelo existente...\n');
                 try
@@ -837,7 +741,6 @@ for idx_caso = casos_a_simular
                 model        = [];
                 tabla_indice = init_tabla();
             end
-            %% ── VERIFICAR CARBONIZACION PREVIA ───────────────────────────
             tag_sol_p1 = sprintf('sol_c%d_p%d', idx_caso, potencias(1));
             info_p1    = buscar(tabla_indice, tag_sol_p1);
             if ~isempty(info_p1) && strcmp(info_p1.estado, 'CARBON_SOSTENIDA_MIN1')
@@ -846,7 +749,6 @@ for idx_caso = casos_a_simular
                 continue
             end
 
-            %% ── CONSTRUCCION DEL MODELO BASE ──────────────────────────────
             if isempty(model)
                 fprintf('   Construyendo modelo base (sin tumor)...\n');
                 guardar_coordenadas(carpeta_modelo, num_antenas, ...
@@ -869,20 +771,9 @@ for idx_caso = casos_a_simular
                 end
             end
 
-            %% ── VERIFICAR CARBONIZACION PREVIA ───────────────────────────
-            tag_sol_p1 = sprintf('sol_c%d_p%d', idx_caso, potencias(1));
-            info_p1    = buscar(tabla_indice, tag_sol_p1);
-            if ~isempty(info_p1) && strcmp(info_p1.estado, 'CARBON_SOSTENIDA_MIN1')
-                fprintf('   [SKIP CASO] Carbonizacion sostenida ya detectada en pasada anterior.\n');
-                ModelUtil.remove(model.tag());
-                continue
-            end
-
-            %% ── BUCLE DE POTENCIAS ────────────────────────────────────────
             carbonizacion_temprana = false;
 
             for p = 1:length(potencias)
-            % for p = 1:1
 
                 potencia_actual = potencias(p);
                 potencia_total  = potencia_actual * num_antenas;
@@ -895,8 +786,8 @@ for idx_caso = casos_a_simular
                     fprintf('    [SKIP] %s — carbonizacion previa.\n', tag_sol);
                     tabla_indice = registrar(tabla_indice, tag_std, tag_sol, tag_dset, ...
                         idx_caso, potencia_actual, potencia_total, 'SALTADO_CARBON', 0);
-                    tags_completos = tabla_indice;       
-                    save(ruta_indice, 'tags_completos'); 
+                    tags_completos = tabla_indice;
+                    save(ruta_indice, 'tags_completos');
                     continue
                 end
 
@@ -963,7 +854,7 @@ for idx_caso = casos_a_simular
                 save(ruta_indice, 'tags_completos');
                 mphsave(model, ruta_mph);
 
-            end % fin potencias
+            end
 
             fprintf('   Guardado final y cierre: %s\n', ruta_mph);
             tags_completos = tabla_indice;
@@ -972,28 +863,23 @@ for idx_caso = casos_a_simular
             ModelUtil.remove(model.tag());
             fprintf('   Modelo cerrado.\n');
 
-        end % fin num_antenas
-    end % fin tipo
-end % fin caso
+        end
+    end
+end
 
 fprintf('\n======================================================\n');
 fprintf('  GENERACION COMPLETADA.\n');
 fprintf('======================================================\n');
 
-
-%% ============================================================
-%  construir_modelo_base  —  SIN TUMOR
-%% ============================================================
-
 end
 
+% Construye geometria, materiales, fisicas y malla sin tumor.
 function model = construir_modelo_base(tipo_antena, num_antenas, carpeta_modelo, ...
         dataset_tejidos, uni, ruta_antenas)
 
 import com.comsol.model.*
 import com.comsol.model.util.*
 
-%% ── CONFIGURACION POR ANTENA ──────────────────────────────────────────────
 switch tipo_antena
     case 'a'
         cfg.nombre  = 'Doble_slot';
@@ -1094,7 +980,6 @@ switch tipo_antena
         end
 end
 
-%% ── VECTORES GLOBALES ─────────────────────────────────────────────────────
 dom_diel_total = [cfg.dom_diel{:}];
 dom_cat_total  = [cfg.dom_cat{:}];
 if tipo_antena ~= 'b'
@@ -1109,7 +994,6 @@ model_tag = sprintf('M_%s_%d', tipo_antena, num_antenas);
 
 posiciones = calcular_posiciones(num_antenas);
 
-%% ── INICIALIZAR MODELO ────────────────────────────────────────────────────
 model = ModelUtil.create(model_tag);
 model.modelPath(carpeta_modelo);
 model.component.create('comp1', true);
@@ -1118,7 +1002,6 @@ model.component('comp1').mesh.create('mesh1');
 model.component('comp1').physics.create('emw', 'ElectromagneticWaves', 'geom1');
 model.component('comp1').physics.create('ht',  'BioHeat',              'geom1');
 
-%% ── PARAMETROS ────────────────────────────────────────────────────────────
 model.param.set('t',             '20[min]');
 model.param.set('T',             '37[degC]');
 model.param.set('P_in',          '10[W]');
@@ -1150,7 +1033,6 @@ model.param.set('eps_cat',       '2.6');
 model.param.set('eps_diel',      '2.03');
 model.param.set('idx_caso',      '0', 'Indice de Escenario (0=Cte, 1-8=Dinamicos)');
 
-%% ── FUNCIONES DE INTERPOLACION ───────────────────────────────────────────
 for i = 1:length(dataset_tejidos)
     FuncN = dataset_tejidos(i).nombre;
     FuncN = regexprep(FuncN, '[+]', 'mas');
@@ -1174,7 +1056,6 @@ for i = 1:length(dataset_tejidos)
     model.component('comp1').func(Nint).set('extrap','const');
 end
 
-%% ── VARIABLES DE TEJIDOS ──────────────────────────────────────────────────
 VT = 'Vars_Tejidos';
 model.component('comp1').variable.create(VT);
 model.component('comp1').variable(VT).label('Propiedades de Tejidos');
@@ -1217,7 +1098,6 @@ model.component('comp1').variable(VT).set('omega_musc_act', sprintf(str_w,'muscu
 model.component('comp1').variable(VT).set('omega_grasa_act',sprintf(str_w,'grasa','grasa','grasa','grasa','grasa'));
 model.component('comp1').variable(VT).set('omega_piel_act', sprintf(str_w,'piel','piel','piel','piel','piel'));
 
-%% ── GEOMETRIA (SIN TUMOR) ─────────────────────────────────────────────────
 model.component('comp1').geom('geom1').lengthUnit('mm');
 
 model.component('comp1').geom('geom1').create('cyl1','Cylinder');
@@ -1238,7 +1118,6 @@ model.component('comp1').geom('geom1').feature('cyl3').set('r',   50);
 model.component('comp1').geom('geom1').feature('cyl3').set('h',   18);
 model.component('comp1').geom('geom1').feature('cyl3').set('pos', [0 0 75]);
 
-% Catéteres
 cat_h   = 130;
 cat_z   = 8.6 + 10;
 ids_cat = cell(1, num_antenas);
@@ -1254,7 +1133,6 @@ for k = 1:num_antenas
     model.component('comp1').geom('geom1').feature(cid).set('pos', [dx dy cat_z]);
 end
 
-% Antenas
 for k = 1:num_antenas
     sfx = num2str(k);
     dx  = posiciones(k,1);
@@ -1289,14 +1167,12 @@ for k = 1:num_antenas
     model.component('comp1').geom('geom1').feature(mov_id).set('displz', cfg.displ_z);
 end
 
-% Booleana: tejidos menos catéteres (SIN esfera de tumor)
 model.component('comp1').geom('geom1').create('dif1','Difference');
 model.component('comp1').geom('geom1').feature('dif1').selection('input').set({'cyl1','cyl2','cyl3'});
 model.component('comp1').geom('geom1').feature('dif1').selection('input2').set(ids_cat);
 
 model.component('comp1').geom('geom1').run;
 
-%% ── MATERIALES (SIN TUMOR) ────────────────────────────────────────────────
 model.component('comp1').material.create('mat1','Common');
 model.component('comp1').material('mat1').label('Hueso Inteligente');
 model.component('comp1').material('mat1').propertyGroup('def').set('density',             '1908[kg/m^3]');
@@ -1355,9 +1231,7 @@ if tipo_antena ~= 'b'
     model.component('comp1').material('mat6').propertyGroup('def').set('electricconductivity',{'0[S/m]' '0' '0' '0' '0[S/m]' '0' '0' '0' '0[S/m]'});
     model.component('comp1').material('mat6').selection.set(dom_aire_total);
 end
-% mat7 (Tumor) eliminado completamente
 
-%% ── SELECCIONES ───────────────────────────────────────────────────────────
 model.component('comp1').selection.create('dom_tejidos_ext','Explicit');
 model.component('comp1').selection('dom_tejidos_ext').geom('geom1',3);
 model.component('comp1').selection('dom_tejidos_ext').set([1 2 3]);
@@ -1371,7 +1245,6 @@ bnd_data             = mphgetselection(model.component('comp1').selection('bnd_s
 bnd_tejidos_ids      = bnd_data.entities;
 todos_los_boundaries = unique([bnd_tejidos_ids, cfg.dom_cat_b]);
 
-%% ── FISICA EMW ────────────────────────────────────────────────────────────
 model.component('comp1').physics('emw').create('sctr1','Scattering',2);
 model.component('comp1').physics('emw').feature('sctr1').selection.set(todos_los_boundaries);
 
@@ -1384,7 +1257,6 @@ for k = 1:num_antenas
     model.component('comp1').physics('emw').feature(pid).set('PortExcitation','on');
 end
 
-%% ── FISICA BIOHEAT (SIN TUMOR) ────────────────────────────────────────────
 model.component('comp1').physics('ht').selection.set([1 2 3]);
 
 bioheat_cfg = { ...
@@ -1413,10 +1285,9 @@ end
 model.component('comp1').physics('ht').feature('init1').set('Tinit','T_sangre');
 model.component('comp1').multiphysics.create('emh1','ElectromagneticHeating',3);
 
-%% ── MALLA (SIN TUMOR) ─────────────────────────────────────────────────────
 model.component('comp1').mesh('mesh1').create('ftet1','FreeTet');
 model.component('comp1').mesh('mesh1').feature('ftet1').selection.geom('geom1',3);
-model.component('comp1').mesh('mesh1').feature('ftet1').selection.set([1 2 3]);  % sin dom_tumor
+model.component('comp1').mesh('mesh1').feature('ftet1').selection.set([1 2 3]);
 model.component('comp1').mesh('mesh1').feature('ftet1').create('size1','Size');
 model.component('comp1').mesh('mesh1').feature('ftet1').feature('size1').set('custom',       true);
 model.component('comp1').mesh('mesh1').feature('ftet1').feature('size1').set('hmaxactive',   true);
@@ -1452,10 +1323,7 @@ model.component('comp1').mesh('mesh1').run();
 fprintf('   Modelo base (sin tumor) construido.\n');
 end
 
-
-%% ============================================================
-%  crear_study  —  identica al original
-%% ============================================================
+% Configura el estudio electromagnetico y termico transitorio.
 function crear_study(model, tag_std, tag_sol, tiempo_simulacion_min, paso_tiempo_min)
 if nargin < 4 || isempty(tiempo_simulacion_min), tiempo_simulacion_min = 20; end
 if nargin < 5 || isempty(paso_tiempo_min), paso_tiempo_min = 1; end
@@ -1580,16 +1448,13 @@ model.sol(tag_sol).feature('t1').feature.remove('fcDef');
 model.sol(tag_sol).attach(tag_std);
 end
 
-
-%% ============================================================
-%  FUNCIONES AUXILIARES  —  identicas al original
-%% ============================================================
-
+% Inicializa el indice de soluciones simuladas.
 function tabla = init_tabla()
     tabla = struct('tag_std',{},'tag_sol',{},'tag_dset',{}, ...
         'idx_caso',{},'P_ant',{},'P_tot',{},'estado',{},'t_sim_min',{});
 end
 
+% Distribuye las antenas segun el arreglo seleccionado.
 function posiciones = calcular_posiciones(num_antenas)
     d = 20;
     switch num_antenas
@@ -1600,6 +1465,7 @@ function posiciones = calcular_posiciones(num_antenas)
     end
 end
 
+% Comprueba si una solucion ya contiene resultados.
 function existe = solucion_existe(model, tabla, tag_sol)
     existe = false;
     info = buscar(tabla, tag_sol);
@@ -1617,6 +1483,7 @@ function existe = solucion_existe(model, tabla, tag_sol)
     end
 end
 
+% Retira resultados y estudios de una solucion.
 function limpiar(model, tag_std, tag_sol, tag_dset)
     try model.result.dataset.remove(tag_dset); catch, end
     try model.sol(tag_sol).clearSolution();    catch, end
@@ -1625,6 +1492,7 @@ function limpiar(model, tag_std, tag_sol, tag_dset)
     try model.study.remove(tag_std);           catch, end
 end
 
+% Detecta carbonizacion sostenida desde el primer minuto.
 function carbon = detectar_carbonizacion(model, tag_dset, T_CRITICA)
     if nargin < 3, T_CRITICA = 500; end
     carbon = false;
@@ -1675,6 +1543,7 @@ function carbon = detectar_carbonizacion(model, tag_dset, T_CRITICA)
     end
 end
 
+% Actualiza el estado de una solucion simulada.
 function tabla = registrar(tabla, tag_std, tag_sol, tag_dset, ...
         idx_caso, P_ant, P_tot, estado, t_sim_min)
     for k = 1:length(tabla)
@@ -1695,6 +1564,7 @@ function tabla = registrar(tabla, tag_std, tag_sol, tag_dset, ...
     tabla(n).t_sim_min  = t_sim_min;
 end
 
+% Localiza una solucion en el indice.
 function info = buscar(tabla, tag_sol)
     info = [];
     for k = 1:length(tabla)
@@ -1705,6 +1575,7 @@ function info = buscar(tabla, tag_sol)
     end
 end
 
+% Guarda las posiciones del arreglo de antenas.
 function guardar_coordenadas(ruta_carpeta, num_antenas, posiciones)
     ruta_txt = fullfile(ruta_carpeta, 'Coordenadas_Antenas.txt');
     if exist(ruta_txt, 'file'), return; end
@@ -1717,7 +1588,7 @@ function guardar_coordenadas(ruta_carpeta, num_antenas, posiciones)
     fclose(fid);
 end
 
-
+% Identifica simulaciones pendientes mediante el indice guardado.
 function [completo, pendientes] = verificar_modelo_mat(ruta_indice, potencias, casos)
 
 estados_finales = {'OK','CARBON_MIN1','CARBON_SOSTENIDA_MIN1', ...
@@ -1743,7 +1614,7 @@ for ic = 1:length(casos)
     tag_p1   = sprintf('sol_c%d_p%d', idx_caso, potencias(1));
     info_p1  = buscar(tabla, tag_p1);
     if ~isempty(info_p1) && strcmp(info_p1.estado, 'CARBON_SOSTENIDA_MIN1')
-        continue 
+        continue
     end
 
     for ip = 1:length(potencias)
@@ -1762,6 +1633,7 @@ end
 completo = isempty(pendientes);
 end
 
+% Normaliza y valida los parametros de simulacion.
 function config = normalizar_config_generador(config_ui, nombres_tipos)
     if nargin < 2 || isempty(nombres_tipos)
         nombres_tipos = {'Doble_slot', 'Monopolo', 'Un_slot'};
@@ -1806,7 +1678,7 @@ function config = normalizar_config_generador(config_ui, nombres_tipos)
         if isempty(idx)
             error('Tipo de antena no reconocido: %s', char(tipos_seleccionados{k}));
         end
-        idx_tipos(end+1) = idx; 
+        idx_tipos(end+1) = idx;
     end
     idx_tipos = unique(idx_tipos, 'stable');
 
@@ -1819,24 +1691,7 @@ function config = normalizar_config_generador(config_ui, nombres_tipos)
         'paso_tiempo_min', paso_tiempo_min);
 end
 
-function potencia_total_max = potencia_total_maxima_generador( ...
-        num_antenas, potencia_total_max_1a3, potencia_total_max_4ant)
-    if num_antenas == 4
-        potencia_total_max = potencia_total_max_4ant;
-    else
-        potencia_total_max = potencia_total_max_1a3;
-    end
-end
-
-function umbral = umbral_carbonizacion_generador(umbrales, idx_caso)
-    posicion = idx_caso + 1;
-    if posicion < 1 || posicion > numel(umbrales)
-        error('No existe umbral de carbonizacion para el caso %d.', ...
-            idx_caso);
-    end
-    umbral = umbrales(posicion);
-end
-
+% Construye rangos enteros dentro de los limites permitidos.
 function valores = crear_rango_entero(inicio, fin, paso, minimo, maximo, etiqueta)
     if ~isnumeric(inicio) || ~isscalar(inicio) || ~isnumeric(fin) || ~isscalar(fin)
         error('El rango de %s debe usar valores numericos escalares.', etiqueta);
@@ -1861,6 +1716,7 @@ function valores = crear_rango_entero(inicio, fin, paso, minimo, maximo, etiquet
     valores = unique(round(valores), 'stable');
 end
 
+% Detecta las geometrias de antenas disponibles.
 function disponibles = detectar_antenas_disponibles(ruta_antenas)
     disponibles = {};
     if isempty(ruta_antenas) || ~isfolder(ruta_antenas)
@@ -1872,11 +1728,12 @@ function disponibles = detectar_antenas_disponibles(ruta_antenas)
         'Un_slot',    'Antena_un_slot_12cm_3D.mphbin'};
     for k = 1:size(patrones, 1)
         if isfile(fullfile(ruta_antenas, patrones{k, 2}))
-            disponibles{end+1} = patrones{k, 1}; 
+            disponibles{end+1} = patrones{k, 1};
         end
     end
 end
 
+% Resume las soluciones registradas sin abrir modelos COMSOL.
 function lineas = inspeccionar_simulaciones_generador(ruta_raiz)
     lineas = {};
     if isempty(ruta_raiz) || ~isfolder(ruta_raiz)
@@ -1915,7 +1772,7 @@ function lineas = inspeccionar_simulaciones_generador(ruta_raiz)
                 tabla = struct([]);
             end
         catch ME
-            lineas{end+1} = sprintf('[ERROR] %s: %s', ruta_indice, ME.message); 
+            lineas{end+1} = sprintf('[ERROR] %s: %s', ruta_indice, ME.message);
             continue;
         end
 
@@ -1935,19 +1792,20 @@ function lineas = inspeccionar_simulaciones_generador(ruta_raiz)
         pot = valores_unicos_tabla(tabla, 'P_ant');
         ptot = valores_unicos_tabla(tabla, 'P_tot');
         lineas{end+1} = sprintf('%s | soluciones: %d | estados: %s', ...
-            modelo, n, formatear_estados(estados)); 
+            modelo, n, formatear_estados(estados));
         lineas{end+1} = sprintf('  Casos: %s | P_ant: %s W | P_tot: %s W', ...
-            mat2str(casos), mat2str(pot), mat2str(ptot)); 
-        lineas{end+1} = sprintf('  MAT contiene variables: %s', strjoin(campos, ', ')); 
+            mat2str(casos), mat2str(pot), mat2str(ptot));
+        lineas{end+1} = sprintf('  MAT contiene variables: %s', strjoin(campos, ', '));
         if ~isempty(tabla)
             lineas{end+1} = sprintf('  tags_completos contiene campos: %s', ...
-                strjoin(fieldnames(tabla), ', ')); 
+                strjoin(fieldnames(tabla), ', '));
         end
     end
     lineas{2} = sprintf('%s | soluciones registradas: %d | estados globales: %s', ...
         lineas{2}, total_sols, formatear_estados(estados_globales));
 end
 
+% Cuenta las soluciones por estado de simulacion.
 function estados = contar_estados(tabla)
     estados = struct();
     if isempty(tabla) || ~isfield(tabla, 'estado')
@@ -1962,6 +1820,7 @@ function estados = contar_estados(tabla)
     end
 end
 
+% Prepara el resumen textual de estados.
 function txt = formatear_estados(estados)
     nombres = fieldnames(estados);
     if isempty(nombres)
@@ -1975,6 +1834,7 @@ function txt = formatear_estados(estados)
     txt = strjoin(partes, ', ');
 end
 
+% Obtiene valores unicos del indice de soluciones.
 function valores = valores_unicos_tabla(tabla, campo)
     valores = [];
     if isempty(tabla) || ~isfield(tabla, campo)
@@ -1987,93 +1847,14 @@ function valores = valores_unicos_tabla(tabla, campo)
     end
 end
 
-function valor = obtener_campo_config(config, campo, valor_default)
-    valor = valor_default;
-    if isstruct(config) && isfield(config, campo) && ~isempty(config.(campo))
-        valor = config.(campo);
-    end
-end
-
-% ---- Fin copia local: generador_sin_metales_multi_solucion_sin_tumor.m ----
-end
-% ---- Inicio logica local: extractor COMSOL por solucion ----
-function extractor_comsol_por_solucion(varargin)
-% =========================================================================
-%  EXTRACTOR COMSOL DE DATOS TÉRMICOS POR SOLUCIÓN
-% =========================================================================
-%
-%  FUNCIONALIDAD
-%  Recorre modelos .mph, identifica datasets transitorios y extrae dos
-%  canales: snapshots 3D y sondas puntuales T(t). Cada solución se guarda
-%  directamente en un MAT clasificado por metadata.
-%
-%  ESTÁNDAR DE LIMPIEZA
-%  - Nombre principal y funciones auxiliares en snake_case.
-%  - Variables de control y callbacks normalizados a español cuando no afectan
-%    el esquema externo de datos.
-%  - Se conserva la lógica numérica/original del módulo.
-%  - Se conservan nombres de campos externos usados por archivos .mat, COMSOL
-%    o módulos dependientes: dataset, snapshots, points, T, t_min, probes,
-%    p_arreglo, entre otros.
-% =========================================================================
-
-% =========================================================================
-%  COMSOL_EXTRACTOR_POR_SOLUCION
-%
-%  Extracción automática de datos térmicos desde modelos .mph.
-%  Genera un MAT autocontenido por solución y mantiene el índice de
-%  metadata consumido por Procesamiento y el Manejador Visual.
-%
-%  ESTRUCTURA DEL .mat DE SALIDA:
-%    dataset.(nombre_modelo).(tag_dataset)
-%      .snapshots(k)           Instante k (Canal A — zona de ablación)
-%        .t_min                  Escalar — minuto
-%        .points  [Nk x 3]       Coordenadas mm de puntos en zona de ablación
-%        .T       [Nk x 1]       Temperatura en esos puntos (°C)
-%        .T_min_C / .T_max_C     Rango global del instante
-%        .n_pts_total / _filtered
-%      .t_min     [nT x 1]     Minutos de todos los instantes
-%      .probes                 Canal B — struct por sonda
-%      .full_field
-%        .points  [N x 3]       Rejilla compartida en mm (single)
-%        .T_C     [N x nT]      Campo completo; NaN fuera del dominio
-%        .label                  String identificador
-%        .coord_mm [1x3]         Coordenada pedida (mm)
-%        .coord_real [1x3]       Punto real más cercano (mm)
-%        .t_min    [nT x 1]      Minutos
-%        .T        [nT x 1]      Temperatura (°C), sin filtrar
-%        .in_domain              true si el punto está dentro del dominio
-%        .min_dist_mm            Distancia al nodo más cercano de la malla
-%      .metadata               Parámetros de extracción y timestamps
-%
-%  NOTAS DE DISEÑO:
-%    - Canal A: snapshot compatible con todos los puntos T >= temperatura_ablacion
-%    - El campo completo se conserva sin eliminar temperaturas carbonizadas
-%    - temperatura_carbonizacion se usa como indicador, no como filtro
-%    - Canal B: sonda sin filtrar, réplica exacta del CutPoint de COMSOL
-%    - Si una sonda queda fuera del dominio se hace snap al nodo más cercano
-%    - Los modelos se liberan de memoria tras cada extracción
-% =========================================================================
-    if nargin >= 1 && ischar(varargin{1}) && ...
-            strcmpi(varargin{1}, 'selftest_particiones')
-        ejecutar_selftest_particiones_extractor();
-        return;
-    end
-    if nargin == 0
-        error('Use modulo_interaccion_comsol para abrir la UI integrada o pase ''run'', config.');
-    end
-
-    config_ui = struct();
-    if nargin >= 2 && strcmpi(varargin{1}, 'run')
-        config_ui = varargin{2};
-    end
+% Extrae y guarda campos termicos y sondas por solucion.
+function extractor_comsol_por_solucion(config_ui)
     configurar_log_extractor(obtener_campo_config(config_ui, 'logfn', []));
     limpieza_logger = onCleanup(@() configurar_log_extractor([]));
 
     clc;
     import com.comsol.model.*
     import com.comsol.model.util.*
-    % Configuracion normalizada desde UI/CLI.
     config_extractor = normalizar_config_extractor(config_ui);
     ruta_raiz = obtener_campo_config(config_ui, 'ruta_raiz', '');
     ruta_salida_particiones = obtener_campo_config(config_ui, ...
@@ -2092,7 +1873,6 @@ function extractor_comsol_por_solucion(varargin)
     log_extractor('\n╔════════════════════════════════════════════════════════════╗\n');
     log_extractor('║      COMSOL EXTRACTOR POR SOLUCION — dual-canal           ║\n');
     log_extractor('╚════════════════════════════════════════════════════════════╝\n\n');
-    % ── Selección de carpeta raíz ─────────────────────────────────────────
     if isempty(ruta_raiz)
         ruta_raiz = uigetdir(pwd, 'Selecciona la carpeta raíz con los modelos .mph');
         if isequal(ruta_raiz, 0)
@@ -2101,12 +1881,7 @@ function extractor_comsol_por_solucion(varargin)
         end
     end
     log_extractor('Carpeta raíz : %s\n', ruta_raiz);
-    % ── Validar etiquetas de sondas ──────────────────────────────────────
     nProbes = size(puntos_sonda, 1);
-    if isempty(etiquetas_sonda) || numel(etiquetas_sonda) ~= nProbes
-        etiquetas_sonda = arrayfun(@(k) sprintf('P%d', k), 1:nProbes, 'UniformOutput', false);
-    end
-    % ── Buscar todos los .mph de forma recursiva ─────────────────────────
     mph_list = dir(fullfile(ruta_raiz, '**', '*.mph'));
     mph_list = mph_list(~[mph_list.isdir]);
     n_modelos_total = numel(mph_list);
@@ -2119,7 +1894,6 @@ function extractor_comsol_por_solucion(varargin)
         return;
     end
     log_extractor('Modelos encontrados: %d\n\n', n_modelos);
-    % ── Carpeta definitiva de particiones clasificadas por metadata ───────
     if isempty(ruta_salida_particiones)
         data_paths = tesis_auxiliares('dataset_paths');
         ruta_salida_particiones = data_paths.datasets_masivos_por_metadata;
@@ -2129,7 +1903,6 @@ function extractor_comsol_por_solucion(varargin)
     end
     estado_indice = cargar_estado_indice_soluciones(ruta_salida_particiones);
     log_extractor('Salida por solución: %s\n', ruta_salida_particiones);
-    % ── Metadatos globales de la sesión ───────────────────────────────────
     session_meta = struct( ...
         'fecha',          char(datetime('now', 'Format', 'yyyy-MM-dd HH:mm:ss')), ...
         'ruta_raiz',      ruta_raiz, ...
@@ -2143,9 +1916,6 @@ function extractor_comsol_por_solucion(varargin)
         'n_smooth_iter',  numero_iteraciones_suavizado, ...
         'alpha_radius',   radio_alpha, ...
         'config_extractor', config_extractor);
-    % =====================================================================
-    %  BUCLE PRINCIPAL — un modelo a la vez
-    % =====================================================================
     errores = {};
     n_particiones_generadas = 0;
     n_particiones_vigentes = 0;
@@ -2156,24 +1926,18 @@ function extractor_comsol_por_solucion(varargin)
         firma_origen = crear_firma_archivo_mph(mph_path);
         sep();
         log_extractor('[Modelo %d/%d]  %s\n', mi, n_modelos, mph_list(mi).name);
-        % Cargar modelo
         try
             model = mphload(mph_path);
             log_extractor('  Modelo cargado OK.\n');
         catch ME_load
             log_extractor('  [ERROR] No se pudo cargar: %s\n', ME_load.message);
-            errores{end+1} = sprintf('%s — carga: %s', model_name, ME_load.message); %#ok
+            errores{end+1} = sprintf('%s — carga: %s', model_name, ME_load.message);
             continue;
         end
-        
-        % ── TRATAMIENTO DE EXCEPCIÓN: MODELOS DE 1 ANTENA ─────────────────
-        % Se genera una copia local para este modelo. Si la ruta o archivo
-        % contiene '1ant', movemos dinámicamente el punto [0,0,34] a [1,1,34].
+
         [p_points, meta_desfase_1antena] = aplicar_desfase_1antena( ...
             puntos_sonda, mph_path, desfase_1antena);
-        % ─────────────────────────────────────────────────────────────────
-        
-        % ── Recorrer datasets del modelo ──────────────────────────────────
+
         try
             ds_tags = model.result.dataset.tags();
         catch
@@ -2192,7 +1956,7 @@ function extractor_comsol_por_solucion(varargin)
                     'tag_dataset', tag, ...
                     'motivo', motivo_omision, ...
                     'caso', metadata_dataset.caso, ...
-                    'potencia_W', metadata_dataset.potencia_W); 
+                    'potencia_W', metadata_dataset.potencia_W);
                 log_extractor('  [DS %d/%d %s] Omitido: %s\n', ...
                     di, numel(ds_tags), tag, motivo_omision);
                 continue;
@@ -2232,7 +1996,7 @@ function extractor_comsol_por_solucion(varargin)
                     'tag_dataset', tag, ...
                     'motivo', 'sin vector temporal transitorio util', ...
                     'caso', metadata_dataset.caso, ...
-                    'potencia_W', metadata_dataset.potencia_W); 
+                    'potencia_W', metadata_dataset.potencia_W);
                 continue;
             end
             t_sol_min = t_sol_s / 60;
@@ -2291,7 +2055,7 @@ function extractor_comsol_por_solucion(varargin)
             n_particiones_generadas = n_particiones_generadas + 1;
             log_extractor('    Dataset "%s": %d snaps, %d sondas OK\n', tag, nT, nProbes);
             log_extractor('    Particion guardada: %s\n', ruta_particion);
-        end % datasets
+        end
 
         n_datasets_omitidos_total = n_datasets_omitidos_total + numel(datasets_omitidos);
         log_extractor('  Datasets extraidos: %d | omitidos: %d\n', ...
@@ -2303,16 +2067,12 @@ function extractor_comsol_por_solucion(varargin)
                     datasets_omitidos(oi).tag_dataset, datasets_omitidos(oi).motivo);
             end
         end
-        % Liberar modelo de memoria
         try
             ModelUtil.remove(model.tag());
         catch
         end
         log_extractor('\n  Modelo "%s" liberado.\n', model_name);
-    end % modelos
-    % =====================================================================
-    %  RESUMEN FINAL
-    % =====================================================================
+    end
     sep();
     log_extractor('\nRESUMEN DE EXTRACCIÓN\n');
     sep();
@@ -2331,9 +2091,8 @@ function extractor_comsol_por_solucion(varargin)
     log_extractor('\nCarpeta de salida: %s\n', ruta_salida_particiones);
     log_extractor('Extracción por solución completada.\n\n');
 end
-% =========================================================================
-%  FUNCIONES AUXILIARES
-% =========================================================================
+
+% Obtiene la identidad de la particion desde sus metadatos.
 function meta = crear_metadata_particion_solucion(mph_path, metadata_dataset)
     meta = tesis_auxiliares('metadata_ruta', mph_path, metadata_dataset);
     meta.es_util = meta.completa_simulacion;
@@ -2349,6 +2108,7 @@ function meta = crear_metadata_particion_solucion(mph_path, metadata_dataset)
     end
 end
 
+% Comprueba las particiones y su indice sin COMSOL.
 function ejecutar_selftest_particiones_extractor()
     mph = fullfile('C:', 'simulaciones_comsol', 'Doble_slot', '1ant', ...
         'modelo_Doble_slot_1ant.mph');
@@ -2390,6 +2150,7 @@ function ejecutar_selftest_particiones_extractor()
     fprintf('SELFTEST_PARTICIONES_EXTRACTOR_OK\n');
 end
 
+% Elimina los archivos temporales de la comprobacion.
 function borrar_carpeta_selftest_extractor(ruta)
     if isfolder(ruta)
         try
@@ -2399,6 +2160,7 @@ function borrar_carpeta_selftest_extractor(ruta)
     end
 end
 
+% Define la ruta y clave de cada particion.
 function [ruta_salida, partition_key] = construir_destino_solucion( ...
         root_salida, modelo, tag_dataset, meta)
     tipo = texto_metadata_o_default(meta.tipo, 'Tipo_desconocido');
@@ -2414,11 +2176,15 @@ function [ruta_salida, partition_key] = construir_destino_solucion( ...
         carpeta_potencia = 'Potencia_desconocida';
     end
     partition_key = sprintf('%s__%s', char(modelo), char(tag_dataset));
-    archivo = [sanitizar_nombre_particion(partition_key) '.mat'];
+    nombre_archivo = regexprep(partition_key, '[^\w.-]+', '_');
+    nombre_archivo = regexprep(nombre_archivo, '_+', '_');
+    nombre_archivo = regexprep(nombre_archivo, '^_+|_+$', '');
+    archivo = [nombre_archivo '.mat'];
     ruta_salida = fullfile(root_salida, tipo, antena, ...
         carpeta_caso, carpeta_potencia, archivo);
 end
 
+% Sustituye metadatos vacios por una etiqueta predeterminada.
 function texto = texto_metadata_o_default(valor, valor_default)
     if isempty(valor)
         texto = valor_default;
@@ -2427,12 +2193,7 @@ function texto = texto_metadata_o_default(valor, valor_default)
     end
 end
 
-function nombre = sanitizar_nombre_particion(nombre)
-    nombre = regexprep(char(nombre), '[^\w.-]+', '_');
-    nombre = regexprep(nombre, '_+', '_');
-    nombre = regexprep(nombre, '^_+|_+$', '');
-end
-
+% Comprueba si una particion guardada puede reutilizarse.
 function [vigente, motivo] = particion_solucion_vigente( ...
         ruta_particion, modelo, tag_dataset, mph_path, config, firma_origen)
     vigente = false;
@@ -2467,6 +2228,7 @@ function [vigente, motivo] = particion_solucion_vigente( ...
     end
 end
 
+% Guarda una particion mediante un archivo temporal.
 function guardar_particion_solucion(ruta_salida, ruta_entrada, modelo, ...
         tag_dataset, datos_solucion, session_meta, firma_origen, meta, partition_key)
     carpeta = fileparts(ruta_salida);
@@ -2503,11 +2265,13 @@ function guardar_particion_solucion(ruta_salida, ruta_entrada, modelo, ...
     end
 end
 
+% Genera una ruta temporal para guardar resultados.
 function ruta = crear_ruta_temporal_solucion(ruta_final)
     marca = char(datetime('now', 'Format', 'yyyyMMdd_HHmmss_SSS'));
     ruta = sprintf('%s.partial_%s_%06d', ruta_final, marca, randi(999999));
 end
 
+% Construye la entrada del indice para una particion.
 function item = crear_item_indice_solucion(ruta, fuente, modelo, ...
         tag_dataset, partition_key, meta)
     item = plantilla_item_indice_solucion(1);
@@ -2524,6 +2288,7 @@ function item = crear_item_indice_solucion(ruta, fuente, modelo, ...
     item.potencia_W = meta.potencia_W;
 end
 
+% Inicializa la estructura del indice de particiones.
 function items = plantilla_item_indice_solucion(n)
     plantilla = struct( ...
         'ruta', '', 'fuente', '', 'modelo', '', 'dataset', '', ...
@@ -2537,6 +2302,7 @@ function items = plantilla_item_indice_solucion(n)
     end
 end
 
+% Recupera y normaliza el indice de particiones existente.
 function estado = cargar_estado_indice_soluciones(carpeta_salida)
     estado = struct('raw', struct(), ...
         'particiones', plantilla_item_indice_solucion(0));
@@ -2547,8 +2313,17 @@ function estado = cargar_estado_indice_soluciones(carpeta_salida)
     try
         estado.raw = load(ruta_indice);
         if isfield(estado.raw, 'particiones') && isstruct(estado.raw.particiones)
-            estado.particiones = normalizar_items_indice_solucion( ...
-                estado.raw.particiones);
+            origen = estado.raw.particiones;
+            estado.particiones = plantilla_item_indice_solucion(numel(origen));
+            campos = fieldnames(estado.particiones);
+            for k = 1:numel(origen)
+                for c = 1:numel(campos)
+                    campo = campos{c};
+                    if isfield(origen, campo)
+                        estado.particiones(k).(campo) = origen(k).(campo);
+                    end
+                end
+            end
         end
     catch ME
         log_extractor('[WARN] No se pudo leer el indice existente: %s\n', ME.message);
@@ -2556,19 +2331,7 @@ function estado = cargar_estado_indice_soluciones(carpeta_salida)
     end
 end
 
-function items = normalizar_items_indice_solucion(origen)
-    items = plantilla_item_indice_solucion(numel(origen));
-    campos = fieldnames(items);
-    for k = 1:numel(origen)
-        for c = 1:numel(campos)
-            campo = campos{c};
-            if isfield(origen, campo)
-                items(k).(campo) = origen(k).(campo);
-            end
-        end
-    end
-end
-
+% Actualiza una particion sin duplicar su clave.
 function [estado, modificado] = registrar_item_indice_solucion(estado, item)
     modificado = true;
     if isempty(estado.particiones)
@@ -2585,6 +2348,7 @@ function [estado, modificado] = registrar_item_indice_solucion(estado, item)
     estado.particiones(idx) = item;
 end
 
+% Guarda el indice mediante un archivo temporal.
 function guardar_estado_indice_soluciones(carpeta_salida, estado)
     raw = estado.raw;
     raw.particiones = estado.particiones;
@@ -2606,6 +2370,7 @@ function guardar_estado_indice_soluciones(carpeta_salida, estado)
     end
 end
 
+% Obtiene los tiempos de una solucion transitoria.
 function [t_sol_s, tag_sol] = extraer_tiempos(model, tag)
     t_sol_s = [];
     tag_sol = '';
@@ -2630,6 +2395,8 @@ function [t_sol_s, tag_sol] = extraer_tiempos(model, tag)
     catch
     end
 end
+
+% Selecciona los instantes solicitados para la extraccion.
 function idx_ext = seleccionar_indices(t_sol_min, tiempos_min)
     if isempty(tiempos_min)
         idx_ext = (1:numel(t_sol_min))';
@@ -2641,6 +2408,8 @@ function idx_ext = seleccionar_indices(t_sol_min, tiempos_min)
         idx_ext = unique(idx_ext);
     end
 end
+
+% Extrae las series termicas de las sondas.
 function probes = extraer_sondas(model, tag, idx_ext, t_sol_min, ...
         puntos_sonda, etiquetas_sonda)
     nProbes = size(puntos_sonda, 1);
@@ -2650,7 +2419,7 @@ function probes = extraer_sondas(model, tag, idx_ext, t_sol_min, ...
         lbl        = etiquetas_sonda{p};
         nT         = numel(idx_ext);
         min_d      = Inf;
-        coord_real = coord_mm;   
+        coord_real = coord_mm;
         snap_usado = false;
         log_extractor('      [B%d] %-14s  [%.3g %.3g %.3g] mm\n', ...
             p, lbl, coord_mm(1), coord_mm(2), coord_mm(3));
@@ -2695,6 +2464,8 @@ function probes = extraer_sondas(model, tag, idx_ext, t_sol_min, ...
         probes.(lbl).min_dist_mm = min_d;
     end
 end
+
+% Interpola la temperatura temporal en una coordenada.
 function T_serie = interpolar_sonda(model, tag, idx_ext, coord_mm)
     nT      = numel(idx_ext);
     T_serie = NaN(nT, 1);
@@ -2705,7 +2476,7 @@ function T_serie = interpolar_sonda(model, tag, idx_ext, coord_mm)
             'solnum',  idx_ext', ...
             'unit',    'degC');
         T_serie = T_raw(:);
-        return;   
+        return;
     catch
     end
     for k = 1:nT
@@ -2720,6 +2491,8 @@ function T_serie = interpolar_sonda(model, tag, idx_ext, coord_mm)
         end
     end
 end
+
+% Busca un nodo cercano con temperaturas validas.
 function [coord_real, min_d, ok, T_serie, n_finitos] = nodo_mas_cercano(model, tag, idx_ext, coord_mm)
     coord_real = coord_mm;
     min_d      = Inf;
@@ -2768,6 +2541,8 @@ function [coord_real, min_d, ok, T_serie, n_finitos] = nodo_mas_cercano(model, t
     end
     ok = n_finitos > 0;
 end
+
+% Extrae el campo completo y los puntos de ablacion.
 function [snapshots, bbox, campo_completo] = extraer_snapshots( ...
         model, tag, idx_ext, t_sol_min, ...
         numero_grilla, temperatura_ablacion, temperatura_carbonizacion, dominio_hueso)
@@ -2914,6 +2689,8 @@ function [snapshots, bbox, campo_completo] = extraer_snapshots( ...
         end
     end
 end
+
+% Inicializa un instante sin datos termicos.
 function s = crear_snapshot_vacio()
     s = struct('t_min', 0, 'solnum', 0, ...
         'points',       zeros(0, 3), ...
@@ -2924,6 +2701,8 @@ function s = crear_snapshot_vacio()
         'n_pts_filtered', 0, ...
         'n_pts_carbonizacion', 0);
 end
+
+% Convierte identificadores COMSOL en nombres de campos MATLAB.
 function name = crear_nombre_campo(raw)
     name = regexprep(raw, '\.mph$', '', 'ignorecase');
     name = regexprep(name, '[^a-zA-Z0-9_]', '_');
@@ -2934,6 +2713,8 @@ function name = crear_nombre_campo(raw)
         name = 'modelo_sin_nombre';
     end
 end
+
+% Identifica temperaturas que requieren conversion a Celsius.
 function tf = es_kelvin(T)
     fin = T(isfinite(T));
     if isempty(fin)
@@ -2947,6 +2728,7 @@ function tf = es_kelvin(T)
     tf = min(fin) > 200;
 end
 
+% Normaliza y valida los parametros de extraccion.
 function config = normalizar_config_extractor(config_ui)
     puntos_default = [
         0, 0, 18.6;
@@ -3006,10 +2788,6 @@ function config = normalizar_config_extractor(config_ui)
             max(1, round(obtener_campo_config(config_ui, 'potencia_paso', 5))), 0, Inf);
     end
 
-    validar_config_extractor(config);
-end
-
-function validar_config_extractor(config)
     if config.temperatura_ablacion < 55
         error('La temperatura minima para STL no puede ser menor que 55 C.');
     end
@@ -3035,6 +2813,7 @@ function validar_config_extractor(config)
     end
 end
 
+% Ajusta las sondas para modelos de una antena.
 function [puntos_ajustados, meta] = aplicar_desfase_1antena(puntos_sonda, mph_path, desfase)
     puntos_ajustados = puntos_sonda;
     es_1antena = contains(mph_path, '1ant', 'IgnoreCase', true);
@@ -3081,6 +2860,8 @@ function [puntos_ajustados, meta] = aplicar_desfase_1antena(puntos_sonda, mph_pa
     log_extractor('  [AVISO] Detectado modelo de 1 antena. Sondas ajustadas a X=%.4g, Y=%.4g; Z se conserva desde la tabla.\n', ...
         x_mm, y_mm);
 end
+
+% Decide si los datos guardados requieren nueva extraccion.
 function [reextraer, motivo] = debe_reextraer_modelo_existente(model_data, mph_path, config, firma_origen)
     reextraer = false;
     motivo = '';
@@ -3164,6 +2945,7 @@ function [reextraer, motivo] = debe_reextraer_modelo_existente(model_data, mph_p
     end
 end
 
+% Obtiene tamano y fecha del modelo de origen.
 function firma = crear_firma_archivo_mph(ruta_archivo)
     info = dir(ruta_archivo);
     if isempty(info)
@@ -3176,6 +2958,7 @@ function firma = crear_firma_archivo_mph(ruta_archivo)
         'datenum', info(1).datenum);
 end
 
+% Detecta cambios en el modelo COMSOL de origen.
 function [invalida, motivo] = firma_origen_invalida(model_data, firma_origen)
     invalida = false;
     motivo = '';
@@ -3197,6 +2980,7 @@ function [invalida, motivo] = firma_origen_invalida(model_data, firma_origen)
     end
 end
 
+% Revisa la integridad de las soluciones guardadas.
 function [incompleto, motivo] = modelo_tiene_registros_incompletos(model_data, config)
     incompleto = false;
     motivo = '';
@@ -3223,6 +3007,7 @@ function [incompleto, motivo] = modelo_tiene_registros_incompletos(model_data, c
     end
 end
 
+% Valida los campos requeridos de una solucion.
 function [invalido, motivo] = registro_dataset_incompleto(registro, config)
     invalido = false;
     motivo = '';
@@ -3269,6 +3054,7 @@ function [invalido, motivo] = registro_dataset_incompleto(registro, config)
     end
 end
 
+% Valida dimensiones y temperaturas del campo completo.
 function [invalido, motivo] = full_field_incompleto(full_field, t_min)
     invalido = false;
     motivo = '';
@@ -3303,6 +3089,7 @@ function [invalido, motivo] = full_field_incompleto(full_field, t_min)
     end
 end
 
+% Valida las series temporales de las sondas.
 function [invalidas, motivo] = probes_incompletas(probes, t_min)
     invalidas = false;
     motivo = '';
@@ -3338,6 +3125,7 @@ function [invalidas, motivo] = probes_incompletas(probes, t_min)
     end
 end
 
+% Compara los metadatos guardados con la configuracion actual.
 function [invalida, motivo] = metadata_incompatible(metadata, config)
     invalida = false;
     motivo = '';
@@ -3372,6 +3160,7 @@ function [invalida, motivo] = metadata_incompatible(metadata, config)
     end
 end
 
+% Compara los limites del dominio de extraccion.
 function incompatible = dominio_incompatible(dominio_previo, dominio_actual)
     incompatible = true;
     campos = {'habilitado', 'z_min_mm', 'z_max_mm', 'radio_mm'};
@@ -3390,6 +3179,7 @@ function incompatible = dominio_incompatible(dominio_previo, dominio_actual)
         ~valores_iguales(dominio_previo.radio_mm, dominio_actual.radio_mm);
 end
 
+% Compara parametros escalares con tolerancia numerica.
 function tf = valores_iguales(a, b)
     tf = false;
     if isempty(a) || isempty(b) || ~isscalar(a) || ~isscalar(b)
@@ -3400,6 +3190,7 @@ function tf = valores_iguales(a, b)
     tf = isfinite(a) && isfinite(b) && abs(a - b) <= 1e-9;
 end
 
+% Detecta soluciones sin identidad de caso y potencia.
 function [tiene_invalidos, motivo] = modelo_tiene_datasets_sin_metadata(model_data)
     tiene_invalidos = false;
     motivo = '';
@@ -3418,6 +3209,7 @@ function [tiene_invalidos, motivo] = modelo_tiene_datasets_sin_metadata(model_da
     end
 end
 
+% Valida el desplazamiento registrado para una antena.
 function [invalida, motivo, xy_esperado] = metadata_1ant_invalida(metadata)
     invalida = false;
     motivo = '';
@@ -3453,6 +3245,7 @@ function [invalida, motivo, xy_esperado] = metadata_1ant_invalida(metadata)
     end
 end
 
+% Verifica coordenadas y temperaturas de sondas desplazadas.
 function [invalidas, motivo] = probes_1ant_invalidas(probes, xy_esperado)
     invalidas = false;
     motivo = '';
@@ -3491,6 +3284,7 @@ function [invalidas, motivo] = probes_1ant_invalidas(probes, xy_esperado)
     end
 end
 
+% Interpreta los indicadores logicos de metadatos guardados.
 function tf = valor_logico_es_verdadero(valor)
     tf = false;
     if isempty(valor)
@@ -3503,6 +3297,7 @@ function tf = valor_logico_es_verdadero(valor)
     end
 end
 
+% Normaliza los instantes solicitados en minutos.
 function valores = normalizar_tiempos_min(valor)
     if isempty(valor)
         valores = [];
@@ -3519,6 +3314,7 @@ function valores = normalizar_tiempos_min(valor)
     end
 end
 
+% Normaliza listas de filtros textuales.
 function lista = normalizar_lista_texto(valor)
     if isempty(valor)
         lista = {};
@@ -3535,6 +3331,7 @@ function lista = normalizar_lista_texto(valor)
     end
 end
 
+% Normaliza listas numericas dentro de limites permitidos.
 function valores = normalizar_lista_entera(valor, minimo, maximo)
     if isempty(valor)
         valores = [];
@@ -3571,6 +3368,7 @@ function valores = normalizar_lista_entera(valor, minimo, maximo)
     valores = unique(nums, 'stable');
 end
 
+% Normaliza los rangos numericos del extractor.
 function valores = normalizar_rango_entero(inicio, fin, paso, minimo, maximo)
     if isempty(inicio) || isempty(fin)
         valores = [];
@@ -3592,6 +3390,7 @@ function valores = normalizar_rango_entero(inicio, fin, paso, minimo, maximo)
     end
 end
 
+% Selecciona modelos segun los filtros configurados.
 function [mph_filtrados, resumen] = aplicar_filtros_modelos_mph(mph_list, config)
     mph_filtrados = mph_list;
     if config.ignorar_filtros_modelo
@@ -3641,6 +3440,7 @@ function [mph_filtrados, resumen] = aplicar_filtros_modelos_mph(mph_list, config
         texto_lista(config.filtro_nombre), mat2str(config.potencias));
 end
 
+% Filtra soluciones por metadatos, caso y potencia.
 function [tf, motivo, metadata_dataset] = debe_extraer_dataset_por_config(tag_dataset, config)
     metadata_dataset = extraer_metadata_dataset(tag_dataset);
     tf = true;
@@ -3670,6 +3470,7 @@ function [tf, motivo, metadata_dataset] = debe_extraer_dataset_por_config(tag_da
     end
 end
 
+% Interpreta caso y potencia del identificador COMSOL.
 function metadata_dataset = extraer_metadata_dataset(tag_dataset)
     tag_original = char(tag_dataset);
     tag = lower(tag_original);
@@ -3697,6 +3498,7 @@ function metadata_dataset = extraer_metadata_dataset(tag_dataset)
     metadata_dataset.motivo = 'metadata valida';
 end
 
+% Formatea listas de filtros para el registro.
 function txt = texto_lista(lista)
     if isempty(lista)
         txt = '(todos)';
@@ -3710,6 +3512,7 @@ function txt = texto_lista(lista)
     end
 end
 
+% Recupera configuracion con valores predeterminados.
 function valor = obtener_campo_config(config, campo, valor_default)
     valor = valor_default;
     if isstruct(config) && isfield(config, campo) && ~isempty(config.(campo))
@@ -3717,6 +3520,7 @@ function valor = obtener_campo_config(config, campo, valor_default)
     end
 end
 
+% Gestiona el destino del registro de extraccion.
 function logger = configurar_log_extractor(nuevo_logger)
     persistent logger_actual
     if nargin > 0
@@ -3725,6 +3529,7 @@ function logger = configurar_log_extractor(nuevo_logger)
     logger = logger_actual;
 end
 
+% Envia mensajes de extraccion a consola o interfaz.
 function log_extractor(formato, varargin)
     logger = configurar_log_extractor();
     if isempty(logger)
@@ -3740,5 +3545,3 @@ function log_extractor(formato, varargin)
         end
     end
 end
-
-% ---- Fin logica local: extractor COMSOL por solucion ----

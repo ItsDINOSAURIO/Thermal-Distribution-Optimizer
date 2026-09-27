@@ -1,30 +1,18 @@
+% Interfaz_Ablacion_AlphaShape: reconstrucción y validación geométrica experimental.
+% Segmenta imágenes, calibra cortes y exporta superficies de ablación y hueso.
+% Alinea mallas experimentales y simuladas; calcula volumen, cobertura, Dice e IoU.
+
+% Inicia la reconstrucción y validación geométrica experimental.
 function Interfaz_Ablacion_AlphaShape()
-clc;
-close all;
 
 carpeta_modulo = fileparts(mfilename('fullpath'));
-candidatos_aux = {fullfile(carpeta_modulo, '..', 'aux_codes')};
-for k_aux = 1:numel(candidatos_aux)
-    if isfolder(candidatos_aux{k_aux})
-        addpath(candidatos_aux{k_aux});
-    end
-end
-
-paths = struct();
-if exist('tesis_auxiliares', 'file') == 2
-    root_proyecto = tesis_auxiliares('configurar_paths', carpeta_modulo);
-    paths = tesis_auxiliares('dataset_paths', root_proyecto);
-end
+addpath(fullfile(carpeta_modulo, '..', 'aux_codes'));
+root_proyecto = tesis_auxiliares('configurar_paths', carpeta_modulo);
+paths = tesis_auxiliares('dataset_paths', root_proyecto);
 theme = tesis_auxiliares('tema_ui');
 
 app = struct();
-if isfield(paths, 'verificacion_alpha_shape')
-    app.data_root = char(paths.verificacion_alpha_shape);
-elseif isfield(paths, 'root')
-    app.data_root = char(paths.root);
-else
-    app.data_root = fullfile(carpeta_modulo, '..', 'datasets');
-end
+app.data_root = char(paths.reconstrucciones);
 crearCarpeta(app.data_root);
 app.carpeta = string(app.data_root);
 app.catalogo_carpetas = struct('ruta', {}, 'etiqueta', {}, 'tipo', {}, ...
@@ -40,7 +28,6 @@ app.cara_imagen = [];
 app.BW_hueso_alineado = {};
 app.BW_ablacion = {};
 app.contorno_ablacion = {};
-app.imagenes_alineadas = {};
 app.idx_validas = [];
 app.mmPorPixel = [];
 app.distanciaPixeles = [];
@@ -55,13 +42,9 @@ app.puntos3D = [];
 app.carasSTL = [];
 app.verticesSTL = [];
 app.archivoSTL = "";
-app.STL_fijo="";
-app.STL_lib = "";
 app.RotX = 0;
 app.RotY = 0;
 app.RotZ = 0;
-app.V_gota = [];
-app.R = eye(3);
 app.T = [0 0 0];
 
 fig = uifigure('Name', 'Verificación experimental', ...
@@ -245,24 +228,24 @@ btnSTlHueso = crearBotonComparacion(gc, 'Generar STL de hueso', 3, [1 2], 'btn_s
 btnCalibrarSTL = crearBotonComparacion(gc, 'Calibrar por puntos', 4, [1 2], 'btn_calibrar_stl_alphashape', @(~, ~) CalibrarSTLPorPuntos());
 
 crearLabelAncho(gc, 'Rotación X', 5, 'lbl_rot_x_alphashape');
-btnMasX = crearBotonComparacion(gc, '+', 6, 1, 'btn_rot_x_mas_alphashape', @(~, ~) RotarMaX());
-btnMenX = crearBotonComparacion(gc, '-', 6, 2, 'btn_rot_x_menos_alphashape', @(~, ~) RotarMeX());
+btnMasX = crearBotonComparacion(gc, '+', 6, 1, 'btn_rot_x_mas_alphashape', @(~, ~) rotarSTL('X', 5));
+btnMenX = crearBotonComparacion(gc, '-', 6, 2, 'btn_rot_x_menos_alphashape', @(~, ~) rotarSTL('X', -5));
 crearLabelAncho(gc, 'Rotación Y', 7, 'lbl_rot_y_alphashape');
-btnMasY = crearBotonComparacion(gc, '+', 8, 1, 'btn_rot_y_mas_alphashape', @(~, ~) RotarMaY());
-btnMenY = crearBotonComparacion(gc, '-', 8, 2, 'btn_rot_y_menos_alphashape', @(~, ~) RotarMeY());
+btnMasY = crearBotonComparacion(gc, '+', 8, 1, 'btn_rot_y_mas_alphashape', @(~, ~) rotarSTL('Y', 5));
+btnMenY = crearBotonComparacion(gc, '-', 8, 2, 'btn_rot_y_menos_alphashape', @(~, ~) rotarSTL('Y', -5));
 crearLabelAncho(gc, 'Rotación Z', 9, 'lbl_rot_z_alphashape');
-btnMasZ = crearBotonComparacion(gc, '+', 10, 1, 'btn_rot_z_mas_alphashape', @(~, ~) RotarMaZ());
-btnMenZ = crearBotonComparacion(gc, '-', 10, 2, 'btn_rot_z_menos_alphashape', @(~, ~) RotarMeZ());
+btnMasZ = crearBotonComparacion(gc, '+', 10, 1, 'btn_rot_z_mas_alphashape', @(~, ~) rotarSTL('Z', 5));
+btnMenZ = crearBotonComparacion(gc, '-', 10, 2, 'btn_rot_z_menos_alphashape', @(~, ~) rotarSTL('Z', -5));
 
 crearLabelAncho(gc, 'Traslación X', 11, 'lbl_trans_x_alphashape');
-btnMasXTr = crearBotonComparacion(gc, '+', 12, 1, 'btn_trans_x_mas_alphashape', @(~, ~) TranslMaX());
-btnMenXTr = crearBotonComparacion(gc, '-', 12, 2, 'btn_trans_x_menos_alphashape', @(~, ~) TranslMeX());
+btnMasXTr = crearBotonComparacion(gc, '+', 12, 1, 'btn_trans_x_mas_alphashape', @(~, ~) trasladarSTL(1, 2));
+btnMenXTr = crearBotonComparacion(gc, '-', 12, 2, 'btn_trans_x_menos_alphashape', @(~, ~) trasladarSTL(1, -2));
 crearLabelAncho(gc, 'Traslación Y', 13, 'lbl_trans_y_alphashape');
-btnMasYTr = crearBotonComparacion(gc, '+', 14, 1, 'btn_trans_y_mas_alphashape', @(~, ~) TranslMaY());
-btnMenYTr = crearBotonComparacion(gc, '-', 14, 2, 'btn_trans_y_menos_alphashape', @(~, ~) TranslMeY());
+btnMasYTr = crearBotonComparacion(gc, '+', 14, 1, 'btn_trans_y_mas_alphashape', @(~, ~) trasladarSTL(2, 2));
+btnMenYTr = crearBotonComparacion(gc, '-', 14, 2, 'btn_trans_y_menos_alphashape', @(~, ~) trasladarSTL(2, -2));
 crearLabelAncho(gc, 'Traslación Z', 15, 'lbl_trans_z_alphashape');
-btnMasZTr = crearBotonComparacion(gc, '+', 16, 1, 'btn_trans_z_mas_alphashape', @(~, ~) TranslMaZ());
-btnMenZTr = crearBotonComparacion(gc, '-', 16, 2, 'btn_trans_z_menos_alphashape', @(~, ~) TranslMeZ());
+btnMasZTr = crearBotonComparacion(gc, '+', 16, 1, 'btn_trans_z_mas_alphashape', @(~, ~) trasladarSTL(3, 2));
+btnMenZTr = crearBotonComparacion(gc, '-', 16, 2, 'btn_trans_z_menos_alphashape', @(~, ~) trasladarSTL(3, -2));
 activarScroll(pnlComparacion);
 activarScroll(gc);
 
@@ -318,7 +301,19 @@ for idx_catalogo = 1:numel(carpetas_catalogo)
     entrada_catalogo.etiqueta = strjoin([partes_etiqueta, {relativa_catalogo}], ' | ');
     app.catalogo_carpetas(end + 1) = entrada_catalogo;
 end
-actualizarVisibilidadFiltrosMetadata();
+for idx_visibilidad = 1:numel(filtrosMetadata)
+    campo_visibilidad = filtrosMetadata(idx_visibilidad).campo;
+    valores_visibilidad = {app.catalogo_carpetas.(campo_visibilidad)};
+    visible_metadata = any(~cellfun('isempty', valores_visibilidad));
+    filtrosMetadata(idx_visibilidad).control.Visible = visible_metadata;
+    filtrosMetadata(idx_visibilidad).label.Visible = visible_metadata;
+    if visible_metadata
+        ctrl.RowHeight{filtrosMetadata(idx_visibilidad).fila} = 30;
+    else
+        filtrosMetadata(idx_visibilidad).control.Value = 'Todos';
+        ctrl.RowHeight{filtrosMetadata(idx_visibilidad).fila} = 0;
+    end
+end
 aplicarFiltrosMetadata();
 tesis_auxiliares('tema_ui', 'apply', fig);
 tesis_auxiliares('tema_ui', 'textarea', txtEstado);
@@ -334,26 +329,25 @@ tesis_auxiliares('tema_ui', 'button', btnReconstruir, 'success');
 tesis_auxiliares('tema_ui', 'button', btnComparar, 'success');
 limpiarAxes();
 
+    % Crea un panel con el estilo del proyecto.
     function p = crearPanel(parent, tituloPanel, row, col, tag)
         p = uipanel(parent, 'Title', tituloPanel, ...
             'TitlePosition', 'centertop', 'Tag', tag);
         p.Layout.Row = row;
         p.Layout.Column = col;
-        if exist('tesis_auxiliares', 'file') == 2
-            tesis_auxiliares('tema_ui', 'panel', p);
-        end
+        tesis_auxiliares('tema_ui', 'panel', p);
     end
 
+    % Etiqueta un parámetro de reconstrucción.
     function crearLabel(parent, texto, row, tag)
         lbl = uilabel(parent, 'Text', texto, 'Tag', tag);
         lbl.Tooltip = descripcionControlExperimental(texto);
         lbl.Layout.Row = row;
         lbl.Layout.Column = 1;
-        if exist('tesis_auxiliares', 'file') == 2
-            tesis_auxiliares('tema_ui', 'label', lbl, 'normal');
-        end
+        tesis_auxiliares('tema_ui', 'label', lbl, 'normal');
     end
 
+    % Identifica una sección de controles.
     function crearLabelAncho(parent, texto, row, tag)
         lbl = uilabel(parent, ...
             'Text', texto, ...
@@ -362,11 +356,10 @@ limpiarAxes();
             'Tag', tag);
         lbl.Layout.Row = row;
         lbl.Layout.Column = [1 2];
-        if exist('tesis_auxiliares', 'file') == 2
-            tesis_auxiliares('tema_ui', 'label', lbl, 'section');
-        end
+        tesis_auxiliares('tema_ui', 'label', lbl, 'section');
     end
 
+    % Crea un selector de metadatos experimentales.
     function [control, lbl] = crearFiltroMetadata(parent, row, texto)
         lbl = uilabel(parent, 'Text', texto);
         lbl.Layout.Row = row;
@@ -376,12 +369,11 @@ limpiarAxes();
         lbl.Tooltip = ayuda; control.Tooltip = ayuda;
         control.Layout.Row = row;
         control.Layout.Column = 2;
-        if exist('tesis_auxiliares', 'file') == 2
-            tesis_auxiliares('tema_ui', 'label', lbl, 'normal');
-            tesis_auxiliares('tema_ui', 'dropdown', control);
-        end
+        tesis_auxiliares('tema_ui', 'label', lbl, 'normal');
+        tesis_auxiliares('tema_ui', 'dropdown', control);
     end
 
+    % Crea una acción del flujo de reconstrucción.
     function btn = crearBoton(parent, texto, row, tag, callback)
         btn = uibutton(parent, ...
             'Text', texto, ...
@@ -393,6 +385,7 @@ limpiarAxes();
         btn.Layout.Column = [1 2];
     end
 
+    % Crea una acción de alineación o comparación STL.
     function btn = crearBotonComparacion(parent, texto, row, col, tag, callback)
         btn = uibutton(parent, ...
             'Text', texto, ...
@@ -403,6 +396,7 @@ limpiarAxes();
         btn.Layout.Column = col;
     end
 
+    % Describe el propósito de los controles experimentales.
     function ayuda = descripcionControlExperimental(texto)
         clave = lower(char(texto));
         if contains(clave, 'caso')
@@ -450,6 +444,7 @@ limpiarAxes();
         end
     end
 
+    % Habilita desplazamiento en contenedores compatibles.
     function activarScroll(obj)
         if isprop(obj, 'Scrollable')
             try
@@ -460,6 +455,7 @@ limpiarAxes();
         end
     end
 
+    % Crea un área gráfica dentro de un panel.
     function ax = crearPanelEje(parent, tituloPanel, row, col, tag)
         pnl = crearPanel(parent, tituloPanel, row, col, [tag '_panel']);
         gax = uigridlayout(pnl, [1 1]);
@@ -469,6 +465,7 @@ limpiarAxes();
         ax.Layout.Column = 1;
     end
 
+    % Resuelve la carpeta inicial para seleccionar archivos STL.
     function inicio = directorioInicial()
         inicio = char(app.carpeta);
         if strlength(app.carpeta) == 0 || ~isfolder(inicio)
@@ -476,6 +473,7 @@ limpiarAxes();
         end
     end
 
+    % Filtra carpetas experimentales y sincroniza sus selectores.
     function aplicarFiltrosMetadata()
         for idx_objetivo = 1:numel(filtrosMetadata)
             control = filtrosMetadata(idx_objetivo).control;
@@ -532,22 +530,7 @@ limpiarAxes();
         end
     end
 
-    function actualizarVisibilidadFiltrosMetadata()
-        for idx = 1:numel(filtrosMetadata)
-            campo = filtrosMetadata(idx).campo;
-            valores = {app.catalogo_carpetas.(campo)};
-            visible = any(~cellfun('isempty', valores));
-            filtrosMetadata(idx).control.Visible = visible;
-            filtrosMetadata(idx).label.Visible = visible;
-            if visible
-                ctrl.RowHeight{filtrosMetadata(idx).fila} = 30;
-            else
-                filtrosMetadata(idx).control.Value = 'Todos';
-                ctrl.RowHeight{filtrosMetadata(idx).fila} = 0;
-            end
-        end
-    end
-
+    % Carga y ordena las imágenes del experimento seleccionado.
     function cargarCarpetaSeleccionada(carpeta)
         if isempty(carpeta) || ~isfolder(carpeta), return; end
         app.carpeta = string(carpeta);
@@ -559,7 +542,18 @@ limpiarAxes();
             return;
         end
 
-        app.fileList = ordenarPorNumero(fileList2);
+        nombres = {fileList2.name};
+        numeros = zeros(numel(nombres), 1);
+        for k = 1:numel(nombres)
+            token = regexp(nombres{k}, '\d+', 'match', 'once');
+            if isempty(token)
+                numeros(k) = k;
+            else
+                numeros(k) = str2double(token);
+            end
+        end
+        [~, orden] = sort(numeros);
+        app.fileList = fileList2(orden);
         app.nFiles = length(app.fileList);
         app.BW = cell(app.nFiles, 1);
         app.contorno = cell(app.nFiles, 1);
@@ -582,13 +576,11 @@ limpiarAxes();
         logEstado(['Dataset cargado: ' num2str(app.nFiles) ' imágenes.']);
     end
 
+    % Segmenta hueso y solicita validar cada imagen.
     function procesarImagenes()
         if app.nFiles == 0
             return;
         end
-
-        carpeta_salida = fullfile(app.carpeta, 'Alineadas');
-        crearCarpeta(carpeta_salida);
 
         for i = 1:app.nFiles
             nombre = app.fileList(i).name;
@@ -664,6 +656,7 @@ limpiarAxes();
         logEstado(['Imágenes válidas: ' num2str(length(app.idx_validas))]);
     end
 
+    % Calibra la escala y alinea los cortes experimentales.
     function calibrarYAlinear()
         if isempty(app.idx_validas)
             return;
@@ -711,6 +704,7 @@ limpiarAxes();
         logEstado(['Escala: ' num2str(app.mmPorPixel) ' mm/pixel. Alineación terminada.']);
     end
 
+    % Segmenta ablación y permite recortar las regiones detectadas.
     function segmentarAblacion()
         carpeta_ablacion = fullfile(app.carpeta, 'Ablacion_segmentada');
         carpeta_salida = fullfile(app.carpeta, 'Alineadas');
@@ -719,13 +713,11 @@ limpiarAxes();
         nValidas = length(app.idx_validas);
         app.BW_ablacion = cell(nValidas, 1);
         app.contorno_ablacion = cell(nValidas, 1);
-        app.imagenes_alineadas = cell(nValidas, 1);
 
         for k = 1:nValidas
             idx_img = app.idx_validas(k);
             nombreImg = app.fileList(idx_img).name;
             img_alineada = imread(fullfile(carpeta_salida, nombreImg));
-            app.imagenes_alineadas{k} = img_alineada;
 
             BW_hueso = app.BW_hueso_alineado{idx_img};
             [app.BW_ablacion{k}, app.contorno_ablacion{k}] = segmentarAblacionCafeCarbonizada(img_alineada, BW_hueso);
@@ -746,79 +738,77 @@ limpiarAxes();
             respuesta = uiconfirm(fig,'¿Desea recortar manualmente esta ablación?','Edición manual','Options',{'Sí','No'});
 
             if respuesta == "Sí"
-               
+
                 imshow(img_alineada,'Parent',axAblacion);
                 hold(axAblacion,'on');
-                
+
                 visboundaries(axAblacion,app.BW_ablacion{k},'Color','c','LineWidth',2);
-                
+
                 title(axAblacion,'Dibuje una línea atravesando la ablación');
                 while true
-                
+
                     h = drawfreehand(axAblacion,'Color','r');
-                    
+
                     lineMask = createMask(h);
-                    
+
                     lineMask = imdilate(lineMask,strel('disk',5));
-                    
+
                     BW_cortada = app.BW_ablacion{k};
                     BW_cortada(lineMask) = 0;
-                
+
                     L = bwlabel(BW_cortada);
-                
+
                     if max(L(:)) >= 2
                         break;
                     end
-                
+
                     uialert(fig,'La línea no dividió la ablación. Intente nuevamente.','Corte inválido');
-                
+
                 end
                 imshow(label2rgb(L),'Parent',axAblacion);
-                
+
                 title(axAblacion,'Haga clic sobre la mitad que desea conservar');
-                
+
                 p = drawpoint(axAblacion);
                 x = p.Position(1);
                 y = p.Position(2);
-                
+
                 fila = max(1,min(size(L,1),round(y)));
                 columna = max(1,min(size(L,2),round(x)));
-                
+
                 etiqueta = L(fila,columna);
-                
+
                 if etiqueta > 0
                     app.BW_ablacion{k} = (L == etiqueta);
                 end
                 B = bwboundaries(app.BW_ablacion{k});
-                
+
                 if ~isempty(B)
                     longitudes = cellfun(@length,B);
                     [~,idxMax] = max(longitudes);
                     app.contorno_ablacion{k} = B{idxMax};
                 end
-                
+
                 mostrarImagen(axAblacion,img_alineada,['Ablación - ' nombreImg]);
-                
+
                 hold(axAblacion,'on');
-                
+
                 if ~isempty(app.contorno_ablacion{k})
                     plot(axAblacion,app.contorno_ablacion{k}(:,2),app.contorno_ablacion{k}(:,1),'g','LineWidth',2);
                 end
-                
+
                 hold(axAblacion,'off');
                 imwrite(app.BW_ablacion{k}, fullfile(carpeta_ablacion,['MASK_' nombreImg]));
-            else 
-                continue
             end
-            
+        end
 
         save(fullfile(carpeta_ablacion, 'contornos_ablacion.mat'), '-struct', 'app', 'BW_ablacion', 'contorno_ablacion', 'cara_imagen', 'idx_validas', 'fileList');
 
         btnGrosores.Enable = 'on';
         logEstado('Segmentación de ablación terminada.');
-        end
     end
 
+    % Captura espesores y calcula posiciones de los cortes.
     function capturarGrosores()
         app.caras_validas = app.cara_imagen(app.idx_validas);
         app.segmento_imagen = asignarSegmentosPorCara(app.caras_validas);
@@ -852,6 +842,7 @@ limpiarAxes();
         logEstado('Grosores capturados.');
     end
 
+    % Reconstruye y guarda la superficie tridimensional de ablación.
     function reconstruir3D()
         if isempty(app.z_cortes)
             uialert(fig, 'Primero capture los grosores.', 'Faltan grosores');
@@ -883,7 +874,6 @@ limpiarAxes();
         title(ax3D, 'Reconstrucción 3D suavizada de ablación');
         tabs.SelectedTab = tab3D;
 
-        
         carpeta_ablacion = fullfile(app.carpeta, 'Ablacion_segmentada');
         app.archivoSTL = fullfile(carpeta_ablacion, 'reconstruccion_ablacion_3D.stl');
         escribirSTLASCII(app.archivoSTL, app.carasSTL, app.verticesSTL);
@@ -912,18 +902,19 @@ limpiarAxes();
         btnSTlHueso.Enable = 'on';
     end
 
+    % Reconstruye y exporta la superficie tridimensional del hueso.
     function CalculSTLhues()
-         if isempty(app.z_cortes)
+        if isempty(app.z_cortes)
             uialert(fig, 'Primero capture los grosores.', 'Faltan grosores');
             return;
         end
         BW_hueso_valido = app.BW_hueso_alineado(app.idx_validas);
-        [app.shp_hueso, app.puntos3D_hueso] = reconstruirAblacion3DAlphaShape( BW_hueso_valido ,app.z_cortes, app.mmPorPixel, spnAlpha.Value);
+        shp_hueso = reconstruirAblacion3DAlphaShape( BW_hueso_valido ,app.z_cortes, app.mmPorPixel, spnAlpha.Value);
 
-        [app.carasSTL_hueso, app.verticesSTL_hueso] = boundaryFacets(app.shp_hueso);
+        [app.carasSTL_hueso, app.verticesSTL_hueso] = boundaryFacets(shp_hueso);
 
         if spnSubdiv.Value > 0
-            [app.carasSTL_hueso, app.verticesSTL_hueso] = subdividirMallaTriangular( app.carasSTL, app.verticesSTL, round(spnSubdiv.Value));
+            [app.carasSTL_hueso, app.verticesSTL_hueso] = subdividirMallaTriangular( app.carasSTL_hueso, app.verticesSTL_hueso, round(spnSubdiv.Value));
         end
 
         if spnSuavizado.Value > 0
@@ -937,6 +928,7 @@ limpiarAxes();
         logEstado(['STL de hueso guardado: ' char(app.archivoSTL_hueso)]);
     end
 
+    % Restablece las gráficas del flujo de reconstrucción.
     function limpiarAxes()
         ejes = [axOriginal axKmeans axContorno axOverlay axAblacion ax3D];
 
@@ -947,6 +939,7 @@ limpiarAxes();
         end
     end
 
+    % Registra el estado de las operaciones experimentales.
     function logEstado(msg)
         anterior = txtEstado.Value;
         if ischar(anterior)
@@ -956,6 +949,7 @@ limpiarAxes();
         drawnow;
     end
 
+    % Calcula el volumen voxelizado del STL reconstruido.
     function CalcularVol()
         if strlength(app.archivoSTL) == 0 || ~isfile(app.archivoSTL)
             btnCalcular.Enable = 'off';
@@ -964,32 +958,32 @@ limpiarAxes();
         end
 
         TR = stlread(app.archivoSTL);
-        
+
         V = TR.Points;
         F = TR.ConnectivityList;
-        
+
         centroide = mean(V,1);
-        
+
         V = V - centroide;
-        
+
         resolucion = 1.5;
-        
+
         minV = min(V);
         maxV = max(V);
-        
+
         [xg,yg,zg] = meshgrid(minV(1):resolucion:maxV(1),minV(2):resolucion:maxV(2),minV(3):resolucion:maxV(3));
-        
+
         grid = [xg(:) yg(:) zg(:)];
-        
+
         mask = inpolyhedron(F,V,grid);
-        
+
         volumen = sum(mask) * resolucion^3;
 
-
         logEstado(['Volumen calculado: ' num2str(volumen) ' mm^3']);
-        
+
     end
-    
+
+    % Carga y centra la malla experimental reconstruida.
     function SelecionarSTL_fij()
         [archivo, ruta] = uigetfile({'*.stl', 'Archivos STL (*.stl)'}, ...
             'Selecciona el STL reconstruido', directorioInicial());
@@ -997,33 +991,22 @@ limpiarAxes();
         if isequal(archivo, 0)
             return;
         end
-        
-        app.STL_fijo = fullfile(ruta, archivo);
 
-        TR_1 = stlread(app.STL_fijo);
-        V_Fija = TR_1.Points; 
+        TR_1 = stlread(fullfile(ruta, archivo));
+        V_Fija = TR_1.Points;
         F_Fija = TR_1.ConnectivityList;
-        
+
         V_Fija = V_Fija - mean(V_Fija);
 
         app.V_Fija = V_Fija;
         app.F_Fija = F_Fija;
-                
-        cla(ax3D_1);
 
-        hold((ax3D_1),"on"); axis(ax3D_1, 'equal'); view(ax3D_1,3)
-        xlabel(ax3D_1,'X'); ylabel(ax3D_1, 'Y'); zlabel(ax3D_1, 'Z');
-        title(ax3D_1,'Comparación de volumen');
-        
-        patch(ax3D_1,'Faces',F_Fija,'Vertices',V_Fija,'FaceColor',[1 0 0],'EdgeColor','none','FaceAlpha',0.3);
-        
-        camlight(ax3D_1); lighting(ax3D_1, 'gouraud');
-        legend(ax3D_1,{'Reconstruido','Simulado'});
-        hold(ax3D_1,'on');
-        actualizarBotonCalibrarSTL();
-        
+        redibujarComparacionSTL('Comparación de volumen');
+        actualizarControlesSTL();
+
     end
 
+    % Carga y centra la malla simulada para compararla.
     function SelecionarSTL_rot()
         [archivo, ruta] = uigetfile({'*.stl', 'Archivos STL (*.stl)'}, ...
             'Selecciona el STL simulado', directorioInicial());
@@ -1031,56 +1014,39 @@ limpiarAxes();
         if isequal(archivo, 0)
             return;
         end
-        
-        app.STL_lib = fullfile(ruta, archivo);
 
-        TR = stlread(app.STL_lib);
+        TR = stlread(fullfile(ruta, archivo));
         V_lib = TR.Points;
         F_lib = TR.ConnectivityList;
-        
+
         V_lib = V_lib - mean(V_lib);
 
         app.F_lib = F_lib;
         app.V_lib = V_lib;
         app.V_lib_ori = V_lib;
+        app.RotX = 0;
+        app.RotY = 0;
+        app.RotZ = 0;
+        app.T = [0 0 0];
 
-        hold((ax3D_1),"on"); axis(ax3D_1, 'equal'); view(ax3D_1,3)
-        xlabel(ax3D_1,'X'); ylabel(ax3D_1, 'Y'); zlabel(ax3D_1, 'Z');
-        title(ax3D_1,'Comparación de volumen');
+        redibujarComparacionSTL('Comparación de volumen');
+        actualizarControlesSTL();
 
-        patch(ax3D_1,'Faces',F_lib,'Vertices',V_lib,'FaceColor',[0 0 1],'EdgeColor','none','FaceAlpha',0.6);
-        
-        camlight(ax3D_1); lighting(ax3D_1, 'gouraud');
-        legend(ax3D_1,{'Reconstruido','Simulado'});
-        hold(ax3D_1,'on');
-
-        btnComparar.Enable = 'on';
-        btnMasX.Enable = 'on';
-        btnMenX.Enable = 'on';
-        btnMasY.Enable = 'on';
-        btnMenY.Enable = 'on';
-        btnMasZ.Enable = 'on';
-        btnMenZ.Enable = 'on';
-        btnMasXTr.Enable = 'on';
-        btnMenXTr.Enable = 'on';
-        btnMasYTr.Enable = 'on';
-        btnMenYTr.Enable = 'on';
-        btnMasZTr.Enable = 'on';
-        btnMenZTr.Enable = 'on';
-        btnSTLNormZ.Enable = 'on';
-        actualizarBotonCalibrarSTL();
-        
     end
 
-    function actualizarBotonCalibrarSTL()
-        if isfield(app,'V_Fija') && ~isempty(app.V_Fija) && ...
-                isfield(app,'V_lib') && ~isempty(app.V_lib)
-            btnCalibrarSTL.Enable = 'on';
-        else
-            btnCalibrarSTL.Enable = 'off';
+    % Habilita la comparación cuando ambas mallas están disponibles.
+    function actualizarControlesSTL()
+        disponibles = isfield(app, 'V_Fija') && ~isempty(app.V_Fija) && ...
+            isfield(app, 'V_lib') && ~isempty(app.V_lib);
+        controles = [btnComparar btnCalibrarSTL btnSTLNormZ ...
+            btnMasX btnMenX btnMasY btnMenY btnMasZ btnMenZ ...
+            btnMasXTr btnMenXTr btnMasYTr btnMenYTr btnMasZTr btnMenZTr];
+        for k = 1:numel(controles)
+            controles(k).Enable = disponibles;
         end
     end
 
+    % Inicia la alineación de mallas mediante puntos equivalentes.
     function CalibrarSTLPorPuntos()
         if ~isfield(app,'V_Fija') || isempty(app.V_Fija) || ...
                 ~isfield(app,'V_lib') || isempty(app.V_lib)
@@ -1095,6 +1061,7 @@ limpiarAxes();
         logEstado('Calibración STL: seleccione el punto equivalente en el STL reconstruido.');
     end
 
+    % Muestra las mallas y habilita la selección correspondiente.
     function dibujarSeleccionCalibracion(titulo, seleccionarFijo, seleccionarLibre)
         cla(ax3D_1);
         hold(ax3D_1,"on"); axis(ax3D_1, 'equal'); view(ax3D_1,3)
@@ -1126,6 +1093,7 @@ limpiarAxes();
         hold(ax3D_1,'on');
     end
 
+    % Captura el punto y normal de referencia experimental.
     function capturarPuntoCalibracionFijo(~, evento)
         [app.punto_cal_fijo, app.normal_cal_fijo] = puntoNormalMasCercano( ...
             app.V_Fija, app.F_Fija, evento.IntersectionPoint);
@@ -1133,6 +1101,7 @@ limpiarAxes();
         logEstado('Punto del reconstruido capturado. Seleccione el punto equivalente en el STL simulado.');
     end
 
+    % Alinea el punto y normal de la malla simulada.
     function capturarPuntoCalibracionLibre(~, evento)
         [punto_libre, normal_libre] = puntoNormalMasCercano( ...
             app.V_lib, app.F_lib, evento.IntersectionPoint);
@@ -1144,7 +1113,6 @@ limpiarAxes();
         Rcal = rotacionEntreVectores(normal_libre, normal_fija);
         app.V_lib = (Rcal * (app.V_lib - punto_libre)')' + app.punto_cal_fijo;
         app.V_lib_ori = app.V_lib;
-        app.R = eye(3);
         app.RotX = 0;
         app.RotY = 0;
         app.RotZ = 0;
@@ -1155,18 +1123,45 @@ limpiarAxes();
         logEstado('Calibración STL aplicada: punto equivalente y normal de cara alineados.');
     end
 
+    % Actualiza la representación de las mallas disponibles.
     function redibujarComparacionSTL(titulo)
         cla(ax3D_1);
-        hold(ax3D_1,"on"); axis(ax3D_1, 'equal'); view(ax3D_1,3)
-        xlabel(ax3D_1,'X'); ylabel(ax3D_1, 'Y'); zlabel(ax3D_1, 'Z');
-        title(ax3D_1,titulo);
-        patch(ax3D_1,'Faces',app.F_Fija,'Vertices',app.V_Fija,'FaceColor',[1 0 0],'EdgeColor','none','FaceAlpha',0.3);
-        patch(ax3D_1,'Faces',app.F_lib,'Vertices',app.V_lib,'FaceColor',[0 0 1],'EdgeColor','none','FaceAlpha',0.6);
+        hold(ax3D_1, 'on'); axis(ax3D_1, 'equal'); view(ax3D_1, 3);
+        xlabel(ax3D_1, 'X'); ylabel(ax3D_1, 'Y'); zlabel(ax3D_1, 'Z');
+        title(ax3D_1, titulo);
+        if isfield(app, 'V_Fija') && ~isempty(app.V_Fija)
+            patch(ax3D_1, 'Faces', app.F_Fija, 'Vertices', app.V_Fija, ...
+                'FaceColor', [1 0 0], 'EdgeColor', 'none', 'FaceAlpha', 0.3, ...
+                'DisplayName', 'Reconstruido');
+        end
+        if isfield(app, 'V_lib') && ~isempty(app.V_lib)
+            patch(ax3D_1, 'Faces', app.F_lib, 'Vertices', app.V_lib, ...
+                'FaceColor', [0 0 1], 'EdgeColor', 'none', 'FaceAlpha', 0.6, ...
+                'DisplayName', 'Simulado');
+        end
         camlight(ax3D_1); lighting(ax3D_1, 'gouraud');
-        legend(ax3D_1,{'Reconstruido','Simulado'});
-        hold(ax3D_1,'on');
+        legend(ax3D_1, 'show');
     end
 
+    % Rota la malla simulada conservando su traslación.
+    function rotarSTL(eje, paso)
+        campo = ['Rot' eje];
+        app.(campo) = app.(campo) + paso;
+        Rx = [1 0 0; 0 cosd(app.RotX) -sind(app.RotX); 0 sind(app.RotX) cosd(app.RotX)];
+        Ry = [cosd(app.RotY) 0 sind(app.RotY); 0 1 0; -sind(app.RotY) 0 cosd(app.RotY)];
+        Rz = [cosd(app.RotZ) -sind(app.RotZ) 0; sind(app.RotZ) cosd(app.RotZ) 0; 0 0 1];
+        app.V_lib = ((Rz * Ry * Rx) * app.V_lib_ori')' + app.T;
+        redibujarComparacionSTL('Comparación de volumen');
+    end
+
+    % Desplaza la malla simulada sobre el eje indicado.
+    function trasladarSTL(eje, paso)
+        app.T(eje) = app.T(eje) + paso;
+        app.V_lib(:, eje) = app.V_lib(:, eje) + paso;
+        redibujarComparacionSTL('Comparación de volumen');
+    end
+
+    % Obtiene la normal de la cara más cercana.
     function [punto, normal] = puntoNormalMasCercano(vertices, caras, punto_click)
         punto = punto_click(:)';
         centroides = (vertices(caras(:,1),:) + vertices(caras(:,2),:) + vertices(caras(:,3),:)) / 3;
@@ -1182,6 +1177,7 @@ limpiarAxes();
         end
     end
 
+    % Calcula la rotación que alinea dos direcciones.
     function Rcal = rotacionEntreVectores(origen, destino)
         origen = origen(:) / norm(origen);
         destino = destino(:) / norm(destino);
@@ -1207,165 +1203,7 @@ limpiarAxes();
         Rcal = eye(3) + sin(angulo) * K + (1 - cos(angulo)) * (K * K);
     end
 
-    function actualiza3Drot()
-
-        if app.RotX ~= 0 || app.RotY ~= 0 || app.RotZ ~= 0
-            Rx = [1 0 0; 0 cos(deg2rad(app.RotX)) -sin(deg2rad(app.RotX)); 0 sin(deg2rad(app.RotX)) cos(deg2rad(app.RotX))];
-            Ry = [cos(deg2rad(app.RotY)) 0 sin(deg2rad(app.RotY)); 0 1 0; -sin(deg2rad(app.RotY)) 0 cos(deg2rad(app.RotY))];
-            Rz = [cos(deg2rad(app.RotZ)) -sin(deg2rad(app.RotZ)) 0; sin(deg2rad(app.RotZ)) cos(deg2rad(app.RotZ)) 0; 0 0 1];
-            app.R = Rz * Ry * Rx;
-            app.V_lib = (app.R * app.V_lib_ori')';
-            app.V_lib = app.V_lib + app.T;
-        else
-            app.V_lib = app.V_lib_ori;
-        end
-        
-        cla(ax3D_1);
-        hold((ax3D_1),"on"); axis(ax3D_1, 'equal'); view(ax3D_1,3)
-        xlabel(ax3D_1,'X'); ylabel(ax3D_1, 'Y'); zlabel(ax3D_1, 'Z');
-        title(ax3D_1,'Comparación de volumen');
-        
-        patch(ax3D_1,'Faces',app.F_Fija,'Vertices',app.V_Fija,'FaceColor',[1 0 0],'EdgeColor','none','FaceAlpha',0.3);
-        patch(ax3D_1,'Faces',app.F_lib,'Vertices',app.V_lib,'FaceColor',[0 0 1],'EdgeColor','none','FaceAlpha',0.6);
-        
-        camlight(ax3D_1); lighting(ax3D_1, 'gouraud');
-        legend(ax3D_1,{'Reconstruido','Simulado'});
-        hold(ax3D_1,'on');
-    end
-
-    function RotarMaX()
-        pasoRotacion = 5;
-        app.RotX = app.RotX + pasoRotacion;
-        actualiza3Drot()
-    end
-    function RotarMeX()
-        pasoRotacion = 5;
-        app.RotX = app.RotX - pasoRotacion;
-        actualiza3Drot()
-    end
-    function RotarMaY()
-        pasoRotacion = 5;
-        app.RotY = app.RotY + pasoRotacion;
-        actualiza3Drot()
-    end
-    function RotarMeY()
-        pasoRotacion = 5;
-        app.RotY = app.RotY - pasoRotacion;
-        actualiza3Drot()
-    end
-    function RotarMaZ()
-        pasoRotacion = 5;
-        app.RotZ = app.RotZ + pasoRotacion;
-        actualiza3Drot()
-    end
-    function RotarMeZ()
-        pasoRotacion = 5;
-        app.RotZ = app.RotZ - pasoRotacion;
-        actualiza3Drot()
-    end
-    
-    function TranslMaX()
-        pasoTranslacion = 2;
-        app.V_lib = app.V_lib + [pasoTranslacion 0 0];
-        app.T = app.T + [pasoTranslacion 0 0];
-        cla(ax3D_1);
-        hold((ax3D_1),"on"); axis(ax3D_1, 'equal'); view(ax3D_1,3)
-        xlabel(ax3D_1,'X'); ylabel(ax3D_1, 'Y'); zlabel(ax3D_1, 'Z');
-        title(ax3D_1,'Comparación de volumen');
-        
-        patch(ax3D_1,'Faces',app.F_Fija,'Vertices',app.V_Fija,'FaceColor',[1 0 0],'EdgeColor','none','FaceAlpha',0.3);
-        patch(ax3D_1,'Faces',app.F_lib,'Vertices',app.V_lib,'FaceColor',[0 0 1],'EdgeColor','none','FaceAlpha',0.6);
-        
-        camlight(ax3D_1); lighting(ax3D_1, 'gouraud');
-        legend(ax3D_1,{'Reconstruido','Simulado'});
-        hold(ax3D_1,'on');
-    end
-
-    function TranslMeX()
-        pasoTranslacion = -2;
-        app.V_lib = app.V_lib + [pasoTranslacion 0 0];
-        app.T = app.T + [pasoTranslacion 0 0];
-        cla(ax3D_1);
-        hold((ax3D_1),"on"); axis(ax3D_1, 'equal'); view(ax3D_1,3)
-        xlabel(ax3D_1,'X'); ylabel(ax3D_1, 'Y'); zlabel(ax3D_1, 'Z');
-        title(ax3D_1,'Comparación de volumen');
-        
-        patch(ax3D_1,'Faces',app.F_Fija,'Vertices',app.V_Fija,'FaceColor',[1 0 0],'EdgeColor','none','FaceAlpha',0.3);
-        patch(ax3D_1,'Faces',app.F_lib,'Vertices',app.V_lib,'FaceColor',[0 0 1],'EdgeColor','none','FaceAlpha',0.6);
-        
-        camlight(ax3D_1); lighting(ax3D_1, 'gouraud');
-        legend(ax3D_1,{'Reconstruido','Simulado'});
-        hold(ax3D_1,'on');
-    end
-
-    function TranslMaY()
-        pasoTranslacion = 2;
-        app.V_lib = app.V_lib + [0 pasoTranslacion 0];
-        app.T = app.T + [0 pasoTranslacion 0];
-        cla(ax3D_1);
-        hold((ax3D_1),"on"); axis(ax3D_1, 'equal'); view(ax3D_1,3)
-        xlabel(ax3D_1,'X'); ylabel(ax3D_1, 'Y'); zlabel(ax3D_1, 'Z');
-        title(ax3D_1,'Comparación de volumen');
-        
-        patch(ax3D_1,'Faces',app.F_Fija,'Vertices',app.V_Fija,'FaceColor',[1 0 0],'EdgeColor','none','FaceAlpha',0.3);
-        patch(ax3D_1,'Faces',app.F_lib,'Vertices',app.V_lib,'FaceColor',[0 0 1],'EdgeColor','none','FaceAlpha',0.6);
-        
-        camlight(ax3D_1); lighting(ax3D_1, 'gouraud');
-        legend(ax3D_1,{'Reconstruido','Simulado'});
-        hold(ax3D_1,'on');
-    end
-
-    function TranslMeY()
-        pasoTranslacion = -2;
-        app.V_lib = app.V_lib + [0 pasoTranslacion 0];
-        app.T = app.T + [0 pasoTranslacion 0];
-        cla(ax3D_1);
-        hold((ax3D_1),"on"); axis(ax3D_1, 'equal'); view(ax3D_1,3)
-        xlabel(ax3D_1,'X'); ylabel(ax3D_1, 'Y'); zlabel(ax3D_1, 'Z');
-        title(ax3D_1,'Comparación de volumen');
-        
-        patch(ax3D_1,'Faces',app.F_Fija,'Vertices',app.V_Fija,'FaceColor',[1 0 0],'EdgeColor','none','FaceAlpha',0.3);
-        patch(ax3D_1,'Faces',app.F_lib,'Vertices',app.V_lib,'FaceColor',[0 0 1],'EdgeColor','none','FaceAlpha',0.6);
-        
-        camlight(ax3D_1); lighting(ax3D_1, 'gouraud');
-        legend(ax3D_1,{'Reconstruido','Simulado'});
-        hold(ax3D_1,'on');
-    end
-
-    function TranslMaZ()
-        pasoTranslacion = 2;
-        app.V_lib = app.V_lib + [0 0 pasoTranslacion];
-        app.T = app.T + [0 0 pasoTranslacion];
-        cla(ax3D_1);
-        hold((ax3D_1),"on"); axis(ax3D_1, 'equal'); view(ax3D_1,3)
-        xlabel(ax3D_1,'X'); ylabel(ax3D_1, 'Y'); zlabel(ax3D_1, 'Z');
-        title(ax3D_1,'Comparación de volumen');
-        
-        patch(ax3D_1,'Faces',app.F_Fija,'Vertices',app.V_Fija,'FaceColor',[1 0 0],'EdgeColor','none','FaceAlpha',0.3);
-        patch(ax3D_1,'Faces',app.F_lib,'Vertices',app.V_lib,'FaceColor',[0 0 1],'EdgeColor','none','FaceAlpha',0.6);
-        
-        camlight(ax3D_1); lighting(ax3D_1, 'gouraud');
-        legend(ax3D_1,{'Reconstruido','Simulado'});
-        hold(ax3D_1,'on');
-    end
-
-    function TranslMeZ()
-        pasoTranslacion = -2;
-        app.V_lib = app.V_lib + [0 0 pasoTranslacion];
-        app.T = app.T + [0 0 pasoTranslacion];
-        cla(ax3D_1);
-        hold((ax3D_1),"on"); axis(ax3D_1, 'equal'); view(ax3D_1,3)
-        xlabel(ax3D_1,'X'); ylabel(ax3D_1, 'Y'); zlabel(ax3D_1, 'Z');
-        title(ax3D_1,'Comparación de volumen');
-        
-        patch(ax3D_1,'Faces',app.F_Fija,'Vertices',app.V_Fija,'FaceColor',[1 0 0],'EdgeColor','none','FaceAlpha',0.3);
-        patch(ax3D_1,'Faces',app.F_lib,'Vertices',app.V_lib,'FaceColor',[0 0 1],'EdgeColor','none','FaceAlpha',0.6);
-        
-        camlight(ax3D_1); lighting(ax3D_1, 'gouraud');
-        legend(ax3D_1,{'Reconstruido','Simulado'});
-        hold(ax3D_1,'on');
-    end
-
+    % Solicita una referencia para orientar las mallas hacia Z.
     function RotarZ()
 
         cla(ax3D_1);
@@ -1382,6 +1220,7 @@ limpiarAxes();
         legend(ax3D_1,{'Reconstruido','Simulado'});
         hold(ax3D_1,'on');
 
+        % Orienta ambas mallas usando el punto seleccionado.
         function seleccionarPuntoParaZ(~, evento)
             punto_objetivo = evento.IntersectionPoint(:);
             z_axis = [0; 0; 1];
@@ -1391,85 +1230,56 @@ limpiarAxes();
                 return;
             end
 
-            punto_objetivo_norm = punto_objetivo / norm(punto_objetivo);
-            cos_ang = dot(punto_objetivo_norm, z_axis);
-            cos_ang = max(min(cos_ang, 1), -1);
-            eje_rotacion = cross(punto_objetivo_norm, z_axis);
-            norma_eje = norm(eje_rotacion);
-        
-            if norma_eje < eps
-                if cos_ang > 0
-                    R = eye(3);
-                else
-                    R = [1 0 0; 0 -1 0; 0 0 -1];
-                end
-            else
-                eje_rotacion = eje_rotacion / norma_eje;
-                angulo = atan2(norma_eje, cos_ang);
-            % Crear la matriz de rotación usando la fórmula de Rodrigues
-                K = [0, -eje_rotacion(3), eje_rotacion(2); ...
-                     eje_rotacion(3), 0, -eje_rotacion(1); ...
-                    -eje_rotacion(2), eje_rotacion(1), 0];
-                R = eye(3) + sin(angulo)*K + (1-cos(angulo))*(K^2);
-            end
-        
-        % Rotar todos los vértices del modelo
+            R = rotacionEntreVectores(punto_objetivo, z_axis);
+
             app.V_Fija = (R * app.V_Fija')';
             app.V_lib = (R * app.V_lib')';
             app.V_lib_ori = app.V_lib;
             app.RotX = 0;
             app.RotY = 0;
             app.RotZ = 0;
-        
-        cla(ax3D_1);
-        hold((ax3D_1),"on"); axis(ax3D_1, 'equal'); view(ax3D_1,3)
-        xlabel(ax3D_1,'X'); ylabel(ax3D_1, 'Y'); zlabel(ax3D_1, 'Z');
-        title(ax3D_1,'Comparación de volumen');
-        
-        patch(ax3D_1,'Faces',app.F_Fija,'Vertices',app.V_Fija,'FaceColor',[1 0 0],'EdgeColor','none','FaceAlpha',0.3);
-        patch(ax3D_1,'Faces',app.F_lib,'Vertices',app.V_lib,'FaceColor',[0 0 1],'EdgeColor','none','FaceAlpha',0.6);
-        
-        camlight(ax3D_1); lighting(ax3D_1, 'gouraud');
-        legend(ax3D_1,{'Reconstruido','Simulado'});
-        hold(ax3D_1,'on');
-    
+            app.T = [0 0 0];
+
+            redibujarComparacionSTL('Comparación de volumen');
+
         end
 
     end
 
+    % Calcula cobertura, intersección, Dice e IoU entre mallas.
     function CompaVol()
         resolucion = 1.0;
         minB = min([app.V_lib; app.V_Fija]);
         maxB = max([app.V_lib; app.V_Fija]);
-        
+
         minG = minB - resolucion;
         maxG = maxB + resolucion;
-        
+
         [xg, yg] = meshgrid(minG(1):resolucion:maxG(1),minG(2):resolucion:maxG(2));
-        
+
         z_vals = minG(3):resolucion:maxG(3);
-        
+
         V_gota_contador = 0;
         V_overlap = 0;
         V_Fija_contador = 0;
-        
+
         for k = 1:length(z_vals)
-        
+
             z = z_vals(k);
             puntos = [xg(:), yg(:), z*ones(numel(xg),1)];
-        
+
             dentro_gota = inpolyhedron(app.F_lib, app.V_lib, puntos);
-       
+
             dentro_Fija = inpolyhedron(app.F_Fija, app.V_Fija, puntos);
-        
+
             V_gota_contador = V_gota_contador + sum(dentro_gota);
-        
+
             V_overlap = V_overlap + sum(dentro_gota & dentro_Fija);
-        
+
             V_Fija_contador = V_Fija_contador + sum(dentro_Fija);
-        
+
         end
-        
+
         Vtotal_Fija = V_Fija_contador * resolucion^3;
         Vtotal_gota   = V_gota_contador * resolucion^3;
         Vdentro    = V_overlap * resolucion^3;
@@ -1492,27 +1302,7 @@ limpiarAxes();
 
 end
 
-
-function fileList = ordenarPorNumero(fileList)
-
-nombres = {fileList.name};
-numeros = zeros(length(nombres), 1);
-
-for i = 1:length(nombres)
-    token = regexp(nombres{i}, '\d+', 'match', 'once');
-
-    if isempty(token)
-        numeros(i) = i;
-    else
-        numeros(i) = str2double(token);
-    end
-end
-
-[~, idx] = sort(numeros);
-fileList = fileList(idx);
-
-end
-
+% Localiza imágenes JPEG del experimento.
 function archivos = listarImagenesJPEG(carpeta)
 archivos = dir(fullfile(carpeta, '*.JPEG'));
 if isempty(archivos)
@@ -1523,6 +1313,7 @@ if isempty(archivos)
 end
 end
 
+% Crea el directorio requerido para guardar resultados.
 function crearCarpeta(carpeta)
 
 if ~exist(carpeta, 'dir')
@@ -1531,6 +1322,7 @@ end
 
 end
 
+% Muestra una imagen experimental con su título.
 function mostrarImagen(ax, img, textoTitulo)
 
 cla(ax);
@@ -1540,6 +1332,7 @@ axis(ax, 'image');
 
 end
 
+% Segmenta el contorno del hueso mediante agrupación cromática.
 function [BW_final, contorno, L] = segmentarKmeansContorno(img, numClusters, areaMinima, radioCierre)
 
 imgDouble = im2double(img);
@@ -1640,6 +1433,7 @@ contorno = B{idxContornoMax};
 
 end
 
+% Lee la imagen y aplica su orientación registrada.
 function img = leerImagenConOrientacion(filename)
 
 img = imread(filename);
@@ -1666,6 +1460,7 @@ end
 
 end
 
+% Permite alinear contornos mediante rotaciones y desplazamientos manuales.
 function tform_final = ajustarContornoManual(BW_moving, BW_fixed)
 
 angulo = 0;
@@ -1683,6 +1478,7 @@ uiwait(fig);
 
 tform_final = construirTransformacion(BW_moving, BW_fixed, angulo, dx, dy, flipH, flipV);
 
+    % Aplica los controles de teclado de la alineación.
     function tecla(~, event)
         switch event.Key
             case 'rightarrow'
@@ -1721,6 +1517,7 @@ tform_final = construirTransformacion(BW_moving, BW_fixed, angulo, dx, dy, flipH
         actualizar();
     end
 
+    % Redibuja la superposición de contornos durante la alineación.
     function actualizar()
         if ~ishandle(fig)
             return;
@@ -1742,6 +1539,7 @@ tform_final = construirTransformacion(BW_moving, BW_fixed, angulo, dx, dy, flipH
 
 end
 
+% Combina centrado, reflexión, rotación y traslación de imágenes.
 function tform = construirTransformacion(BW_moving, BW_fixed, angulo, dx, dy, flipH, flipV)
 
 [filasM, columnasM] = size(BW_moving);
@@ -1772,6 +1570,7 @@ tform = affine2d(T_centro1 * S * R * T_centro2 * T_trans);
 
 end
 
+% Detecta la región de ablación dentro del hueso.
 function [BW_final, contorno] = segmentarAblacionCafeCarbonizada(img, BW_hueso)
 
 imgDouble = im2double(img);
@@ -1857,6 +1656,7 @@ contorno = Bnd{idxContorno};
 
 end
 
+% Reconstruye el volumen desde máscaras y posiciones de cortes.
 function [shp, puntos3D] = reconstruirAblacion3DAlphaShape(BW_ablacion, z_cortes, mmPorPixel, alphaFactor)
 
 puntos3D = [];
@@ -1876,7 +1676,7 @@ for k = 1:length(BW_ablacion)
     y = y(1:paso:end) * mmPorPixel;
     z = ones(size(x)) * z_cortes(k);
 
-    puntos3D = [puntos3D; x y z]; 
+    puntos3D = [puntos3D; x y z];
 end
 
 if size(puntos3D, 1) < 10
@@ -1893,6 +1693,7 @@ shp.Alpha = alphaCritico * alphaFactor;
 
 end
 
+% Agrupa las caras de los cortes por segmento.
 function segmento_imagen = asignarSegmentosPorCara(caras_validas)
 
 segmento_imagen = zeros(size(caras_validas));
@@ -1910,6 +1711,7 @@ end
 
 end
 
+% Calcula posiciones axiales usando caras y espesores.
 function z_cortes = calcularZPorCara(caras_validas, segmento_imagen, grosores_segmentos)
 
 nSegmentos = length(grosores_segmentos);
@@ -1932,6 +1734,7 @@ end
 
 end
 
+% Determina la escala física mediante dos puntos conocidos.
 function [mmPorPixel, distanciaPixeles, distanciaRealMm] = calibrarEscalaDosPuntos(img, nombreImg)
 
 fig = figure('Name', 'Calibración de escala', 'Color', 'w');
@@ -1961,6 +1764,7 @@ close(fig);
 
 end
 
+% Guarda la superficie triangular en formato STL ASCII.
 function escribirSTLASCII(nombreArchivo, caras, vertices)
 
 fid = fopen(nombreArchivo, 'w');
@@ -2000,6 +1804,7 @@ clear cleanupObj;
 
 end
 
+% Refina las caras conservando vértices compartidos entre triángulos.
 function [carasSub, verticesSub] = subdividirMallaTriangular(caras, vertices, niveles)
 
 carasSub = caras;
@@ -2030,6 +1835,7 @@ for nivel = 1:niveles
     carasSub = carasNuevas;
 end
 
+    % Reutiliza o crea el punto medio de una arista.
     function idxMedio = puntoMedio(a, b)
         if a < b
             clave = [num2str(a) '_' num2str(b)];
@@ -2049,6 +1855,7 @@ end
 
 end
 
+% Suaviza la superficie mediante pasos alternados de Taubin.
 function verticesSuavizados = suavizarMallaTaubin(caras, vertices, iteraciones, lambda, mu)
 
 verticesSuavizados = vertices;
@@ -2069,6 +1876,7 @@ end
 
 end
 
+% Actualiza vértices según sus vecinos y el factor indicado.
 function verticesNuevos = pasoSuavizado(vertices, A, grado, verticesValidos, factor)
 
 verticesNuevos = vertices;

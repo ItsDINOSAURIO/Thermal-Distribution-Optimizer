@@ -1,20 +1,15 @@
-﻿function launcher_tesis_modulos()
-%LAUNCHER_TESIS_MODULOS Entrada central ligera del framework.
-%
-% El launcher solo muestra y lanza los modulos principales definidos en
-% tesis_auxiliares('modulos_catalogo'). La logica de cada etapa vive dentro
-% de su modulo correspondiente.
+% launcher_tesis_modulos: modulo de navegacion del proyecto.
+% Muestra los modulos disponibles, gestiona su apertura y registra eventos.
+% Confirma cierres y recupera el lanzador al cerrar modulos o fallar.
 
+% Construye el menu principal y conecta los modulos disponibles.
+function launcher_tesis_modulos()
     carpeta_launcher = fileparts(mfilename('fullpath'));
-    addpath(carpeta_launcher);
     addpath(fullfile(carpeta_launcher, '..', 'aux_codes'));
     root_proyecto = tesis_auxiliares('configurar_paths', carpeta_launcher);
 
     theme = tesis_auxiliares('tema_ui');
     modulos = tesis_auxiliares('modulos_catalogo');
-    estado = struct();
-    estado.modulo_activo = 1;
-    estado.boton_modulo = gobjects(numel(modulos), 1);
 
     fig = uifigure('Name', 'Lanzador', ...
         'Position', theme.layout.launcherPosition, ...
@@ -55,7 +50,19 @@
     modules_grid.ColumnWidth = {'1x'};
     activar_scroll(modules_grid);
     for i = 1:n_modulos
-        crear_boton_modulo(modules_grid, i);
+        modulo_boton = modulos(i);
+        btn = uibutton(modules_grid, ...
+            'Text', sprintf('%02d  %s', modulo_boton.orden, modulo_boton.nombre), ...
+            'Tooltip', modulo_boton.descripcion, ...
+            'ButtonPushedFcn', @(~, ~) ejecutar_modulo(i));
+        btn.Layout.Row = i;
+        btn.Layout.Column = 1;
+        btn.FontSize = theme.fonts.sectionSize;
+        tesis_auxiliares('tema_ui', 'button', btn, 'success');
+        if isempty(which(modulo_boton.funcion))
+            btn.Enable = 'off';
+            btn.Tooltip = sprintf('%s\nModulo no disponible.', modulo_boton.descripcion);
+        end
     end
 
     log_panel = uipanel(gl, 'Title', 'Registro de eventos');
@@ -66,30 +73,15 @@
     log_grid = uigridlayout(log_panel, [1, 1]);
     log_grid.Padding = [6 6 6 6];
     activar_scroll(log_grid);
-    estado.txt_log = uitextarea(log_grid, 'Editable', 'off', 'Value', {'Listo.'});
-    tesis_auxiliares('tema_ui', 'textarea', estado.txt_log);
+    txt_log = uitextarea(log_grid, 'Editable', 'off', 'Value', {'Listo.'});
     tesis_auxiliares('tema_ui', 'apply', fig);
-    tesis_auxiliares('tema_ui', 'textarea', estado.txt_log);
 
-    verificar_modulos();
+    registrar_evento('Verificacion de modulos completada.');
     registrar_evento('Launcher iniciado desde: %s', root_proyecto);
 
-    function crear_boton_modulo(parent, idx)
-        modulo = modulos(idx);
-        btn = uibutton(parent, ...
-            'Text', sprintf('%02d  %s', modulo.orden, modulo.nombre), ...
-            'Tooltip', modulo.descripcion, ...
-            'ButtonPushedFcn', @(~, ~) ejecutar_modulo(idx));
-        btn.Layout.Row = idx;
-        btn.Layout.Column = 1;
-        btn.FontSize = theme.fonts.sectionSize;
-        tesis_auxiliares('tema_ui', 'button', btn, 'success');
-        estado.boton_modulo(idx) = btn;
-    end
-
+    % Abre el modulo seleccionado y prepara su retorno.
     function ejecutar_modulo(idx)
         modulo = modulos(idx);
-        estado.modulo_activo = idx;
         registrar_evento('Modulo seleccionado: %s', modulo.nombre);
 
         ruta = which(modulo.funcion);
@@ -100,10 +92,10 @@
             return;
         end
 
-        estado.txt_log.Value = [repmat({''}, 5, 1); estado.txt_log.Value(:)];
+        txt_log.Value = [repmat({''}, 5, 1); txt_log.Value(:)];
         drawnow limitrate;
         registrar_evento('Abriendo %s...', modulo.nombre);
-        figuras_antes = obtener_figuras_abiertas();
+        figuras_antes = findall(groot, 'Type', 'figure');
 
         try
             fig.CloseRequestFcn = [];
@@ -113,17 +105,38 @@
             feval(modulo.funcion);
             drawnow;
 
-            figuras_nuevas = detectar_figuras_nuevas(figuras_antes);
+            figuras_antes = figuras_antes(isgraphics(figuras_antes));
+            figuras_despues = findall(groot, 'Type', 'figure');
+            es_nueva = false(size(figuras_despues));
+            for k_fig = 1:numel(figuras_despues)
+                es_nueva(k_fig) = ~any(figuras_despues(k_fig) == figuras_antes);
+            end
+            figuras_nuevas = figuras_despues(es_nueva);
             if isempty(figuras_nuevas)
-                abrir_launcher_seguro();
                 error('El modulo %s no abrio una ventana detectable.', modulo.nombre);
             end
-            instalar_retorno_launcher(figuras_nuevas, modulo.nombre);
+            for k_fig = 1:numel(figuras_nuevas)
+                if isgraphics(figuras_nuevas(k_fig)) && isprop(figuras_nuevas(k_fig), 'CloseRequestFcn')
+                    figuras_nuevas(k_fig).CloseRequestFcn = ...
+                        @(src, evt) cerrar_modulo_y_volver(src, evt, modulo.nombre);
+                end
+            end
         catch ME
             abrir_launcher_seguro();
-            advertir_error_lanzamiento(ME, modulo.nombre_corto);
+            launcher = findall(groot, 'Type', 'figure', 'Name', 'Lanzador');
+            if ~isempty(launcher)
+                try
+                    uialert(launcher(1), ME.message, sprintf('Error en %s', modulo.nombre_corto));
+                catch
+                    warning('launcher_tesis_modulos:errorModulo', '%s', ME.message);
+                end
+            else
+                warning('launcher_tesis_modulos:errorModulo', '%s', ME.message);
+            end
         end
     end
+
+    % Habilita desplazamiento en los contenedores del lanzador.
     function activar_scroll(obj)
         if isprop(obj, 'Scrollable')
             try
@@ -134,6 +147,7 @@
         end
     end
 
+    % Confirma la salida del menu principal.
     function confirmar_cierre_launcher(src, ~)
         seleccion = confirmar_cierre(src, 'Cerrar el lanzador?');
         if strcmp(seleccion, 'Si')
@@ -141,6 +155,7 @@
         end
     end
 
+    % Solicita confirmacion antes de cerrar una ventana.
     function seleccion = confirmar_cierre(src, mensaje)
         try
             seleccion = uiconfirm(src, mensaje, 'Confirmar cierre', ...
@@ -155,33 +170,7 @@
         end
     end
 
-    function figuras = obtener_figuras_abiertas()
-        figuras = findall(groot, 'Type', 'figure');
-    end
-
-    function figuras_nuevas = detectar_figuras_nuevas(figuras_antes)
-        figuras_antes = figuras_antes(isgraphics(figuras_antes));
-        figuras_despues = obtener_figuras_abiertas();
-        if isempty(figuras_despues)
-            figuras_nuevas = gobjects(0);
-            return;
-        end
-        es_nueva = false(size(figuras_despues));
-        for k_fig = 1:numel(figuras_despues)
-            es_nueva(k_fig) = ~any(figuras_despues(k_fig) == figuras_antes);
-        end
-        figuras_nuevas = figuras_despues(es_nueva);
-    end
-
-    function instalar_retorno_launcher(figuras_modulo, nombre_modulo)
-        for k_fig = 1:numel(figuras_modulo)
-            if isgraphics(figuras_modulo(k_fig)) && isprop(figuras_modulo(k_fig), 'CloseRequestFcn')
-                figuras_modulo(k_fig).CloseRequestFcn = ...
-                    @(src, evt) cerrar_modulo_y_volver(src, evt, nombre_modulo);
-            end
-        end
-    end
-
+    % Cierra el modulo y regresa al menu principal.
     function cerrar_modulo_y_volver(src, ~, nombre_modulo)
         mensaje = sprintf('Cerrar %s y volver al lanzador?', nombre_modulo);
         seleccion = confirmar_cierre(src, mensaje);
@@ -194,6 +183,7 @@
         end
     end
 
+    % Recupera el lanzador sin duplicar ventanas existentes.
     function abrir_launcher_seguro()
         try
             tesis_auxiliares('configurar_paths', root_proyecto);
@@ -211,40 +201,12 @@
         end
     end
 
-    function advertir_error_lanzamiento(ME, nombre_corto)
-        launcher = findall(groot, 'Type', 'figure', ...
-            'Name', 'Lanzador');
-        if ~isempty(launcher)
-            try
-                uialert(launcher(1), ME.message, sprintf('Error en %s', nombre_corto));
-            catch
-                warning('launcher_tesis_modulos:errorModulo', '%s', ME.message);
-            end
-        else
-            warning('launcher_tesis_modulos:errorModulo', '%s', ME.message);
-        end
-    end
-    function verificar_modulos()
-        tesis_auxiliares('configurar_paths', root_proyecto);
-        for k = 1:numel(modulos)
-            ruta = which(modulos(k).funcion);
-            if isempty(ruta)
-                estado.boton_modulo(k).Enable = 'off';
-                estado.boton_modulo(k).Tooltip = sprintf('%s\nModulo no disponible.', ...
-                    modulos(k).descripcion);
-            else
-                estado.boton_modulo(k).Enable = 'on';
-                estado.boton_modulo(k).Tooltip = modulos(k).descripcion;
-            end
-        end
-        registrar_evento('Verificacion de modulos completada.');
-    end
-
+    % Registra eventos del lanzador con su hora.
     function registrar_evento(formato, varargin)
         mensaje = sprintf(formato, varargin{:});
         marca_tiempo = char(datetime('now', 'Format', 'HH:mm:ss'));
         linea = sprintf('[%s] %s', marca_tiempo, mensaje);
-        estado.txt_log.Value = [{linea}; estado.txt_log.Value(:)];
+        txt_log.Value = [{linea}; txt_log.Value(:)];
         drawnow limitrate;
     end
 end
